@@ -6,24 +6,11 @@ I needed something that ...
 
 - Orchestrates agents, well, boring
 - That lets agents react to any external event: chat messages, FTP, webhooks, MQTT, a timer, etc, in a simple modular way.
-- That has no configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope.
+- That has no configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling MAIN what you want. It has to go through its administrative tool calls, it won't touch main config, tokens, etc. No agent can bypass into that.
 - Has a CLI that does not suck. That feels like a desktop UI, with interactive tabs, buttons, scroll regions, etc. That is able to show images, videos, formats markdown, etc. That can drag and drop files and images (with thumbnails) - and yes in a shell.
+- Computer use, tool calls, internet, browsing and operating live website inbuilt.
 
-It is built on
-the [pi coding agent](https://pi.dev) SDK and meant for hosted model providers as well as for
-local model servers such as llama.cpp.
-
-- **Agents with their own world.** Each agent has a workspace, instructions, skills, MCP servers
-  and plugins. MCP servers, plugins and skills can also be global.
-- **One event log.** Everything that happens is an event on a topic. Routes decide what an event
-  costs: a rule, one model call, or a full agent turn.
-- **Orchestration.** A main agent hands tasks to specialists with `delegate`; any agent can fan
-  work out to parallel sub-agents with `subagent`.
-- **Contained by default.** Shell commands and file tools run in an OS sandbox. Content from
-  outside is labelled, runs with fewer tools, and cannot send anything out without your approval.
-- **A terminal UI.** `pine` opens a chat with tabs, slash commands and approval prompts.
-- **Web built in.** Search, page reading and a real browser (Playwright), all kept away from
-  your local network.
+Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [pi coding agent](https://pi.dev) for basic turns, auto compact and hosted model providers.
 
 ```
  Telegram ─┐                                   ┌─ rule: set state, publish
