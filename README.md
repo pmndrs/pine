@@ -6,7 +6,7 @@ I needed something that ...
 
 - Orchestrates agents, well, boring
 - That lets agents react to any external event: chat messages, FTP, webhooks, MQTT, a timer, etc, in a simple modular way. NO CONFIGS. Agents can subscribe to any installed event source and react accordingly. List available sources and unsubscribe.
-- That has no configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling MAIN what you want. It has to go through its administrative tool calls, it won't touch main config, tokens, etc. No agent can bypass into that.
+- That has no configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling agents what you want. MAIN has special administrative tool calls. No agent will touch or bypass into user config (your tokens), etc.
 - Has a CLI that does not suck. That feels like a desktop UI, with interactive tabs, buttons, scroll regions, etc. That is able to show images, videos, formats markdown, etc. That can drag and drop files and images (with thumbnails) - and yes in a shell.
 - Computer use, tool calls, internet, browsing and operating live website inbuilt.
 
