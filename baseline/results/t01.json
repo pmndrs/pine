@@ -1,0 +1,188 @@
+[
+  {
+    "id": "A1",
+    "question": "Can several sessions with different cwd run concurrently in one process, each seeing only its own repo?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "gonzo",
+        "value": {
+          "requests": 3,
+          "ownAgentsMd": true,
+          "foreignAgentsMd": [],
+          "bashPwdIsOwnCwd": true,
+          "relativeReadOk": true,
+          "relativeWrite": "written-by-gonzo",
+          "cwdInSystemPrompt": true
+        }
+      },
+      {
+        "label": "home",
+        "value": {
+          "requests": 3,
+          "ownAgentsMd": true,
+          "foreignAgentsMd": [],
+          "bashPwdIsOwnCwd": true,
+          "relativeReadOk": true,
+          "relativeWrite": "written-by-home",
+          "cwdInSystemPrompt": true
+        }
+      },
+      {
+        "label": "para",
+        "value": {
+          "requests": 3,
+          "ownAgentsMd": true,
+          "foreignAgentsMd": [],
+          "bashPwdIsOwnCwd": true,
+          "relativeReadOk": true,
+          "relativeWrite": "written-by-para",
+          "cwdInSystemPrompt": true
+        }
+      },
+      {
+        "label": "process.cwd() unchanged",
+        "value": true
+      },
+      {
+        "label": "peak concurrent model requests",
+        "value": 3
+      },
+      {
+        "label": "stray out.txt in process cwd",
+        "value": false
+      }
+    ],
+    "ms": 690
+  },
+  {
+    "id": "A2",
+    "question": "Do event streams stay separate between concurrent sessions?",
+    "verdict": "isolated",
+    "findings": [
+      {
+        "label": "alpha saw beta output",
+        "value": false
+      },
+      {
+        "label": "beta saw alpha output",
+        "value": false
+      },
+      {
+        "label": "alpha settled events",
+        "value": 1
+      }
+    ],
+    "ms": 114
+  },
+  {
+    "id": "A3",
+    "question": "Can two sessions in one process use different agent dirs (models, user-level AGENTS.md)?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "system prompt markers",
+        "value": {
+          "aHasOne": true,
+          "aHasTwo": false,
+          "bHasTwo": true,
+          "bHasOne": false
+        }
+      }
+    ],
+    "ms": 13
+  },
+  {
+    "id": "A4",
+    "question": "Where do persistent session files go, and are they grouped per cwd?",
+    "verdict": "shared directory",
+    "findings": [
+      {
+        "label": "session file a",
+        "value": "<agentDir>/sessions/2026-11-10T10-32-45-961Z_01a1c504-7489-758c-a091-0caf772a545a.jsonl"
+      },
+      {
+        "label": "session file b",
+        "value": "<agentDir>/sessions/2026-11-10T10-32-45-962Z_01a1c504-7489-758c-a091-0cb10a937113.jsonl"
+      },
+      {
+        "label": "jsonl entry types",
+        "value": [
+          "session",
+          "model_change",
+          "thinking_level_change",
+          "message",
+          "message",
+          "message"
+        ]
+      },
+      {
+        "label": "jsonl header",
+        "value": {
+          "type": "session",
+          "version": 3,
+          "id": "01a1c504-7489-758c-a091-0caf772a545a",
+          "timestamp": "2026-11-10T10:32:45.961Z",
+          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-tY8X0L/multicwd/repos/persist-a"
+        }
+      }
+    ],
+    "ms": 7
+  },
+  {
+    "id": "A5",
+    "question": "What does a session cost in one process (creation time, memory) at 1, 10 and 50 sessions?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "cumulative cost by session count",
+        "value": {
+          "1": {
+            "ms": 9,
+            "rssMB": 0.1,
+            "heapMB": 0
+          },
+          "10": {
+            "ms": 20,
+            "rssMB": 0.5,
+            "heapMB": 0.5
+          },
+          "50": {
+            "ms": 47,
+            "rssMB": 4.6,
+            "heapMB": 2.7
+          }
+        }
+      },
+      {
+        "label": "50 concurrent prompts wall ms (model delay 200 ms)",
+        "value": 234
+      },
+      {
+        "label": "peak concurrent model requests",
+        "value": 50
+      },
+      {
+        "label": "all answered correctly",
+        "value": true
+      }
+    ],
+    "ms": 288
+  },
+  {
+    "id": "A6",
+    "question": "Does anything get written outside the explicit agentDir (decoy global dir, ~/.pi)?",
+    "verdict": "nothing leaked",
+    "findings": [
+      {
+        "label": "files in decoy PI_CODING_AGENT_DIR",
+        "value": []
+      },
+      {
+        "label": "~/.pi exists",
+        "value": false
+      }
+    ],
+    "ms": 0
+  }
+]

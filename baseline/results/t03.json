@@ -1,0 +1,355 @@
+[
+  {
+    "id": "T1",
+    "question": "Do customTools passed to createAgentSession reach the model and execute with session context?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "tools declared to model",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "publish_event"
+        ]
+      },
+      {
+        "label": "schema sent",
+        "value": {
+          "type": "object",
+          "required": [
+            "topic"
+          ],
+          "properties": {
+            "topic": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "label": "tool received",
+        "value": {
+          "topic": "agent/kevin/said",
+          "payload": "hi",
+          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-JsMz3G/tools/cwd",
+          "hasUI": false,
+          "ctxKeys": [
+            "ui",
+            "mode",
+            "hasUI",
+            "cwd",
+            "sessionManager",
+            "modelRegistry",
+            "model",
+            "scopedModels",
+            "thinkingLevel",
+            "isIdle",
+            "isProjectTrusted",
+            "signal",
+            "abort",
+            "hasPendingMessages",
+            "shutdown",
+            "getContextUsage",
+            "compact",
+            "getSystemPrompt"
+          ],
+          "hasSignal": true
+        }
+      },
+      {
+        "label": "final text",
+        "value": "FINAL:: published agent/kevin/said"
+      }
+    ],
+    "ms": 59
+  },
+  {
+    "id": "T2",
+    "question": "Can an inline extension gate tool calls (block dangerous bash) without any UI?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "gate saw",
+        "value": [
+          {
+            "tool": "bash",
+            "input": {
+              "command": "rm -rf precious.txt"
+            },
+            "hasUI": false
+          },
+          {
+            "tool": "bash",
+            "input": {
+              "command": "echo harmless"
+            },
+            "hasUI": false
+          }
+        ]
+      },
+      {
+        "label": "tool results returned to model",
+        "value": [
+          "blocked by policy: destructive command",
+          "harmless\n"
+        ]
+      },
+      {
+        "label": "file survived",
+        "value": true
+      }
+    ],
+    "ms": 10
+  },
+  {
+    "id": "T3",
+    "question": "How are malformed tool calls from a weak model handled (bad JSON, unknown tool, wrong arguments)?",
+    "verdict": "every case is reported back to the model and the run continues",
+    "findings": [
+      {
+        "label": "invalid JSON arguments",
+        "value": {
+          "requests": 2,
+          "toolResultToModel": [
+            "Invalid arguments for tool \"bash\": Expected ',' or '}' after property value in JSON at position 21 (line 1 column 22)\n\nReceived arguments:\n{\"command\": \"echo hi\""
+          ],
+          "final": "FINAL:: Invalid arguments for tool \"bash\": Expected ',' or '"
+        }
+      },
+      {
+        "label": "unknown tool name",
+        "value": {
+          "requests": 2,
+          "toolResultToModel": [
+            "Tool run_shell not found"
+          ],
+          "final": "FINAL:: Tool run_shell not found"
+        }
+      },
+      {
+        "label": "missing required argument",
+        "value": {
+          "requests": 2,
+          "toolResultToModel": [
+            "Validation failed for tool \"bash\":\n  - command: missing\n\nReceived arguments:\n{\n  \"cmd\": \"echo hi\"\n}"
+          ],
+          "final": "FINAL:: Validation failed for tool \"bash\":\n  - command: miss"
+        }
+      },
+      {
+        "label": "wrong argument type",
+        "value": {
+          "requests": 2,
+          "toolResultToModel": [
+            "/bin/bash: 42: command not found\n\n\nCommand exited with code 127"
+          ],
+          "final": "FINAL:: /bin/bash: 42: command not found\n\n\nCommand exited wi"
+        }
+      },
+      {
+        "label": "arguments as JSON string of JSON",
+        "value": {
+          "requests": 2,
+          "toolResultToModel": [
+            "Invalid arguments for tool \"bash\": Tool arguments must be a JSON object\n\nReceived arguments:\n\"{\\\"command\\\":\\\"echo double-encoded\\\"}\""
+          ],
+          "final": "FINAL:: Invalid arguments for tool \"bash\": Tool arguments mu"
+        }
+      },
+      {
+        "label": "empty arguments",
+        "value": {
+          "requests": 2,
+          "toolResultToModel": [
+            "Validation failed for tool \"bash\":\n  - command: missing\n\nReceived arguments:\n{}"
+          ],
+          "final": "FINAL:: Validation failed for tool \"bash\":\n  - command: miss"
+        }
+      }
+    ],
+    "ms": 30
+  },
+  {
+    "id": "T4",
+    "question": "Are several tool calls in one assistant message executed in parallel?",
+    "verdict": "parallel",
+    "findings": [
+      {
+        "label": "3 x sleep 1 took ms",
+        "value": 1013
+      },
+      {
+        "label": "tool results",
+        "value": [
+          "done-1\n",
+          "done-2\n",
+          "done-3\n"
+        ]
+      },
+      {
+        "label": "execution events",
+        "value": [
+          "tool_execution_start@2",
+          "tool_execution_start@2",
+          "tool_execution_start@2",
+          "tool_execution_end@1010",
+          "tool_execution_end@1010",
+          "tool_execution_end@1011"
+        ]
+      }
+    ],
+    "ms": 1015
+  },
+  {
+    "id": "T5",
+    "question": "Does a tool allowlist hold when the model calls a tool that was not offered?",
+    "verdict": "allowlist enforced",
+    "findings": [
+      {
+        "label": "tools declared",
+        "value": [
+          "read"
+        ]
+      },
+      {
+        "label": "tool results",
+        "value": [
+          "Tool bash not found",
+          "Tool write not found"
+        ]
+      },
+      {
+        "label": "filesystem untouched",
+        "value": true
+      },
+      {
+        "label": "noTools:'all' → tools field in request",
+        "value": "absent"
+      },
+      {
+        "label": "noTools reply (mock answers summary when no tools)",
+        "value": "SUMMARY-OK chars=1890"
+      }
+    ],
+    "ms": 8
+  },
+  {
+    "id": "T6",
+    "question": "How is huge tool output handled before it goes back to the model?",
+    "verdict": "truncated",
+    "findings": [
+      {
+        "label": "bytes produced",
+        "value": 3000000
+      },
+      {
+        "label": "chars sent to model",
+        "value": 34126
+      },
+      {
+        "label": "tail of what the model got",
+        "value": "23456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789\n\n[Showing lines 174472-176471 of 176471. Full output: /var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-bash-8e0b61bb27878ded.log]"
+      }
+    ],
+    "ms": 32
+  },
+  {
+    "id": "T7",
+    "question": "Does bash have a default timeout, and does a per-call timeout work?",
+    "verdict": "per-call timeout works",
+    "findings": [
+      {
+        "label": "bash parameters",
+        "value": {
+          "type": "object",
+          "required": [
+            "command"
+          ],
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Shell command to execute"
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Timeout in seconds (optional, no default timeout)"
+            }
+          }
+        }
+      },
+      {
+        "label": "sleep 20 with timeout:1 took ms",
+        "value": 1011
+      },
+      {
+        "label": "tool result",
+        "value": [
+          "Command timed out after 1 seconds"
+        ]
+      }
+    ],
+    "ms": 1014
+  },
+  {
+    "id": "T8",
+    "question": "What happens when a custom tool throws?",
+    "verdict": "error text goes to the model, run continues",
+    "findings": [
+      {
+        "label": "prompt() threw",
+        "value": false
+      },
+      {
+        "label": "tool result to model",
+        "value": [
+          "database is on fire"
+        ]
+      },
+      {
+        "label": "isError on tool_execution_end",
+        "value": true
+      }
+    ],
+    "ms": 6
+  },
+  {
+    "id": "T9",
+    "question": "Do images reach the model (camera snapshot use case)?",
+    "verdict": "sent as image_url",
+    "findings": [
+      {
+        "label": "user content part types",
+        "value": [
+          "text",
+          "image_url"
+        ]
+      },
+      {
+        "label": "image part shape",
+        "value": "{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEA"
+      },
+      {
+        "label": "after read(snap.png): roles and part types",
+        "value": [
+          {
+            "role": "tool",
+            "parts": "string"
+          },
+          {
+            "role": "user",
+            "parts": [
+              "text",
+              "image_url"
+            ]
+          }
+        ]
+      }
+    ],
+    "ms": 105
+  }
+]

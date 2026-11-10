@@ -1,0 +1,322 @@
+[
+  {
+    "id": "M0",
+    "question": "Without the MCP extension, does an SDK session see mcp.json at all?",
+    "verdict": "not loaded — MCP is opt-in for SDK sessions",
+    "findings": [
+      {
+        "label": "tools declared",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write"
+        ]
+      }
+    ],
+    "ms": 75
+  },
+  {
+    "id": "M0b",
+    "question": "Which mcp.json does the MCP extension read in an SDK session: the session's agentDir, the global agent dir, or the project?",
+    "verdict": "session agentDir IGNORED for mcp.json",
+    "findings": [
+      {
+        "label": "servers whose tools were declared",
+        "value": [
+          "fromglobaldir",
+          "fromproject"
+        ]
+      }
+    ],
+    "ms": 69
+  },
+  {
+    "id": "M1",
+    "question": "stdio MCP server with direct exposure: declared, callable, result returned?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "first prompt ms (includes server connect)",
+        "value": 52
+      },
+      {
+        "label": "tools declared",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "mcp__test__echo",
+          "mcp__test__whoami",
+          "mcp__test__crash",
+          "mcp__test__big"
+        ]
+      },
+      {
+        "label": "mcp tool schema sent",
+        "value": {
+          "name": "mcp__test__echo",
+          "description": "Echo text back",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ]
+          }
+        }
+      },
+      {
+        "label": "echo result",
+        "value": "echo(test): hello mcp"
+      },
+      {
+        "label": "60 KB result reaches model as chars",
+        "value": 20703
+      },
+      {
+        "label": "60 KB result tail",
+        "value": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\n[Full output: /var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-mcp-40fa736810ebdc96.txt (read it with offset/limit)]"
+      }
+    ],
+    "ms": 65
+  },
+  {
+    "id": "M2",
+    "question": "Default (codemode) exposure: what is declared, and can a script call the MCP tool?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "tools declared",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "codemode"
+        ]
+      },
+      {
+        "label": "codemode declaration",
+        "value": "{\"type\":\"function\",\"function\":{\"name\":\"codemode\",\"description\":\"Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Erro"
+      },
+      {
+        "label": "mcp section in system prompt",
+        "value": "<mcp_servers>\nMCP servers whose tools are not declared to you. Call the tools of `codemode` servers from codemode scripts.\n- mcp__test (codemode): Mock MCP server test for baseline tests.\n</mcp_servers>"
+      },
+      {
+        "label": "codemode({code}) result",
+        "value": "Script completed\nWall time 0.1 seconds\nOutput:\n\n{\"echo\":\"echo(test): from script\",\"who\":\"test\"}"
+      },
+      {
+        "label": "codemode(raw JS as arguments) result",
+        "value": "Script completed\nWall time 0.1 seconds\nOutput:\n\n{\"echo\":\"echo(test): from script\",\"who\":\"test\"}"
+      }
+    ],
+    "ms": 3968
+  },
+  {
+    "id": "M3",
+    "question": "Deferred exposure: does tool_search load the tool for the next model call?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "declared before search",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "tool_search"
+        ]
+      },
+      {
+        "label": "tool_search schema",
+        "value": {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query for deferred tools."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of tools to return. Defaults to 8."
+            }
+          }
+        }
+      },
+      {
+        "label": "tool_search result",
+        "value": "Loaded 2 tools. They are available from your next call:\n- mcp__test__echo: Echo text back\n- mcp__test__big: Return a large text"
+      },
+      {
+        "label": "declared after search",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "tool_search",
+          "mcp__test__echo",
+          "mcp__test__big"
+        ]
+      },
+      {
+        "label": "call result",
+        "value": "echo(test): after search"
+      }
+    ],
+    "ms": 838
+  },
+  {
+    "id": "M4",
+    "question": "Per-agent MCP servers: separate processes per session, own cwd/env, killed on dispose?",
+    "verdict": "isolated, but SERVER PROCESS LEAKS after dispose",
+    "findings": [
+      {
+        "label": "session gonzo sees",
+        "value": {
+          "label": "gonzo",
+          "pid": 55024,
+          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-Ep9Uid/mcp4/gonzo",
+          "secret": "secret-gonzo",
+          "cwdIsSessionCwd": true
+        }
+      },
+      {
+        "label": "session kevin sees",
+        "value": {
+          "label": "kevin",
+          "pid": 55025,
+          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-Ep9Uid/mcp4/kevin",
+          "secret": "secret-kevin",
+          "cwdIsSessionCwd": true
+        }
+      },
+      {
+        "label": "server processes started",
+        "value": 2
+      },
+      {
+        "label": "after dispose(gonzo): gonzo server alive / kevin server alive",
+        "value": [
+          true,
+          true
+        ]
+      },
+      {
+        "label": "after dispose(kevin): kevin server alive",
+        "value": true
+      }
+    ],
+    "ms": 3066
+  },
+  {
+    "id": "M5",
+    "question": "What happens when an MCP server crashes mid-session?",
+    "verdict": "reconnects on next call",
+    "findings": [
+      {
+        "label": "result of the crashing call",
+        "value": "MCP connection closed"
+      },
+      {
+        "label": "next call after crash",
+        "value": "echo(test): after crash"
+      },
+      {
+        "label": "tools still declared",
+        "value": [
+          "mcp__test__echo",
+          "mcp__test__whoami",
+          "mcp__test__crash",
+          "mcp__test__big"
+        ]
+      }
+    ],
+    "ms": 101
+  },
+  {
+    "id": "M6",
+    "question": "Streamable HTTP MCP server (remote style) with direct exposure?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "tools declared",
+        "value": [
+          "mcp__remote__lookup"
+        ]
+      },
+      {
+        "label": "result",
+        "value": "http-lookup: grundbuch"
+      },
+      {
+        "label": "server saw methods",
+        "value": [
+          "initialize",
+          "notifications/initialized",
+          "tools/list",
+          "tools/call"
+        ]
+      },
+      {
+        "label": "env-interpolated auth header arrived",
+        "value": "Bearer tok-123"
+      }
+    ],
+    "ms": 14
+  },
+  {
+    "id": "M7",
+    "question": "Slow or broken MCP servers: how long does the first prompt wait, and is the session still usable?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "first prompt ms",
+        "value": 3043
+      },
+      {
+        "label": "mcp tools declared on first prompt",
+        "value": [
+          "fine",
+          "slow"
+        ]
+      },
+      {
+        "label": "answer",
+        "value": "ECHO[first prompt]"
+      }
+    ],
+    "ms": 3052
+  },
+  {
+    "id": "M8",
+    "question": "Do tool_call gates see MCP calls, including calls made from inside a codemode script?",
+    "verdict": "gates apply inside scripts",
+    "findings": [
+      {
+        "label": "gate saw tool calls",
+        "value": [
+          "codemode",
+          "mcp__test__echo",
+          "mcp__test__crash"
+        ]
+      },
+      {
+        "label": "script result",
+        "value": "Script completed\nWall time 0.0 seconds\nOutput:\n\nblocked: destructive MCP tool blocked"
+      }
+    ],
+    "ms": 933
+  }
+]

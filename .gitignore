@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Secrets and local configuration. examples/home/.env.example is the template that is kept.
+.env
+.env.*
+!.env.example
+
+# A pine home created inside the checkout for trying things out
+/.pine/
+/home/
+
+# Databases and what the daemon writes while it runs
+*.db
+*.db-wal
+*.db-shm
+*.log
+baseline/results/*.log
+
+# Build and tool output
+dist/
+coverage/
+*.tgz
+*.tsbuildinfo
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Assistants' local settings
+.claude/

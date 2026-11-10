@@ -1,0 +1,476 @@
+[
+  {
+    "id": "C1",
+    "question": "Does auto-compaction trigger on a small context window, and what does the model see afterwards?",
+    "verdict": "compacts automatically",
+    "findings": [
+      {
+        "label": "per turn",
+        "value": [
+          {
+            "turn": 1,
+            "requests": 1,
+            "summaryRequests": 0,
+            "ctx": 3130
+          },
+          {
+            "turn": 2,
+            "requests": 1,
+            "summaryRequests": 0,
+            "ctx": 4715
+          },
+          {
+            "turn": 3,
+            "requests": 2,
+            "summaryRequests": 1,
+            "ctx": null
+          },
+          {
+            "turn": 4,
+            "requests": 1,
+            "summaryRequests": 0,
+            "ctx": 4761
+          },
+          {
+            "turn": 5,
+            "requests": 2,
+            "summaryRequests": 1,
+            "ctx": null
+          },
+          {
+            "turn": 6,
+            "requests": 1,
+            "summaryRequests": 0,
+            "ctx": 4761
+          }
+        ]
+      },
+      {
+        "label": "lifecycle",
+        "value": [
+          "agent_start",
+          "agent_end",
+          "agent_settled",
+          "agent_start",
+          "agent_end",
+          "agent_settled",
+          "agent_start",
+          "agent_end",
+          "compaction_start",
+          "compaction_end",
+          "agent_settled",
+          "agent_start",
+          "agent_end",
+          "agent_settled",
+          "agent_start",
+          "agent_end",
+          "compaction_start",
+          "compaction_end",
+          "agent_settled",
+          "agent_start",
+          "agent_end",
+          "agent_settled"
+        ]
+      },
+      {
+        "label": "compaction events",
+        "value": [
+          {
+            "type": "compaction_start",
+            "reason": "threshold"
+          },
+          {
+            "type": "compaction_end",
+            "reason": "threshold",
+            "aborted": false,
+            "tokensBefore": 6300
+          },
+          {
+            "type": "compaction_start",
+            "reason": "threshold"
+          },
+          {
+            "type": "compaction_end",
+            "reason": "threshold",
+            "aborted": false,
+            "tokensBefore": 6347
+          }
+        ]
+      },
+      {
+        "label": "summary request",
+        "value": {
+          "messages": 2,
+          "chars": 14039,
+          "max_tokens": 1,
+          "systemStart": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then "
+        }
+      },
+      {
+        "label": "messages in the last real request",
+        "value": [
+          {
+            "role": "user",
+            "text": "The conversation history before this point was compacted into the foll"
+          },
+          {
+            "role": "user",
+            "text": "Turn 5. lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ip"
+          },
+          {
+            "role": "assistant",
+            "text": "ECHO[Turn 5. lorem ipsum dolor sit amet lorem ipsum dolor sit amet lor"
+          },
+          {
+            "role": "user",
+            "text": "Turn 6. lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ip"
+          }
+        ]
+      },
+      {
+        "label": "context usage now",
+        "value": {
+          "tokens": 4761,
+          "contextWindow": 8000,
+          "percent": 59.5125
+        }
+      }
+    ],
+    "ms": 107
+  },
+  {
+    "id": "C2",
+    "question": "Does a llama-server style context-overflow error trigger compact-and-retry?",
+    "verdict": "recovers by compacting",
+    "findings": [
+      {
+        "label": "prompt() threw",
+        "value": false
+      },
+      {
+        "label": "lifecycle",
+        "value": [
+          "agent_end",
+          "agent_settled",
+          "agent_start",
+          "agent_end",
+          "compaction_start",
+          "compaction_end",
+          "agent_start",
+          "agent_end",
+          "agent_settled"
+        ]
+      },
+      {
+        "label": "compaction events",
+        "value": [
+          {
+            "type": "compaction_start",
+            "reason": "overflow"
+          },
+          {
+            "type": "compaction_end",
+            "reason": "overflow",
+            "willRetry": true
+          }
+        ]
+      },
+      {
+        "label": "requests after the failing prompt",
+        "value": [
+          "400 overflow",
+          "summary",
+          "normal"
+        ]
+      },
+      {
+        "label": "final text",
+        "value": "ECHO[this one overflows the real server window]"
+      },
+      {
+        "label": "last message",
+        "value": {
+          "role": "assistant",
+          "stopReason": "stop"
+        }
+      }
+    ],
+    "ms": 27
+  },
+  {
+    "id": "C3",
+    "question": "How are transient server errors (500, 429) retried, and what does a hard failure look like to the host?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "two 500s then ok",
+        "value": {
+          "requests": 3,
+          "ms": 405,
+          "promptThrew": false,
+          "retries": [
+            "#1/3 in 50ms",
+            "#2/3 in 100ms"
+          ],
+          "agentEnds": [
+            "willRetry=true",
+            "willRetry=true",
+            "willRetry=false"
+          ],
+          "settled": 1,
+          "last": {
+            "role": "assistant",
+            "stopReason": "stop"
+          },
+          "answer": "ECHO[please answer]"
+        }
+      },
+      {
+        "label": "429 then ok",
+        "value": {
+          "requests": 2,
+          "ms": 999,
+          "promptThrew": false,
+          "retries": [
+            "#1/3 in 50ms"
+          ],
+          "agentEnds": [
+            "willRetry=true",
+            "willRetry=false"
+          ],
+          "settled": 1,
+          "last": {
+            "role": "assistant",
+            "stopReason": "stop"
+          },
+          "answer": "ECHO[please answer]"
+        }
+      },
+      {
+        "label": "503 loading model then ok",
+        "value": {
+          "requests": 2,
+          "ms": 499,
+          "promptThrew": false,
+          "retries": [
+            "#1/3 in 50ms"
+          ],
+          "agentEnds": [
+            "willRetry=true",
+            "willRetry=false"
+          ],
+          "settled": 1,
+          "last": {
+            "role": "assistant",
+            "stopReason": "stop"
+          },
+          "answer": "ECHO[please answer]"
+        }
+      },
+      {
+        "label": "400 bad request (not transient)",
+        "value": {
+          "requests": 1,
+          "ms": 1,
+          "promptThrew": false,
+          "retries": [],
+          "agentEnds": [
+            "willRetry=false"
+          ],
+          "settled": 1,
+          "last": {
+            "role": "assistant",
+            "stopReason": "error",
+            "error": "400: {\"message\":\"tool_choice is not supported\"}"
+          }
+        }
+      },
+      {
+        "label": "five 500s (retries exhausted)",
+        "value": {
+          "requests": 4,
+          "ms": 1498,
+          "promptThrew": false,
+          "retries": [
+            "#1/3 in 50ms",
+            "#2/3 in 100ms",
+            "#3/3 in 200ms"
+          ],
+          "agentEnds": [
+            "willRetry=true",
+            "willRetry=true",
+            "willRetry=true",
+            "willRetry=false"
+          ],
+          "settled": 1,
+          "last": {
+            "role": "assistant",
+            "stopReason": "error",
+            "error": "500: {\"message\":\"internal error\"}"
+          }
+        }
+      }
+    ],
+    "ms": 3413
+  },
+  {
+    "id": "C4",
+    "question": "What happens when the model server is down or goes silent?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "server down",
+        "value": {
+          "ms": 157,
+          "promptThrew": false,
+          "retries": 2,
+          "last": {
+            "role": "assistant",
+            "stopReason": "error",
+            "error": "Connection error.: connect ECONNREFUSED 127.0.0.1:52937"
+          }
+        }
+      },
+      {
+        "label": "stream goes silent, httpIdleTimeoutMs=1500",
+        "value": {
+          "ms": 8001,
+          "promptThrew": "TEST-GAVE-UP after 8 s",
+          "last": {
+            "role": "user"
+          }
+        }
+      },
+      {
+        "label": "default httpIdleTimeoutMs",
+        "value": "300000 (5 min) per docs/settings.md"
+      }
+    ],
+    "ms": 8175
+  },
+  {
+    "id": "C5",
+    "question": "Does a persisted session resume after dispose (daemon restart), and where is it stored by default?",
+    "verdict": "resumes with full history",
+    "findings": [
+      {
+        "label": "default session file",
+        "value": "<PI_CODING_AGENT_DIR>/sessions/--private-var-folders-p_-7h2d2cr50rzbcy7cntnrpsyr0000gn-T-pi-baseline-RUefY0-persist-repo--/2026-11-10T10-33-07-187Z_01a1c504-c773-76f3-94bd-5fdfab8a0380.jsonl"
+      },
+      {
+        "label": "createAgentSession({agentDir}) decides session location",
+        "value": false
+      },
+      {
+        "label": "continueRecent picked the same file",
+        "value": true
+      },
+      {
+        "label": "roles replayed to the model",
+        "value": [
+          "system",
+          "user",
+          "assistant",
+          "user",
+          "assistant",
+          "tool",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "history contains code word",
+        "value": true
+      },
+      {
+        "label": "SessionManager.open(file) message count",
+        "value": 9
+      },
+      {
+        "label": "continueRecent in a different cwd starts fresh",
+        "value": true
+      }
+    ],
+    "ms": 31
+  },
+  {
+    "id": "C6",
+    "question": "Which project files load in an SDK session without a trust decision (AGENTS.md, CLAUDE.md, .pi/*, skills)?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "default (no trust decision)",
+        "value": {
+          "inSystemPrompt": [
+            "MARK-PARENT-AGENTS",
+            "MARK-REPO-AGENTS",
+            "MARK-PI-APPEND-SYSTEM",
+            "MARK-PI-SKILL",
+            "MARK-AGENTS-SKILL",
+            "MARK-USER-SKILL"
+          ],
+          "projectExtensionRan": true
+        }
+      },
+      {
+        "label": "agentDir settings.json defaultProjectTrust:'always' (in-memory SettingsManager)",
+        "value": {
+          "inSystemPrompt": [
+            "MARK-PARENT-AGENTS",
+            "MARK-REPO-AGENTS",
+            "MARK-PI-APPEND-SYSTEM",
+            "MARK-PI-SKILL",
+            "MARK-AGENTS-SKILL",
+            "MARK-USER-SKILL"
+          ],
+          "projectExtensionRan": true
+        }
+      },
+      {
+        "label": "defaultProjectTrust:'always' with file-backed SettingsManager",
+        "value": {
+          "inSystemPrompt": [
+            "MARK-PARENT-AGENTS",
+            "MARK-REPO-AGENTS",
+            "MARK-PI-APPEND-SYSTEM",
+            "MARK-PI-SKILL",
+            "MARK-AGENTS-SKILL",
+            "MARK-USER-SKILL"
+          ],
+          "projectExtensionRan": true
+        }
+      }
+    ],
+    "ms": 104
+  },
+  {
+    "id": "C7",
+    "question": "Is the default system prompt usable for a non-coding agent, and can it be replaced or appended?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "default system prompt (first 400 chars)",
+        "value": "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.\n\n<tools>\n- read: Read file contents\n- bash: Execute bash commands (ls, grep, find, etc.)\n- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n- write: Create or overwrite files\n\nAdditional tools may be available.\n</tool"
+      },
+      {
+        "label": "default length chars",
+        "value": 3403
+      },
+      {
+        "label": "replaced prompt",
+        "value": {
+          "length": 1273,
+          "hasReplaced": true,
+          "hasAppended": true,
+          "stillHasAgentsMd": true,
+          "stillHasDefault": false
+        }
+      },
+      {
+        "label": "replaced prompt text",
+        "value": "You are gonzo, a legal aid agent. REPLACED-MARK\n\n<addendum>\nAPPENDED-MARK current house mode: away\n</addendum>\n\n<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-RUefY0/sysprompt/repo/AGENTS.md\">\nMARK-AGENTS\n\n</project_instructions>\n</project_context>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the ta"
+      }
+    ],
+    "ms": 12
+  }
+]

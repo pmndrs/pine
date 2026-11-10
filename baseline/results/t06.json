@@ -1,0 +1,164 @@
+[
+  {
+    "id": "SA1",
+    "question": "In-process sub-agent: can a tool run a child session in another repo while the parent run is waiting?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "requests parent/child",
+        "value": [
+          2,
+          2
+        ]
+      },
+      {
+        "label": "child saw parent context",
+        "value": false
+      },
+      {
+        "label": "child ran in its own repo",
+        "value": true
+      },
+      {
+        "label": "what the parent model got back",
+        "value": "[gonzo] FINAL:: /private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-0BDTwk/sub/repos/gonzo"
+      },
+      {
+        "label": "child tools offered",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write"
+        ]
+      }
+    ],
+    "ms": 71
+  },
+  {
+    "id": "SA2",
+    "question": "Do several in-process sub-agents run in parallel, and does aborting the parent stop them?",
+    "verdict": "parallel, abort propagates (via the tool's signal)",
+    "findings": [
+      {
+        "label": "3 children x 800 ms model delay took ms",
+        "value": 817
+      },
+      {
+        "label": "results",
+        "value": [
+          "[gonzo] answer from gonzo",
+          "[home] answer from home",
+          "[para] answer from para"
+        ]
+      },
+      {
+        "label": "peak concurrent model requests",
+        "value": 3
+      },
+      {
+        "label": "before abort: open model requests",
+        "value": 1
+      },
+      {
+        "label": "after parent abort: child request closed on server",
+        "value": 1
+      },
+      {
+        "label": "after parent abort: open model requests",
+        "value": 0
+      }
+    ],
+    "ms": 1623
+  },
+  {
+    "id": "SA3",
+    "question": "Does the shipped sub-agent example extension work when loaded into an SDK host?",
+    "verdict": "BROKEN in an SDK host (re-spawns the host script as if it were pi)",
+    "findings": [
+      {
+        "label": "extension load errors",
+        "value": [
+          "Extension path does not exist: <repo>/baseline/node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent/index.ts"
+        ]
+      },
+      {
+        "label": "subagent tool declared",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write"
+        ]
+      },
+      {
+        "label": "tool result",
+        "value": "Tool subagent not found"
+      },
+      {
+        "label": "requests seen by model server",
+        "value": 2
+      },
+      {
+        "label": "child request had scout prompt",
+        "value": false
+      }
+    ],
+    "ms": 9
+  },
+  {
+    "id": "SA4",
+    "question": "CLI one-shot (`pi --mode json -p`): does it work against the same config, and what does a process cost?",
+    "verdict": "works when stdin is closed",
+    "findings": [
+      {
+        "label": "stdin ignored: wall ms for a 2-request run",
+        "value": 38
+      },
+      {
+        "label": "peak RSS MB",
+        "value": 44
+      },
+      {
+        "label": "event types",
+        "value": []
+      },
+      {
+        "label": "final assistant text"
+      },
+      {
+        "label": "AGENTS.md of cwd loaded",
+        "value": false
+      },
+      {
+        "label": "stdin left as an open pipe (default for child_process)",
+        "value": "completed in 38 ms"
+      }
+    ],
+    "ms": 77
+  },
+  {
+    "id": "SA5",
+    "question": "RPC mode (one pi process per agent): prompt, steer, follow-up, abort, state and cost?",
+    "verdict": "ERROR",
+    "findings": [
+      {
+        "label": "threw",
+        "value": "Error: Agent process exited (code=1 signal=null). Stderr: node:internal/modules/cjs/loader:1573\n  throw err;\n  ^\n\nError: Cannot find module '<repo>/baseline/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)"
+      }
+    ],
+    "ms": 102
+  },
+  {
+    "id": "SA6",
+    "question": "Crash isolation: what does the host see when an agent process is killed mid-run, and can it resume?",
+    "verdict": "ERROR",
+    "findings": [
+      {
+        "label": "threw",
+        "value": "Error: Agent process exited (code=1 signal=null). Stderr: node:internal/modules/cjs/loader:1573\n  throw err;\n  ^\n\nError: Cannot find module '<repo>/baseline/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)"
+      }
+    ],
+    "ms": 104
+  }
+]

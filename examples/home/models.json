@@ -1,0 +1,62 @@
+{
+  "providers": {
+    "local": {
+      "name": "llama-server",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "api": "openai-completions",
+      "apiKey": "none",
+      "models": [
+        {
+          "id": "deepseek-v4.1-flash",
+          "name": "DeepSeek V4.1 Flash (local)",
+          "contextWindow": 65536,
+          "maxTokens": 8192,
+          "input": [
+            "text"
+          ],
+          "reasoning": true,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsStore": false,
+            "supportsDeveloperRole": false,
+            "maxTokensField": "max_tokens",
+            "thinkingFormat": "deepseek"
+          }
+        }
+      ]
+    },
+    "dev": {
+      "name": "claude -p (pine dev-model)",
+      "baseUrl": "http://127.0.0.1:7464/v1",
+      "api": "openai-completions",
+      "apiKey": "none",
+      "models": [
+        {
+          "id": "claude-haiku",
+          "name": "Claude Haiku via claude -p",
+          "contextWindow": 180000,
+          "maxTokens": 8192,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsStore": false,
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": false
+          }
+        }
+      ]
+    }
+  }
+}

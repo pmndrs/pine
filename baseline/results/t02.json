@@ -1,0 +1,303 @@
+[
+  {
+    "id": "Q1",
+    "question": "What happens when prompt() is called while a run is in progress?",
+    "verdict": "rejects unless queue mode given",
+    "findings": [
+      {
+        "label": "isStreaming while running",
+        "value": true
+      },
+      {
+        "label": "plain prompt() error",
+        "value": "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."
+      },
+      {
+        "label": "prompt() with streamingBehavior:'followUp'",
+        "value": "accepted"
+      },
+      {
+        "label": "final text",
+        "value": "ECHO[second prompt as followUp]"
+      }
+    ],
+    "ms": 466
+  },
+  {
+    "id": "Q2",
+    "question": "Where does steer() land when the agent is in the middle of a tool call?",
+    "verdict": "steer lands after the current tool call, before the next model request",
+    "findings": [
+      {
+        "label": "steer() returned",
+        "value": "queued"
+      },
+      {
+        "label": "lifecycle",
+        "value": [
+          "agent_start",
+          "turn_start",
+          "tool_execution_start",
+          "queue_update",
+          "tool_execution_end",
+          "turn_end",
+          "turn_start",
+          "queue_update",
+          "turn_end",
+          "agent_end",
+          "agent_settled"
+        ]
+      },
+      {
+        "label": "requests",
+        "value": 2
+      },
+      {
+        "label": "user messages in request 2",
+        "value": [
+          "<directive>",
+          "STEER: stranger at the door"
+        ]
+      },
+      {
+        "label": "roles in request 2",
+        "value": [
+          "system",
+          "user",
+          "assistant",
+          "tool",
+          "user"
+        ]
+      },
+      {
+        "label": "final text",
+        "value": "ECHO[STEER: stranger at the door]"
+      },
+      {
+        "label": "prompt() resolved after steer handled",
+        "value": true
+      },
+      {
+        "label": "second planned tool executed",
+        "value": false
+      }
+    ],
+    "ms": 1022
+  },
+  {
+    "id": "Q3",
+    "question": "Where does followUp() land, and does prompt() wait for it?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "followUp() #1 returned",
+        "value": "queued"
+      },
+      {
+        "label": "followUp() #2 returned",
+        "value": "queued"
+      },
+      {
+        "label": "lifecycle",
+        "value": [
+          "agent_start",
+          "turn_start",
+          "tool_execution_start",
+          "queue_update",
+          "queue_update",
+          "tool_execution_end",
+          "turn_end",
+          "turn_start",
+          "tool_execution_start",
+          "tool_execution_end",
+          "turn_end",
+          "turn_start",
+          "turn_end",
+          "turn_start",
+          "queue_update",
+          "turn_end",
+          "turn_start",
+          "queue_update",
+          "turn_end",
+          "agent_end",
+          "agent_settled"
+        ]
+      },
+      {
+        "label": "agent_end count",
+        "value": 1
+      },
+      {
+        "label": "agent_settled count when prompt() resolved",
+        "value": 1
+      },
+      {
+        "label": "requests",
+        "value": 5
+      },
+      {
+        "label": "user messages per request",
+        "value": [
+          [
+            "<directive>"
+          ],
+          [
+            "<directive>"
+          ],
+          [
+            "<directive>"
+          ],
+          [
+            "<directive>",
+            "FOLLOWUP-ONE"
+          ],
+          [
+            "<directive>",
+            "FOLLOWUP-ONE",
+            "FOLLOWUP-TWO"
+          ]
+        ]
+      },
+      {
+        "label": "final text",
+        "value": "ECHO[FOLLOWUP-TWO]"
+      }
+    ],
+    "ms": 524
+  },
+  {
+    "id": "Q4",
+    "question": "Does abort() stop a stalled model stream and leave the session usable?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "abort() took ms",
+        "value": 5
+      },
+      {
+        "label": "prompt() outcome",
+        "value": "resolved"
+      },
+      {
+        "label": "server saw connection closed",
+        "value": true
+      },
+      {
+        "label": "lifecycle",
+        "value": [
+          "agent_start",
+          "turn_start",
+          "turn_end",
+          "agent_end",
+          "agent_settled"
+        ]
+      },
+      {
+        "label": "agent_settled.aborted",
+        "value": true
+      },
+      {
+        "label": "last message",
+        "value": {
+          "role": "assistant",
+          "stopReason": "aborted",
+          "errorMessage": "Request was aborted"
+        }
+      },
+      {
+        "label": "next prompt after abort",
+        "value": "ECHO[after abort]"
+      },
+      {
+        "label": "roles sent after abort",
+        "value": [
+          "system",
+          "user",
+          "user"
+        ]
+      }
+    ],
+    "ms": 2450
+  },
+  {
+    "id": "Q5",
+    "question": "Does abort() kill a long-running bash tool (and its children)?",
+    "verdict": "kills the whole process tree",
+    "findings": [
+      {
+        "label": "before abort: shell alive / child alive",
+        "value": [
+          true,
+          true
+        ]
+      },
+      {
+        "label": "abort() took ms",
+        "value": 2
+      },
+      {
+        "label": "after abort: shell alive / child alive",
+        "value": [
+          false,
+          false
+        ]
+      }
+    ],
+    "ms": 459
+  },
+  {
+    "id": "Q6",
+    "question": "Does dispose() during a run stop it cleanly?",
+    "verdict": "run ends",
+    "findings": [
+      {
+        "label": "prompt() outcome after dispose",
+        "value": "resolved"
+      },
+      {
+        "label": "server saw connection closed",
+        "value": true
+      },
+      {
+        "label": "events after dispose",
+        "value": [
+          "agent_start"
+        ]
+      }
+    ],
+    "ms": 805
+  },
+  {
+    "id": "Q7",
+    "question": "How do non-user events enter the context (sendCustomMessage), and what does the model see?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "requests after silent event (triggerTurn:false)",
+        "value": 0
+      },
+      {
+        "label": "requests after triggering event",
+        "value": 1
+      },
+      {
+        "label": "messages the model received",
+        "value": [
+          {
+            "role": "user",
+            "content": "EVENT cam/front/motion threat=low"
+          },
+          {
+            "role": "user",
+            "content": "EVENT printer/finished job=benchy"
+          }
+        ]
+      },
+      {
+        "label": "final text",
+        "value": "ECHO[EVENT printer/finished job=benchy]"
+      }
+    ],
+    "ms": 4
+  }
+]

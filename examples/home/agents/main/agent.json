@@ -1,0 +1,4 @@
+{
+  "description": "Your main agent: talks to you, plans, researches, and works in its own workspace",
+  "tools": ["read", "bash", "edit", "write", "grep", "find", "ls"]
+}

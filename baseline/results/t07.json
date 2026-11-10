@@ -1,0 +1,363 @@
+[
+  {
+    "id": "X1",
+    "question": "Tier-1 handler: can the host make one plain model call (with an image) without an agent session?",
+    "verdict": "works via modelRuntime.completeSimple()",
+    "findings": [
+      {
+        "label": "ms",
+        "value": 40
+      },
+      {
+        "label": "reply",
+        "value": {
+          "stopReason": "stop",
+          "text": "ECHO[threat level?[image_url]]",
+          "usage": {
+            "input": 111,
+            "output": 8
+          }
+        }
+      },
+      {
+        "label": "request",
+        "value": {
+          "roles": [
+            "system",
+            "user"
+          ],
+          "userParts": [
+            "text",
+            "image_url"
+          ],
+          "tools": "absent",
+          "keys": [
+            "model",
+            "messages",
+            "stream",
+            "stream_options",
+            "store",
+            "max_completion_tokens"
+          ]
+        }
+      }
+    ],
+    "ms": 48
+  },
+  {
+    "id": "X2",
+    "question": "Agent-to-agent trigger: can one session's tool wake another session through a shared in-process event bus?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "kevin final",
+        "value": "FINAL:: published to legal/question"
+      },
+      {
+        "label": "gonzo was triggered",
+        "value": true
+      },
+      {
+        "label": "gonzo answered",
+        "value": "ECHO[EVENT legal/question: may the neighbour film our driveway?]"
+      },
+      {
+        "label": "pi.events is the bus passed to the loader",
+        "value": true
+      }
+    ],
+    "ms": 225
+  },
+  {
+    "id": "X3",
+    "question": "What happens to an injected event when the target session is busy?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "deliverAs: default",
+        "value": {
+          "threw": false,
+          "requestsInBusyRun": 2,
+          "perRequestUsers": [
+            [
+              "<directive>"
+            ],
+            [
+              "<directive>",
+              "EVENT-default"
+            ],
+            [
+              "<directive>",
+              "EVENT-default",
+              "next user prompt"
+            ]
+          ]
+        }
+      },
+      {
+        "label": "deliverAs: steer",
+        "value": {
+          "threw": false,
+          "requestsInBusyRun": 2,
+          "perRequestUsers": [
+            [
+              "<directive>"
+            ],
+            [
+              "<directive>",
+              "EVENT-steer"
+            ],
+            [
+              "<directive>",
+              "EVENT-steer",
+              "next user prompt"
+            ]
+          ]
+        }
+      },
+      {
+        "label": "deliverAs: followUp",
+        "value": {
+          "threw": false,
+          "requestsInBusyRun": 3,
+          "perRequestUsers": [
+            [
+              "<directive>"
+            ],
+            [
+              "<directive>"
+            ],
+            [
+              "<directive>",
+              "EVENT-followUp"
+            ],
+            [
+              "<directive>",
+              "EVENT-followUp",
+              "next user prompt"
+            ]
+          ]
+        }
+      },
+      {
+        "label": "deliverAs: nextTurn",
+        "value": {
+          "threw": false,
+          "requestsInBusyRun": 2,
+          "perRequestUsers": [
+            [
+              "<directive>"
+            ],
+            [
+              "<directive>"
+            ],
+            [
+              "<directive>",
+              "next user prompt",
+              "EVENT-nextTurn"
+            ]
+          ]
+        }
+      }
+    ],
+    "ms": 2705
+  },
+  {
+    "id": "X4",
+    "question": "Per-turn world state: can an extension add live state to the prompt without growing the history?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "turn 1 system prompt has",
+        "value": "<world_state>house_mode=home</world_state>"
+      },
+      {
+        "label": "turn 2 system prompt has",
+        "value": "<world_state>house_mode=away</world_state>"
+      },
+      {
+        "label": "turn 2 non-system messages",
+        "value": 3
+      },
+      {
+        "label": "stale state left in history",
+        "value": false
+      }
+    ],
+    "ms": 6
+  },
+  {
+    "id": "X5",
+    "question": "Are edits to AGENTS.md picked up by a long-lived session?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "next prompt after edit sees",
+        "value": "VERSION-ONE (stale)"
+      },
+      {
+        "label": "after session.reload()",
+        "value": "VERSION-TWO"
+      },
+      {
+        "label": "history kept across reload (messages in request 3)",
+        "value": 6
+      }
+    ],
+    "ms": 12
+  },
+  {
+    "id": "X6",
+    "question": "Thinking models: is reasoning_content parsed, what is requested, and is it replayed?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "no compat (auto)",
+        "value": {
+          "thinkingRelatedRequestFields": {
+            "max_completion_tokens": 4096,
+            "reasoning_effort": "medium"
+          },
+          "thinkingEvents": [
+            "thinking_start",
+            "thinking_delta",
+            "toolcall_start",
+            "toolcall_delta",
+            "thinking_end",
+            "toolcall_end",
+            "text_start",
+            "text_delta",
+            "text_end"
+          ],
+          "storedBlocks": [
+            [
+              "thinking",
+              "toolCall"
+            ],
+            [
+              "thinking",
+              "text"
+            ]
+          ],
+          "replayedAssistantKeys": [
+            "role",
+            "content",
+            "reasoning_content",
+            "tool_calls"
+          ],
+          "replayedReasoning": "let me think about the tool"
+        }
+      },
+      {
+        "label": "compat.thinkingFormat=deepseek",
+        "value": {
+          "thinkingRelatedRequestFields": {
+            "max_completion_tokens": 4096,
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "medium"
+          },
+          "thinkingEvents": [
+            "thinking_start",
+            "thinking_delta",
+            "toolcall_start",
+            "toolcall_delta",
+            "thinking_end",
+            "toolcall_end",
+            "text_start",
+            "text_delta",
+            "text_end"
+          ],
+          "storedBlocks": [
+            [
+              "thinking",
+              "toolCall"
+            ],
+            [
+              "thinking",
+              "text"
+            ]
+          ],
+          "replayedAssistantKeys": [
+            "role",
+            "content",
+            "reasoning_content",
+            "tool_calls"
+          ],
+          "replayedReasoning": "let me think about the tool"
+        }
+      }
+    ],
+    "ms": 25
+  },
+  {
+    "id": "X7",
+    "question": "Does a throwing extension handler or a rejected custom tool take the host down?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "prompt() threw",
+        "value": false
+      },
+      {
+        "label": "errors reported to host (bindExtensions onError)",
+        "value": [
+          "turn_end: sync handler exploded",
+          "turn_end: sync handler exploded",
+          "turn_end: sync handler exploded"
+        ]
+      },
+      {
+        "label": "tool result the model got",
+        "value": [
+          "handler exploded"
+        ]
+      },
+      {
+        "label": "host still alive, session answers",
+        "value": "ECHO[still there?]"
+      }
+    ],
+    "ms": 5
+  },
+  {
+    "id": "X8",
+    "question": "Long-lived session: does memory grow over 300 turns with compaction on?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "growth over baseline",
+        "value": {
+          "100": {
+            "heapMB": 1.3,
+            "rssMB": 20.8,
+            "ctxTokens": 6551,
+            "messagesInSession": 20
+          },
+          "200": {
+            "heapMB": 1.9,
+            "rssMB": 25.5,
+            "ctxTokens": 11514,
+            "messagesInSession": 38
+          },
+          "300": {
+            "heapMB": 2.6,
+            "rssMB": 31.5,
+            "ctxTokens": 9309,
+            "messagesInSession": 30
+          }
+        }
+      },
+      {
+        "label": "ms per turn (mock model)",
+        "value": 1.6
+      },
+      {
+        "label": "session file MB",
+        "value": 0.97
+      }
+    ],
+    "ms": 491
+  }
+]

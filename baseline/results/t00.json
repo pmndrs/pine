@@ -1,0 +1,122 @@
+[
+  {
+    "id": "S1",
+    "question": "Does a custom openai-completions provider from models.json work end to end?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "last assistant text",
+        "value": "ECHO[hello there]"
+      },
+      {
+        "label": "request url",
+        "value": "/v1/chat/completions"
+      },
+      {
+        "label": "auth header",
+        "value": "Bearer sk-mock"
+      },
+      {
+        "label": "model sent",
+        "value": "mock-model"
+      },
+      {
+        "label": "stream",
+        "value": true
+      },
+      {
+        "label": "request keys",
+        "value": [
+          "model",
+          "messages",
+          "stream",
+          "stream_options",
+          "store",
+          "max_completion_tokens",
+          "tools"
+        ]
+      },
+      {
+        "label": "tools declared",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write"
+        ]
+      },
+      {
+        "label": "system prompt chars",
+        "value": 3145
+      },
+      {
+        "label": "roles",
+        "value": [
+          "system",
+          "user"
+        ]
+      },
+      {
+        "label": "event types",
+        "value": [
+          "agent_start",
+          "turn_start",
+          "message_start",
+          "message_end",
+          "message_update",
+          "turn_end",
+          "agent_end",
+          "agent_settled"
+        ]
+      },
+      {
+        "label": "active tools",
+        "value": [
+          "read",
+          "bash",
+          "edit",
+          "write"
+        ]
+      }
+    ],
+    "ms": 64
+  },
+  {
+    "id": "S2",
+    "question": "Does one prompt run a model → tool → model loop on its own?",
+    "verdict": "works",
+    "findings": [
+      {
+        "label": "requests made",
+        "value": 2
+      },
+      {
+        "label": "final text",
+        "value": "FINAL:: tool-ran-42"
+      },
+      {
+        "label": "event sequence",
+        "value": [
+          "agent_start",
+          "turn_start",
+          "tool_execution_start",
+          "tool_execution_end",
+          "turn_end",
+          "turn_start",
+          "turn_end",
+          "agent_end",
+          "agent_settled"
+        ]
+      },
+      {
+        "label": "tool message sent back",
+        "value": {
+          "role": "tool",
+          "content": "tool-ran-42\n",
+          "tool_call_id": "call_1_0"
+        }
+      }
+    ],
+    "ms": 16
+  }
+]

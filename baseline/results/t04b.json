@@ -1,0 +1,99 @@
+[
+  {
+    "id": "C8",
+    "question": "Is a hung model request detected in an SDK session (no headers / headers then silence)?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "no response headers, httpIdleTimeoutMs=1500",
+        "value": {
+          "ms": 1582,
+          "outcome": "resolved",
+          "last": {
+            "role": "assistant",
+            "stopReason": "error",
+            "error": "Request timed out.: This operation was aborted (20)"
+          }
+        }
+      },
+      {
+        "label": "no response headers, retry.provider.timeoutMs=1500",
+        "value": {
+          "ms": 1502,
+          "outcome": "resolved",
+          "last": {
+            "role": "assistant",
+            "stopReason": "error",
+            "error": "Request timed out.: This operation was aborted (20)"
+          }
+        }
+      },
+      {
+        "label": "headers then silence, httpIdleTimeoutMs=1500",
+        "value": {
+          "ms": 6001,
+          "outcome": "STILL HANGING",
+          "last": {
+            "role": "user"
+          }
+        }
+      },
+      {
+        "label": "headers then silence, host installs undici Agent{bodyTimeout:1500}",
+        "value": {
+          "ms": 2008,
+          "outcome": "resolved",
+          "last": {
+            "role": "assistant",
+            "stopReason": "error",
+            "error": "terminated: Body Timeout Error (UND_ERR_BODY_TIMEOUT)"
+          }
+        }
+      },
+      {
+        "label": "no response headers, host installs undici Agent{headersTimeout:1500}",
+        "value": {
+          "ms": 2002,
+          "outcome": "resolved",
+          "last": {
+            "role": "assistant",
+            "stopReason": "error",
+            "error": "Request timed out. Node.js fetch timed out waiting for response headers; configure a matching undici"
+          }
+        }
+      }
+    ],
+    "ms": 13133
+  },
+  {
+    "id": "C6b",
+    "question": "Can an SDK session refuse project-supplied code and settings (projectTrusted:false)?",
+    "verdict": "measured",
+    "findings": [
+      {
+        "label": "projectTrusted:true",
+        "value": {
+          "inSystemPrompt": [
+            "MARK-REPO-AGENTS",
+            "MARK-PI-APPEND-SYSTEM",
+            "MARK-PI-SKILL",
+            "MARK-AGENTS-SKILL"
+          ],
+          "projectExtensionRan": true,
+          "projectSettingsApplied": true
+        }
+      },
+      {
+        "label": "projectTrusted:false",
+        "value": {
+          "inSystemPrompt": [
+            "MARK-REPO-AGENTS"
+          ],
+          "projectExtensionRan": false,
+          "projectSettingsApplied": false
+        }
+      }
+    ],
+    "ms": 110
+  }
+]

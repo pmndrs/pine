@@ -1,0 +1,8 @@
+#!/bin/sh
+# Resolves symlinks so "npm link" and a symlink in ~/bin both work.
+SELF="$0"
+while [ -L "$SELF" ]; do
+  LINK="$(readlink "$SELF")"
+  case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
+done
+exec node "$(cd "$(dirname "$SELF")/.." && pwd)/src/cli.ts" "$@"

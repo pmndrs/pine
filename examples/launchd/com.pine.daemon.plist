@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Starts pine at login and restarts it if it exits.
+  1. Replace /Users/YOU and the node path (run: which node).
+  2. Copy to ~/Library/LaunchAgents/com.pine.daemon.plist
+  3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pine.daemon.plist
+  Stop: launchctl bootout gui/$(id -u)/com.pine.daemon
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pine.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/YOU/dev/pine/src/cli.ts</string>
+    <string>start</string>
+    <string>--home</string>
+    <string>/Users/YOU/.pine</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/Users/YOU/.pine/data/pine.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/.pine/data/pine.log</string>
+</dict>
+</plist>

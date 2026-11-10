@@ -1,0 +1,44 @@
+{
+  "name": "pine",
+  "version": "0.1.0",
+  "description": "PI neural engine: an event-driven multi-agent daemon built on the pi coding agent SDK",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmndrs/pine.git"
+  },
+  "homepage": "https://github.com/pmndrs/pine#readme",
+  "bugs": {
+    "url": "https://github.com/pmndrs/pine/issues"
+  },
+  "bin": {
+    "pine": "bin/pine"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/cli.ts start",
+    "check": "tsc --noEmit",
+    "test": "node --test --test-force-exit 'test/*.test.ts'",
+    "test:live": "PINE_LIVE=1 node --test --test-force-exit test/live.test.ts test/browser.test.ts",
+    "baseline": "sh baseline/run-all.sh"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^1.5.1",
+    "@earendil-works/pi-mcp": "^1.5.1",
+    "@earendil-works/pi-tui": "^1.5.1",
+    "@playwright/mcp": "^0.0.85",
+    "highlight.js": "^10.7.3",
+    "mqtt": "^5.16.1",
+    "typebox": "^1.3.27",
+    "undici": "^8.12.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "aedes": "^1.2.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "M4b",
+    "question": "Does AgentSessionRuntime.dispose() stop a session's MCP server processes (plain session.dispose() does not)?",
+    "verdict": "cleaned up",
+    "findings": [
+      {
+        "label": "server pid alive before dispose",
+        "value": true
+      },
+      {
+        "label": "runtime.dispose() ms",
+        "value": 2
+      },
+      {
+        "label": "server pid alive after runtime.dispose()",
+        "value": false
+      }
+    ],
+    "ms": 667
+  },
+  {
+    "id": "M4c",
+    "question": "If the host process dies, do stdio MCP servers die with it?",
+    "verdict": "exits when stdin closes (server-dependent)",
+    "findings": [
+      {
+        "label": "server alive after host SIGKILL",
+        "value": false
+      }
+    ],
+    "ms": 1256
+  }
+]
