@@ -155,6 +155,12 @@ These are invariants. A change that breaks one needs a test that shows why it is
    connects; `mcp/browser.ts` sends all browser traffic through its guard proxy and withholds the
    Playwright tools in `ALWAYS_BLOCKED`. When Playwright MCP is upgraded, list its tools again
    and add anything that runs code in the server or reads local files.
+   The browser has one exception, and it is the owner's: when an agent itself opens an address
+   that is local by its own name (`localTarget` in `src/net.ts`), the gate in `coreExtension`
+   asks, and a yes allows that host and port for the conversation (`AgentManager.allowLocal`
+   writes it into pine's home, where the guard reads it and no agent can write). Nothing a page
+   reaches by itself is asked about, a run started from outside cannot ask, a name that needs a
+   lookup cannot be allowed, and pine's control port is refused without a question.
 9. **The terminal UI shows where a link goes.** Markdown is rendered with hyperlinks off, so a
    link's target is printed next to its text, and `Linked` makes only printed `http(s)`
    addresses clickable. Do not render agent output in a way that hides a link's target.

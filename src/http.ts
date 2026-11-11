@@ -61,6 +61,9 @@ export class HttpServer {
 			this.server!.listen(port, host, resolve);
 		});
 		this.port = (this.server.address() as any).port;
+		// With port 0 the system picked one. Others ask the configuration where the control port is
+		// (the browser gate never opens it).
+		this.cfg.http!.port = this.port;
 		this.log.info(`http listening on ${host}:${this.port}`);
 	}
 

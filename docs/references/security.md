@@ -255,6 +255,10 @@ with a reason. You see the request like any approval. If you allow it, the acces
 conversation until you reset it or the daemon restarts. Refusals tell the agent to ask this way
 instead of probing.
 
+The bundled browser has one question of the same kind: when the agent opens an address on this
+computer or your network (`http://localhost:5173`), you are asked, and a yes allows that host
+and port for the conversation. See "Local addresses" in [mcp.md](mcp.md).
+
 **Sub-agents share their conversation's permissions.** A sub-agent is a copy of the agent doing
 part of the conversation's job, so it works under what you allowed there: the access you
 granted, and your "always" answers. It works the other way too: what a sub-agent asks for and

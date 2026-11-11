@@ -262,6 +262,7 @@ are JSON with `Content-Type: application/json`.
 | `model "x/y" is not defined in models.json` | `defaults.model` or an agent's `model` does not match `provider/id`. `/model` in the UI lists what is available. |
 | A task fails with 401 or "API key" | The provider's credential is missing or expired. `pine login <provider>` again. |
 | The browser tools fail with "Executable doesn't exist" | Run `pine init` again (or `pine browser-install`): the browser is missing or pine was updated to a newer one. |
+| The browser cannot open `localhost` or a page says "not reachable from the browser" | Local addresses need your yes. The agent opens the address with `browser_navigate` and you are asked; see "Local addresses" in [mcp.md](mcp.md). A server the agent started itself also needs network access for its shell. |
 | The UI says "reconnecting…" | The daemon it was attached to stopped. Start it again; the UI picks it up. |
 | `no daemon answers on http://127.0.0.1:7463` | The daemon is not running, or `http.port` differs from what the CLI reads in this home. |
 | A task fails with a connection error | The model server is down or `baseUrl` is wrong. `curl <baseUrl>/models` should answer. |

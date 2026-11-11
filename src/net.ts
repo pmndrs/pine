@@ -40,6 +40,30 @@ export function publicOnlyAgent(timeoutMs: number, allowPrivate = false): Agent 
 /** Names that say by themselves that they are on this computer or the local network. */
 export const isLocalName = (host: string) => host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal");
 
+/** "host:port" the way a web address writes it. */
+export const hostPort = (host: string, port: number) => `${net.isIPv6(host) ? `[${host}]` : host}:${port}`;
+
+/**
+ * A web address whose host says by itself that it is this computer or the local network:
+ * "localhost", a ".local" name, an IP address in a private range. A name that only turns out to
+ * be local when it is looked up is not one: what such a name points at can change after a yes.
+ */
+export function localTarget(raw: unknown): { host: string; port: number; key: string } | undefined {
+	const text = String(raw ?? "").trim();
+	let url: URL;
+	try {
+		// A browser takes "localhost:5173" as well.
+		url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`);
+	} catch {
+		return undefined;
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+	const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	if (!isLocalName(host) && !(net.isIP(host) && isPrivateAddress(host))) return undefined;
+	const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+	return { host, port, key: hostPort(host, port) };
+}
+
 export interface Fetched {
 	/** A file with a random name in the system's temp folder. The caller moves or deletes it. */
 	file: string;

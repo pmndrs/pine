@@ -20,7 +20,7 @@ import { Limiter, type Slot } from "./limiter.ts";
 import { type Approvals, checkPath, globMatch, isInside, matchesToolPattern, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shq, toolSubject } from "./security.ts";
 import type { Bus, Kv, State, TaskStore } from "./store.ts";
 import { editJson, removeServer } from "./mcp-config.ts";
-import { fetchToFile } from "./net.ts";
+import { fetchToFile, localTarget } from "./net.ts";
 import { sandboxedFileTools, sandboxExec, sniffImage } from "./sandbox-fs.ts";
 import type { SourceHost } from "./sources.ts";
 import type { Scheduler } from "./timers.ts";
@@ -207,8 +207,12 @@ export class AgentManager {
 	 * read outside content does not cover it afterwards. Gone with a reset or a restart.
 	 */
 	private allowed = new Map<string, Map<string, "clean" | "tainted">>();
-	/** Access granted to a conversation with request_access, by the same key. Its sub-agents share it. */
-	private grants = new Map<string, { network: boolean; read: string[]; write: string[] }>();
+	/**
+	 * Access granted to a conversation with request_access, by the same key. Its sub-agents share it.
+	 * `local` is what the owner allowed the bundled browser to open on this computer or the local
+	 * network ("host:port").
+	 */
+	private grants = new Map<string, { network: boolean; read: string[]; write: string[]; local: string[] }>();
 
 	constructor(deps: AgentManagerDeps) {
 		this.cfg = deps.cfg;
@@ -226,6 +230,8 @@ export class AgentManager {
 		// models.json is only needed for your own model servers; pi's built-in providers work without it.
 		this.modelRuntime = await ModelRuntime.create({ authPath: path.join(this.cfg.home, "auth.json"), modelsPath });
 		for (const a of Object.values(this.cfg.agents)) this.modelFor(a); // fail early on unknown models
+		// What the owner allowed a conversation holds until the daemon restarts: nothing is left over from the last run.
+		fs.rmSync(path.join(this.cfg.dataDir, "browser-local"), { recursive: true, force: true });
 		// Whatever was running when the daemon stopped is not resumed: its tool calls may have had effects.
 		for (const t of this.tasks.byStatus("running")) this.finish(t, "failed", "", "interrupted by a daemon restart", undefined);
 		for (const t of this.tasks.byStatus("pending")) this.enqueue(t);
@@ -577,7 +583,7 @@ export class AgentManager {
 			this.kv.set(`taint:${agentId}:${key}`, null);
 			this.bypassAnyway.delete(`${agentId}:${key}`);
 			this.allowed.delete(`${agentId}:${key}`);
-			this.grants.delete(`${agentId}:${key}`);
+			this.dropGrants(`${agentId}:${key}`);
 		}
 		// A conversation that is forgotten no longer listens to anything on its own.
 		await this.sources?.closeSession(agentId, sessionKey(session));
@@ -720,7 +726,7 @@ export class AgentManager {
 			this.kv.set(`folder:${agentId}:${key}`, null);
 			this.bypassAnyway.delete(`${agentId}:${key}`);
 			this.allowed.delete(`${agentId}:${key}`);
-			this.grants.delete(`${agentId}:${key}`);
+			this.dropGrants(`${agentId}:${key}`);
 		}
 		if (this.tasks.forget(agentId, keys)) removed = true;
 		this.pinSession(agentId, session, false);
@@ -1187,6 +1193,34 @@ export class AgentManager {
 		this.log.info(`agent ${agentId} is now in ${mode} mode${mode === "bypass" && anyway ? ` (also in the tainted conversation "${anyway}", by the owner's choice)` : ""}`);
 	}
 
+	/**
+	 * Where the guard of the bundled browser reads which local addresses a conversation may open.
+	 * The guard is another process, so a yes reaches it through this file. It lies in pine's home,
+	 * which no agent can write.
+	 */
+	private localFile(perm: string): string {
+		return path.join(this.cfg.dataDir, "browser-local", `${encodeURIComponent(perm)}.json`);
+	}
+
+	/** The owner allowed the browser of a conversation to open one local address ("host:port"). */
+	private allowLocal(perm: string, key: string): void {
+		const g = this.grants.get(perm) ?? { network: false, read: [], write: [], local: [] };
+		if (!g.local.includes(key)) g.local.push(key);
+		this.grants.set(perm, g);
+		const file = this.localFile(perm);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		// Whole or not at all: the guard may be reading at this moment.
+		fs.writeFileSync(`${file}.tmp`, JSON.stringify(g.local));
+		fs.renameSync(`${file}.tmp`, file);
+		this.log.info(`conversation ${perm}: the browser may open ${key}`);
+	}
+
+	/** Forget what a conversation was granted. */
+	private dropGrants(perm: string): void {
+		this.grants.delete(perm);
+		fs.rmSync(this.localFile(perm), { force: true });
+	}
+
 	private coreExtension(agent: AgentConfig, live: Live, profile: Profile, roots: Roots) {
 		const { cfg } = this;
 		const sandboxed = agent.sandbox.enabled && sandboxAvailable();
@@ -1210,7 +1244,7 @@ export class AgentManager {
 		live.network = () => !sandboxed || agent.sandbox.network || network || live.mode() === "bypass";
 		live.grant = (kind, target) => {
 			if (!jail) return "there is no sandbox on this session, so there is nothing to widen";
-			const g = this.grants.get(live.perm) ?? { network: false, read: [], write: [] };
+			const g = this.grants.get(live.perm) ?? { network: false, read: [], write: [], local: [] };
 			if (kind === "network") {
 				g.network = true;
 				// Given to a conversation that has already read outside content, the yes was given knowing
@@ -1278,7 +1312,8 @@ export class AgentManager {
 
 		return (pi: any) => {
 			for (const [name, server] of Object.entries(profile.mcp)) {
-				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandbox: jail?.("restricted"), env: shellEnv(agent, roots, {}) } : {};
+				// The browser of an owner's conversation learns which local addresses the owner allowed there.
+				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandbox: jail?.("restricted"), env: shellEnv(agent, roots, {}) } : server.pine === "browser" && live.trust === "owner" ? { localFile: this.localFile(live.perm) } : {};
 				pi.registerMcpServer(name, toPiMcp(name, server, extra));
 			}
 
@@ -1387,6 +1422,36 @@ export class AgentManager {
 				const sessionId = live.perm;
 				// (A download that would be refused for lack of network access is not asked about first.)
 				const mode = live.mode();
+
+				// The bundled browser cannot reach this computer or the local network: its guard refuses.
+				// When the agent itself opens such an address, the owner is asked, and a yes opens that
+				// host and port for the conversation. Nothing a page links or redirects to is asked about,
+				// and a run started from outside cannot ask at all.
+				const browser = server !== undefined && profile.mcp[server]?.pine === "browser" ? ((profile.mcp[server].options ?? {}) as { allowHosts?: string[]; denyHosts?: string[]; allowPrivate?: boolean }) : undefined;
+				const local = browser && !browser.allowPrivate && live.trust === "owner" ? localTarget(input.url) : undefined;
+				let askedLocal = false;
+				if (local && !listed(browser!.denyHosts, local.host) && (!browser!.allowHosts?.length || listed(browser!.allowHosts, local.host)) && !this.grants.get(sessionId)?.local.includes(local.key)) {
+					if (cfg.http && local.port === cfg.http.port) return { block: true, reason: `${local.key} is pine's own control port. It stays closed to the browser; do not ask for it.` };
+					if (mode !== "bypass") {
+						const decision = await run.slot.suspend(() =>
+							this.approvals.request(
+								{
+									agent: agent.id,
+									task: run.task.id,
+									root: run.task.meta.root ?? run.task.id,
+									tool,
+									summary: `open ${truncate(String(input.url), 300)} in the browser\n${local.key} is on this computer or your local network`,
+									why: `the browser normally cannot reach local addresses; a yes lets it open ${local.key} for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}`,
+								},
+								ctx?.signal,
+							),
+						);
+						if (!decision.allow) return { block: true, reason: `not approved (${decision.by}). The browser cannot open ${local.key}. Do not retry; tell the user what you wanted to look at and why.` };
+						askedLocal = true;
+					}
+					this.allowLocal(sessionId, local.key);
+				}
+
 				const granted = this.allowed.get(sessionId)?.get(rememberKey);
 				let why: string | undefined;
 				let remember: string | undefined = server ? `all ${server} tools` : tool;
@@ -1399,7 +1464,8 @@ export class AgentManager {
 				else if (live.tainted && (matchesToolPattern(agent.approveWhenTainted, tool, subject) || serverRule === "tainted" || (tool === "bash" && (!sandboxed || agent.sandbox.network || network)) || (tool === "download" && !reachable(input.url) && live.network()) || tool === "subscribe" || (tool === "delegate" && this.canSendOut(String(input.agent ?? ""))))) {
 					why = `this conversation has read content from outside (${live.tainted}), and this action can send information out or act on the world`;
 				}
-				if (why) {
+				// The owner has just said yes to this very call.
+				if (why && !askedLocal) {
 					const summary = `${tool}${subject ? `: ${subject}` : ""}\n${truncate(JSON.stringify(input), 1200)}`;
 					const decision = await run.slot.suspend(() => this.approvals.request({ agent: agent.id, task: run.task.id, root: run.task.meta.root ?? run.task.id, tool, summary, why: why!, remember }, ctx?.signal));
 					if (!decision.allow) return { block: true, reason: `not approved (${decision.by}). Do not retry; tell the user what you wanted to do and why.` };
@@ -1527,7 +1593,7 @@ export class AgentManager {
 		// A one-off run takes its permissions with it; a sub-agent's belong to its conversation and stay.
 		if (live.ephemeral && live.perm === `${live.agent.id}:${live.key}`) {
 			this.allowed.delete(live.perm);
-			this.grants.delete(live.perm);
+			this.dropGrants(live.perm);
 		}
 		const id = `${live.agent.id}:${live.key}`;
 		if (this.lives.get(id) === live) this.lives.delete(id);

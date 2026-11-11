@@ -6,6 +6,8 @@
 //   - Every request the browser makes goes through a small proxy in this process. The proxy
 //     refuses private, loopback and link-local addresses (checked on the address it actually
 //     connects to), so a page cannot reach your router, your NAS or pine's control port.
+//     The one exception is an address the owner allowed for the conversation: the daemon asks
+//     them when the agent opens a local address, and writes the yes into `localFile`.
 //   - Tools that would run code on this machine or read local files are removed from the tool
 //     list and refused if called anyway.
 //   - The browser's file access is confined to a scratch folder.
@@ -26,7 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { options } from "./lib.ts";
-import { isPrivateAddress } from "./web.ts";
+import { hostPort, isLocalName, isPrivateAddress } from "../src/net.ts";
 
 interface BrowserOptions {
 	headed?: boolean;
@@ -37,6 +39,11 @@ interface BrowserOptions {
 	allowHosts?: string[];
 	denyHosts?: string[];
 	allowPrivate?: boolean;
+	/**
+	 * Set by pine, not by the owner: a file in pine's home with the local addresses ("host:port")
+	 * the owner allowed for this conversation. Agents cannot write there.
+	 */
+	localFile?: string;
 	browser?: string;
 	executablePath?: string;
 	caps?: string;
@@ -60,26 +67,54 @@ export function toolAllowed(name: string, o: Pick<BrowserOptions, "tools" | "blo
 
 const hostMatches = (list: string[] | undefined, host: string) => (list ?? []).some((h) => host === h || host.endsWith(`.${h}`));
 
-/** Resolve a host and return an address the browser may connect to, or throw. */
-export async function vet(host: string, o: Pick<BrowserOptions, "allowHosts" | "denyHosts" | "allowPrivate">): Promise<string> {
+type GuardOptions = Pick<BrowserOptions, "allowHosts" | "denyHosts" | "allowPrivate" | "localFile">;
+
+/** What the agent is told when a local address is refused in a conversation where the owner can be asked. */
+export const ASK_HINT = "A local address needs your owner's yes. Open it with browser_navigate (for example http://localhost:3000) and your owner is asked";
+
+/** The local addresses the owner allowed for this conversation. Read each time: a yes applies at once. */
+function allowedLocal(o: GuardOptions): string[] {
+	if (!o.localFile) return [];
+	try {
+		const list = JSON.parse(fs.readFileSync(o.localFile, "utf8"));
+		return Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Resolve a host and return what the browser may connect to, or throw. For a public name that is
+ * the address it resolved to; for a local address the owner allowed (host and port), the host as given.
+ */
+export async function vet(host: string, o: GuardOptions, port?: number): Promise<string> {
 	const name = host.replace(/^\[|\]$/g, "").toLowerCase();
 	if (hostMatches(o.denyHosts, name)) throw new Error(`${name} is on the deny list`);
 	if (o.allowHosts?.length && !hostMatches(o.allowHosts, name)) throw new Error(`${name} is not on the allow list`);
-	if (!o.allowPrivate && (name === "localhost" || name.endsWith(".localhost") || name.endsWith(".local") || name.endsWith(".internal"))) throw new Error(`${name} is a local name`);
+	if (!o.allowPrivate && (isLocalName(name) || (net.isIP(name) && isPrivateAddress(name)))) {
+		// Only a host that is local by its own name can be allowed: a name that has to be looked up
+		// could point somewhere else tomorrow.
+		if (port !== undefined && allowedLocal(o).includes(hostPort(name, port))) return name;
+		throw new Error(`${name} is a ${isLocalName(name) ? "local name" : "private address"}`);
+	}
 	const addrs = net.isIP(name) ? [{ address: name }] : await dns.promises.lookup(name, { all: true });
 	if (!addrs.length) throw new Error(`${name} does not resolve`);
-	if (!o.allowPrivate && addrs.some((a) => isPrivateAddress(a.address))) throw new Error(`${name} is a private address`);
+	if (!o.allowPrivate && addrs.some((a) => isPrivateAddress(a.address))) throw new Error(`${name} resolves to a private address`);
 	return addrs[0].address;
 }
 
 /** A forward proxy that only lets vetted destinations through. */
-export async function startGuardProxy(o: Pick<BrowserOptions, "allowHosts" | "denyHosts" | "allowPrivate">, log: (line: string) => void = () => {}) {
+export async function startGuardProxy(o: GuardOptions, log: (line: string) => void = () => {}) {
 	const refused: string[] = [];
+	/** Records a refusal and returns the sentence for the agent. */
 	const deny = (what: string, why: unknown) => {
-		const line = `${what}: ${why instanceof Error ? why.message : why}`;
+		const reason = why instanceof Error ? why.message : String(why);
+		// Where the owner can be asked, say how. Elsewhere there is nothing the agent can do.
+		const line = `${what}: ${reason}${o.localFile && / is a (local name|private address)$/.test(reason) ? `. ${ASK_HINT}` : ""}`;
 		refused.push(line);
 		if (refused.length > 200) refused.shift();
 		log(`refused ${line}`);
+		return line;
 	};
 	const server = http.createServer(async (req, res) => {
 		// Plain http through the proxy arrives as an absolute URL.
@@ -87,7 +122,7 @@ export async function startGuardProxy(o: Pick<BrowserOptions, "allowHosts" | "de
 		try {
 			url = new URL(req.url ?? "");
 			if (url.protocol !== "http:") throw new Error("only http and https are proxied");
-			const address = await vet(url.hostname, o);
+			const address = await vet(url.hostname, o, Number(url.port || 80));
 			const headers = { ...req.headers };
 			delete headers["proxy-connection"];
 			delete headers["proxy-authorization"];
@@ -98,15 +133,14 @@ export async function startGuardProxy(o: Pick<BrowserOptions, "allowHosts" | "de
 			upstream.on("error", () => res.writeHead(502).end());
 			req.pipe(upstream);
 		} catch (e) {
-			deny(req.url ?? "?", e);
-			res.writeHead(403, { "content-type": "text/plain" }).end(`pine: this address is not reachable from the browser (${e instanceof Error ? e.message : e})`);
+			res.writeHead(403, { "content-type": "text/plain" }).end(`pine: this address is not reachable from the browser (${deny(req.url ?? "?", e)})`);
 		}
 	});
 	server.on("connect", async (req, client: net.Socket, head) => {
 		const m = (req.url ?? "").match(/^(.+):(\d+)$/);
 		try {
 			if (!m) throw new Error("bad CONNECT target");
-			const address = await vet(m[1], o);
+			const address = await vet(m[1], o, Number(m[2]));
 			const upstream = net.connect(Number(m[2]), address, () => {
 				client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
 				if (head.length) upstream.write(head);

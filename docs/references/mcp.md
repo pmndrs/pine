@@ -156,7 +156,7 @@ Search and page reading without a browser.
 | `braveApiKey` | none | Brave Search API key. |
 | `allowHosts` | all | Only these hosts (and their subdomains) can be fetched. Without `braveApiKey` the search is such a fetch too: add `duckduckgo.com`. |
 | `denyHosts` | none | These cannot. |
-| `allowPrivate` | `false` | Allow addresses on your own network. Leave it off. |
+| `allowPrivate` | `false` | Allow every address on this computer and your own network, without asking. Leave it off: one local address at a time is allowed by answering a question, see "Local addresses" below. |
 | `maxBytes` | 2 MB | Cut-off for one response. |
 | `maxUrlLength` | 2000 | Longer URLs are refused, which limits how much can be smuggled out in one. |
 | `timeoutMs` | 20000 | Per request. |
@@ -227,16 +227,18 @@ snapshot: a text outline in which every element has a reference the click and ty
 | `tools` | `"core"` | `"core"`: the fourteen tools above. `"all"`: everything Playwright offers that is not blocked. Or a list of names. |
 | `block` | `[]` | Further tool names to withhold. |
 | `allowHosts`, `denyHosts` | none | Limit where the browser may go. Subdomains are included. |
-| `allowPrivate` | `false` | Allow addresses on your own network. Leave it off. |
+| `allowPrivate` | `false` | Allow every address on this computer and your own network, without asking. Leave it off: one local address at a time is allowed by answering a question, see "Local addresses" below. |
 | `browser` | `chromium` | `chrome` or `msedge` use an installed browser instead of Playwright's Chromium. |
 | `executablePath`, `viewport`, `caps`, `extraArgs` | | Passed on to Playwright MCP. |
 
 What the guard does:
 
-- **No local network.** Everything the browser requests goes through a proxy inside the guard,
-  which refuses loopback, private and link-local addresses, judged on the address it actually
-  connects to. A page cannot reach your router, your NAS, the model server or pine's control
-  port, whether by link, redirect, script or DNS trick. `file:` URLs are blocked by Playwright.
+- **No local network, unless you say yes.** Everything the browser requests goes through a
+  proxy inside the guard, which refuses loopback, private and link-local addresses, judged on
+  the address it actually connects to. A page cannot reach your router, your NAS, the model
+  server or pine's control port, whether by link, redirect, script or DNS trick. The one
+  exception is an address you allowed for a conversation ("Local addresses" below). `file:`
+  URLs are blocked by Playwright.
 - **No code on your machine.** `browser_run_code_unsafe` (runs code in the server process),
   `browser_file_upload` and `browser_drop` (hand local files to a page) and `browser_install`
   are removed from the tool list and refused if called, whatever `tools` says.
@@ -248,6 +250,35 @@ What the guard does:
 A browser is the widest door for outside content: sessions that use it are tainted, and with a
 `profile` it is signed in as you wherever you signed in. Treat a persistent profile like a
 password; do not give it to an agent that also handles untrusted events.
+
+### Local addresses
+
+An agent that builds a web page wants to look at it: a development server on
+`http://localhost:5173`, or a device at `http://192.168.1.20`. The browser cannot reach those by
+itself. When the agent opens one with `browser_navigate`, pine asks the owner first, like any
+approval. The agent does not call another tool for this and does not need `request_access`: it
+opens the address and waits.
+
+- A yes allows that host and that port, for that conversation and its sub-agents, until the
+  conversation is reset or the daemon restarts. `localhost:5173` and `127.0.0.1:5173` are two
+  questions; so are two ports.
+- A no blocks the call. The agent should not try another spelling of the address, or start a
+  browser of its own from the shell: the sandbox has no browser it can run.
+- Only what the agent itself opens is asked about. What a page loads, links or redirects to on
+  another local address is refused. If the page really needs it (an API on another port), the
+  agent opens that address with `browser_navigate` once, which asks.
+- Asked about are addresses that are local by their own name: `localhost`, names ending in
+  `.localhost`, `.local` or `.internal`, and IP addresses in private ranges. A name that only
+  turns out to be local when it is looked up (`nas.home`) is refused without a question; for
+  that the owner sets `allowPrivate`.
+- pine's own control port is never opened, and never asked about.
+- In bypass mode there is no question. A run that an event from outside started cannot ask at
+  all. In a conversation that has read outside content the question says so.
+- `allowHosts` and `denyHosts` still apply.
+
+A server the agent starts from its own shell (`npm run dev`) can only listen on a port when the
+shell has network access: `request_access` with `network: true`, or `sandbox.network`. Start it
+in the background and give it a moment before opening the page.
 
 ## Telegram, MQTT and other outputs
 

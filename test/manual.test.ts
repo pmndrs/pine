@@ -59,6 +59,8 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["create a new agent", /^(setup#creating-an-agent|agents#creating-an-agent)/],
 		["what happens when a conversation is removed", /^(setup#|tui#|agents#sessions)/],
 		["connect an mcp server", /^(mcp#|setup#)/],
+		["look at my dev server on localhost in the browser", /^mcp#local-addresses$/],
+		["browser refused not reachable local address", /^(mcp#local-addresses|operations#)/],
 		// The first words of agents that knew nothing about pine, from runs with puzzles.
 		["stretch reminder working days 6 pm recurring", /^events#ask-the-agent/],
 		["nag stretch 6 pm every working day reminder", /^events#ask-the-agent/],
