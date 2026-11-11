@@ -30,40 +30,48 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
 <table>
   <tr>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/meme.png" width="100%" alt="pine searches the web, downloads a picture and shows it in the terminal"><br/>
       <sub>Support for images</sub>
     </td>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/video.gif" width="100%" alt="pine fetches a video from the web and plays it in the terminal"><br/>
       <sub>Support for videos</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/drop.png" width="100%" alt="A picture dropped into the terminal, shown as a thumbnail, and the agent's answer about it"><br/>
       <sub>Drag and drop</sub>
     </td>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/watch.png" width="100%" alt="Asked to watch a folder, the agent sets up an event source; a file changes, it wakes up and shows the git diff"><br/>
       <sub>Event sources (file watchers, ...)</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/tabs.png" width="100%" alt="Tabs for several agents and conversations, with the list of conversations: pinned ones stay, the others clean themselves up"><br/>
       <sub>UI can be navigated by clicking</sub>
     </td>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/flipper.png" width="100%" alt="pine drives a Flipper Zero through an MCP server"><br/>
       <sub>Support for MCPs and skills</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/code.png" width="100%" alt="The code pane beside a conversation: the git diff of a file the agent just changed"><br/>
       <sub>Code assistance</sub>
     </td>
     <td align="center" width="50%">
+      <br />
       <img src="docs/images/folder.png" width="100%" alt="pine started in a project folder: the agent inspects it, and the folder menu lists the folders a conversation can work in"><br/>
       <sub>Current folders</sub>
     </td>
