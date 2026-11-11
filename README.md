@@ -10,7 +10,7 @@ This is a small daemon that runs several AI agents. A "harness". Yes, you've hea
 We needed something different:
 
 - Orchestrating agents, ... well, boring. Yes it does that.
-- Letting agents react to any external event: chat, FTP, webhooks, MQTT, timers, etc, in a simple modular way. Without configs. Agents can subscribe to any installed event source and react accordingly. List available sources and unsubscribe. Let Claude create event sources for you (it's a simple \*.ts service with a schema).
+- Letting agents react to any external event: chat, FTP, webhooks, MQTT, timers, etc, in a simple modular way. Without configs. Agents can subscribe to any installed event source and react accordingly. List available sources and unsubscribe. Event sources are simple to create (it's a \*.ts service with a schema). Basically this allows you to create full automation workflows and with complete ease.
 - No configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling agents what you want. MAIN has special administrative tool calls. No agent will touch or bypass into user config (your tokens), etc.
 - A CLI that doesn't suck. That feels like a desktop UI, with interactive tabs, buttons, scroll regions, etc. That is able to show images, videos, formats markdown, etc. That can drag and drop files and images (with thumbnails) - and yes in a shell.
 - Basics inbuilt: computer use, tool calls, internet, browsing and operating live websites
@@ -72,6 +72,12 @@ pine login opencode-go
 local llama-server goes into `~/.pine/models.json`. To run pine without the UI, as a service:
 `pine start`. See [operations.md](docs/references/operations.md) and
 [tui.md](docs/references/tui.md).
+
+To get a newer version later, with whatever it needs:
+
+```bash
+pine update
+```
 
 ## Documentation
 

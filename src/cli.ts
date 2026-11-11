@@ -20,7 +20,10 @@ Daemon
   pine start                      run the daemon in the foreground
   pine dev-model [--port 7464] [--model haiku]
                                   OpenAI-compatible model server backed by "claude -p" (development only)
-  pine browser-install            fetch the browser again (pine init does this; use it after an update)
+  pine update [--check]           bring pine up to date (npm for an install, git for a checkout) with what the
+                                  new version needs; --check only says whether there is something newer
+  pine version                    which version this is and how it is installed
+  pine browser-install            fetch the browser again (pine init and pine update do this)
 
 Talking to a running daemon
   pine status                     running tasks, live sessions, queue
@@ -229,6 +232,17 @@ async function main(): Promise<void> {
 	}
 
 	if (cmd === "browser-install") process.exit(await installBrowser());
+
+	if (cmd === "version" || flags.version === true) {
+		const { installed } = await import("./update.ts");
+		const me = installed();
+		return out(`pine ${me.version} (${me.kind === "checkout" ? `checkout in ${me.root}` : me.kind === "global" ? "installed with npm" : `a dependency in ${me.root}`})`);
+	}
+
+	if (cmd === "update") {
+		const { update } = await import("./update.ts");
+		process.exit(await update({ check: flags.check === true, out, browser: !process.env.PINE_SKIP_DOWNLOADS }));
+	}
 
 	if (cmd === "dev-model") {
 		const { startClaudeModel } = await import("./dev/claude-model.ts");

@@ -102,3 +102,24 @@ test("the key prompt stays visible, says the input is hidden, and never echoes i
 	input.write("abc\x03");
 	await assert.rejects(cancelled, /cancelled/);
 });
+
+test("pine update knows how pine was installed and which version is newer; pine version says both", async () => {
+	const { installKind, newer } = await import("../src/update.ts");
+	const root = path.resolve(import.meta.dirname, "..");
+	// A git clone that runs its sources is a checkout, wherever npm keeps its global packages.
+	assert.equal(installKind(root, "/usr/local/lib/node_modules"), "checkout");
+	// Inside npm's global folder it is a global install; anywhere else a dependency of some project.
+	const global = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-global-")));
+	const pkg = path.join(global, "@pmndrs", "pine");
+	fs.mkdirSync(path.join(pkg, "src"), { recursive: true });
+	fs.writeFileSync(path.join(pkg, "src", "cli.js"), "");
+	assert.equal(installKind(pkg, global), "global");
+	assert.equal(installKind(pkg, path.join(global, "elsewhere")), "local");
+	assert.equal(installKind(pkg, undefined), "local");
+	fs.rmSync(global, { recursive: true, force: true });
+
+	assert.deepEqual([newer("0.1.1", "0.1.0"), newer("0.10.0", "0.9.9"), newer("1.0.0", "0.99.99"), newer("0.1.0", "0.1.0"), newer("0.1.0", "0.2.0")], [true, true, true, false, false]);
+
+	const version = await run(process.execPath, [CLI, "version"]);
+	assert.match(version.stdout, /^pine \d+\.\d+\.\d+ \(checkout in /);
+});

@@ -103,6 +103,32 @@ llama-server -m /path/to/model.gguf --jinja -c 65536 -np 2 --port 8080
 `-np` (parallel slots) should equal `limits.maxConcurrentRuns`. The context is shared between
 slots, so each run gets `c / np` tokens; put that number into `contextWindow`.
 
+## Updating
+
+```bash
+pine update
+```
+
+brings pine itself up to date and fetches what the new version needs. What it does depends on
+how pine got onto the machine, which `pine version` tells you:
+
+| Installed | `pine update` |
+|---|---|
+| with `npm install -g` | Asks npm for the latest version. If there is one, installs it (`npm install -g @pmndrs/pine@latest`). |
+| as a checkout (`git clone`) | Fetches from the repository the checkout follows and moves it forward, then runs `npm install`. Only ever a fast-forward: if commits or changes of your own are in the way, nothing is changed and it says so. |
+| as a dependency inside a project | Tells you the command to run in that project; that project decides its version. |
+
+Afterwards it makes sure the browser the web tools drive matches the new version, which is a
+download only when that version changed.
+
+`pine update --check` changes nothing and says whether there is something newer.
+
+A pine that is running keeps the old version until it is restarted: quit the terminal UI and
+open it again, or restart the daemon (if it runs at login as a LaunchAgent:
+`launchctl kickstart -k gui/$(id -u)/com.pine.daemon`).
+Your home folder (`~/.pine`) is not touched by an update. When a new version adds something to
+the example home, `pine init` copies the files you do not have yet and overwrites nothing.
+
 ## Commands
 
 | Command | What it does |
@@ -110,7 +136,9 @@ slots, so each run gets `c / np` tokens; put that number into `contextWindow`.
 | `pine`, `pine tui` | The terminal UI; starts a daemon inside if none is running |
 | `pine login <provider>`, `pine logout <provider>` | Sign in to a model provider. `--api-key` or `--oauth` force the kind of sign-in |
 | `pine init [dir]` | Set pine up: a home directory from the example and the browser its web tools drive. Safe to run again |
-| `pine browser-install` | Fetch the browser again, for example after an update of pine changed the version it needs |
+| `pine update [--check]` | Bring pine up to date. `--check` only says whether there is something newer. See "Updating" |
+| `pine version` | Which version this is and how it is installed |
+| `pine browser-install` | Fetch the browser again. `pine init` and `pine update` do this already |
 | `pine check` | Validate the configuration; show each agent's workspace, model, tools, MCP servers; list security notes |
 | `pine start` | Run the daemon in the foreground. Ctrl-C or SIGTERM stops it cleanly |
 | `pine dev-model [--port 7464] [--model haiku]` | The `claude -p` model server |
