@@ -20,9 +20,6 @@
 npm install -g @pmndrs/pine
 ```
 
-> [!IMPORTANT]
-> Until now this is macos, linux and docker only, due to some TUI specifics and sandboxing. Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
-
 This is a small daemon that runs AI agents _reactively_. Some things it does very differently:
 
 - **Letting agents react to external events**: chat, FTP, webhooks, MQTT, web addresses, schedules, etc. In a simple, modular way, and without configs. Agents can subscribe to any installed event source and react accordingly, or list available sources and unsubscribe. Event sources are simple to create, it's a \*.ts service with a schema. This allows you to create full automation workflows by just stating what you want: "watch my security cam, ring the alarm if someone enters while i'm away".
@@ -31,6 +28,9 @@ This is a small daemon that runs AI agents _reactively_. Some things it does ver
 - **All basics inbuilt**: computer use, tool calls, internet, browsing and operating live websites
 - **Coding assistance**: diffs, output files, git integration, current folders ...
 - **Orchestrating agents**, sub-agents, ... well, yes it does that. In an intuitive way. A pinned tab is a persistent agent. Create an agent, open a tab, rename it, tell it its basic instructions (these go into AGENTS.md), connect it to event sources, for instance Telegram if you want to chat abroad, pin it, close the tab if you want (you find it back in the running sessions), you're done.
+
+> [!IMPORTANT]
+> Until now this is macos, linux and docker only, due to some TUI specifics and sandboxing. Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
 
 <br/>
 
