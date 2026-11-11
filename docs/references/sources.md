@@ -1,7 +1,8 @@
 # Event sources and subscriptions
 
 A **source** reports what happens somewhere else: a file arrives in a folder, a device says
-something over MQTT, a web service calls, a camera uploads a picture, a clock strikes.
+something over MQTT, a web service calls, a camera uploads a picture, a clock strikes, you write
+on Telegram.
 An agent **subscribes** to a source, and from then on each event the source reports arrives in
 that agent's conversation as a message and wakes it into a turn, whether or not you are there.
 
@@ -113,6 +114,7 @@ An MQTT broker: reports the messages on the topics you name.
 |---|---|---|
 | `url` | | `mqtt://` or `mqtts://` address of the broker. |
 | `topics` | | One MQTT topic filter or a list. |
+| `publish` | none | Topics an agent may send to, to act on a device: `["zigbee2mqtt/+/set"]`. Without it the source only listens. See "Sending through a source". |
 | `username`, `password`, `clientId` | | As the broker wants them. |
 | `minInterval` | | Drop messages that follow the last one on the same topic sooner than this. Use it for devices that report every second. |
 | `insecureTls` | `false` | Accept a certificate that cannot be verified, as devices with self-made ones need. |
@@ -120,8 +122,7 @@ An MQTT broker: reports the messages on the topics you name.
 Event `message`: `{ topic, value }`, where `value` is the parsed JSON, or the text.
 
 The example is a Bambu printer in LAN mode: it is its own broker on port 8883, the user is
-`bblp`, the password is the access code from the printer's screen. To publish MQTT messages
-(switch a lamp), use the `pine:mqtt` plugin from [plugins.md](plugins.md); a source only listens.
+`bblp`, the password is the access code from the printer's screen.
 
 ### webhook
 
@@ -188,6 +189,72 @@ A clock.
 | `payload` | Extra fields to put into each event. |
 
 Event `tick`: `{ scheduled, ...payload }`. A timer is yours, so its events are trusted by default.
+
+### telegram
+
+A Telegram bot: you write to it from wherever you are, and the agent that subscribed answers
+there. It is how you reach your agents when you are away, and how they reach you.
+
+> Watch Telegram: here is the bot's token, 123456789:AAH... You are my assistant there, and
+> what you want to tell me while I am away goes to that chat.
+
+The agent calls `add_source` with the token, you confirm, and it tells you the one remaining
+step: open the bot in Telegram and write anything to it. pine then asks you, in the terminal UI
+and not in Telegram, whether that account may speak as you, naming it. After your yes it is the
+only account the bot listens to. Nobody else gets an answer, and nothing is ever sent to anyone
+else.
+
+```json
+"telegram": { "type": "telegram", "token": "${PINE_SOURCE_TELEGRAM_MAIN_TOKEN}", "trust": "owner", "description": "my Telegram" }
+```
+
+| Option | Default | |
+|---|---|---|
+| `token` | | The bot's token. Create a bot by writing `/newbot` to @BotFather in Telegram; it answers with the token. Kept in `.env`. |
+| `allow` | pairing | Telegram user ids that may talk to the bot, if you know yours. Without it the bot is paired as described above. |
+| `approvals` | `true` | Approval requests are also sent to that chat, with buttons to answer them. `/allow` and `/deny` work too. |
+| `apiBase` | Telegram's | The address of a Bot API server of your own. |
+
+Event `message`: `{ text, name, username, chatId, messageId, images? }`. A photo you send is
+shown to the model.
+
+What makes it different from the other types:
+
+- **It is a conversation.** Your message reaches the agent as your message, not as a report
+  about one, in the conversation that subscribed. The answer is sent back to the chat and is
+  also in that conversation in the terminal UI, so both show the same thread.
+- **It speaks for you.** Telegram vouches for the account and you confirmed it, so what it
+  writes counts as your own words: full tools, no "outside content" mark. That is why the
+  pairing question is asked in pine and why the set-up is always put to you.
+- **It can send.** The agent writes to you on its own with the `send` tool; see below.
+- **Messages are not held back.** The ten-second pause between events that protects a model from
+  a chatty device does not apply unless the subscription sets a `throttle` itself.
+
+Messages are fetched by long polling: one request that Telegram answers the moment something
+arrives. Nothing listens on a port, so it works behind any router. Only one program can poll a
+bot at a time; a second one makes both miss messages.
+
+## Sending through a source
+
+Some sources go both ways. An agent sends through one with the `send` tool, and its `sources`
+tool says which can and what each takes:
+
+| Type | Sending does | The agent passes |
+|---|---|---|
+| `telegram` | A message to you, in your chat with the bot | `text` |
+| `mqtt` | A message to a topic on the source's `publish` list, to act on a device | `data`: `{ "topic": "lamp/set", "message": "on" }` |
+
+> When the print is done, tell me on Telegram and switch the enclosure light off.
+
+Where things may go is the source's to decide, not the agent's: Telegram sends to your chat and
+nowhere else, MQTT only to the topics you listed. An answer to a message that came in through
+Telegram is sent back by itself; `send` is for what the agent says unasked. In a conversation
+that has read outside content, `send` asks you first, like every action that reaches out.
+
+A [route](events.md) can send the same way: `"reply": { "topic": "out/source/telegram" }` puts
+an agent's answer on Telegram, and an event published on `out/source/<name>` goes out through
+that source. The source has to be running, so give it `"start": "always"` if no conversation
+is subscribed to it.
 
 ## Subscribing
 
@@ -284,9 +351,11 @@ up, pine puts the value into `.env` under a name of its own and writes only the 
 PINE_SOURCE_PRINTER_MAIN_PASSWORD=12345678
 ```
 
-A password you tell the agent ("the access code is 12345678") is passed on in the tool call and
-stored this way; the dialog you confirm names the broker and the user, not the password. A
-webhook's secret and an FTP drop's password are made by pine when you give none, and the agent
+A password or token you tell the agent ("the access code is 12345678") is passed on in the tool
+call and stored this way. From then on it is redacted, and pine also takes it out of the event
+log and the task list, where your message had put it before anyone knew it was a secret. It
+stays in that conversation's own history, which the model has already read. The dialog you
+confirm names the broker and the user, not the password. A webhook's secret and an FTP drop's password are made by pine when you give none, and the agent
 is told where you find them (the `.env` entry's name), not what they are. Removing the source
 removes its `.env` entries.
 
@@ -374,7 +443,7 @@ plus the picture, if there is one. If the agent is busy in that conversation, th
 its turn. In the terminal UI it shows as `⚡ door: source/door/upload` with the start of what was
 reported, followed by the agent's answer; if no tab has that conversation open, a line
 `⚡ an event woke main in the conversation ... ▸ open` appears in that agent's tab. To reach you
-when you are not looking, the agent uses a tool, for example `telegram_send`: say so in the note
+when you are not looking, the agent uses its `send` tool with a source that can send, Telegram for example: say so in the note
 or in its `AGENTS.md`.
 
 ## Trust
@@ -394,9 +463,8 @@ text written by other people (issue titles, mail subjects), whatever the secret.
 
 `"separate": true` on a subscription keeps a source out of your conversations altogether: its
 events wake the agent in a conversation of their own (`on-<source>`), and for a source that is
-not yours with the reduced tool set (`untrusted` in `agent.json`: reading files, plus plugin
-tools such as `telegram_send`). The agent then cannot change or run anything because of what an
-event said. Use it for sources that carry strangers' text, and for agents that work unattended
+not yours with the reduced tool set (`untrusted` in `agent.json`: reading files). The agent
+then cannot change or run anything because of what an event said. Use it for sources that carry strangers' text, and for agents that work unattended
 with a lot of access.
 
 A subscription can only be made from a conversation with you, from a shell, or in the
@@ -461,7 +529,9 @@ confirm what `plan` said it will do. In the files it is `{ "type": "doorbell", "
 |---|---|
 | `summary` | One line: what a source of this type reports and what it is for. Agents choose the type by it. |
 | `options` | The options as a JSON schema of an object. Give every property a `description`. `"secret": true` on a property keeps its value in `.env` and out of the configuration. With `"additionalProperties": false` an option that does not exist is refused instead of ignored. |
-| `plan(options, setup)` | Optional. Returns `{ options, does, opens, read?, tell? }`: the options as they are to be stored, what the source will do in plain words (shown in your dialog), whether it reaches something new (then you are asked), a folder the agent should be able to read, and what the agent should pass on to you afterwards. Throw for what cannot work. Without `plan`, a set-up is always put to you. `setup` has the source's `name`, the `agent` and its `workspace`, pine's `home`, `resolve(path)`, `random(bytes)` and `envName(option)`. |
+| `talks` | Optional, `true`: its `message` events are somebody writing to the agent. The event's `text` reaches the agent as a message, the answer goes back through the source, and the default throttle does not apply. |
+| `sends` | Optional. One line for the agent on what sending through it does and what to pass. With it the agent's `send` tool offers the source. |
+| `plan(options, setup)` | Optional. Returns `{ options, does, opens, read?, tell?, owner? }` (`owner: true`: the source itself makes sure who is on the other end, so what it reports counts as your own words; you are told before you confirm): the options as they are to be stored, what the source will do in plain words (shown in your dialog), whether it reaches something new (then you are asked), a folder the agent should be able to read, and what the agent should pass on to you afterwards. Throw for what cannot work. Without `plan`, a set-up is always put to you. `setup` has the source's `name`, the `agent` and its `workspace`, pine's `home`, `resolve(path)`, `random(bytes)` and `envName(option)`. |
 
 A type without a `type` export still works in the configuration, but agents cannot set one up
 by tool call, and pine's log says so at start. For a single source that needs no type, `"use":
@@ -472,7 +542,11 @@ The start function gets a `source` object:
 | On `source` | |
 |---|---|
 | `name`, `options`, `base` | Its name, the keys of its entry that are not pine's own, the folder relative paths are meant from. |
-| `emit(event, payload?)` | Report something. `event` is a short lowercase word. |
+| `emit(event, payload?, opts?)` | Report something. `event` is a short lowercase word. With `opts.reply` (any fields, a chat to answer in for example) the answer of an agent that is woken by it comes back to `onSend`. |
+| `onSend(handler)` | For a source that can also send: called with an agent's answer (`text`, and the fields given as `reply`) and with what an agent sends on its own. Return a line on what was done; throw to refuse. |
+| `on(pattern, handler)` | Look at events of the system, read only: `agent/+/started`, `approval/requested`. |
+| `approvals` | `ask(summary, why)` puts a question of the source's own to you in pine's UI; `pending()` and `decide(id, allow, by)` let it pass on your answer to open requests. |
+| `key` | What it is called in events: its name, or `name@agent` for an agent's own. |
 | `kv.get`, `kv.set` | Private storage that survives restarts. |
 | `dataDir` | A folder of its own. |
 | `media(dir)` | Image files in this folder may be shown to a model when an event lists them in `images: [{ path, mimeType }]`. |
@@ -483,16 +557,18 @@ The start function gets a `source` object:
 
 It runs when the source starts, and may be `async`. If it throws, the source is shown as "not
 running" with the message; the daemon and the other sources carry on. A source type runs inside
-pine with pine's rights, like a plugin, which is why only you can register one.
+pine with pine's rights, which is why only you can register one.
 
-## Sources, routes, plugins: which is which
+## Sources and routes: which is which
 
-- A **source** produces events from the outside world, and agents subscribe to it. This page.
+- A **source** connects pine to something outside: it reports what happens there, agents
+  subscribe to it, and some can also send. This page.
 - A **route** ([events.md](events.md)) is a rule you write in `pine.json`: on these events, set
   state, publish another event, make one model call, or start an agent turn. A subscription is
   the common case of that last one, without writing a rule. Routes can use source events too.
-- A **plugin** ([plugins.md](plugins.md)) is for what goes both ways or adds tools: Telegram as
-  a chat channel, MQTT publishing.
+
+pine once had plugins as a third thing, for Telegram and for MQTT publishing. They are gone:
+both are sources now, so an agent can set them up and see them.
 
 ## When nothing happens
 

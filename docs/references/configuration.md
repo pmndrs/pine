@@ -5,7 +5,7 @@ Everything pine needs is in its home directory: `~/.pine` by default, or `$PINE_
 
 ```
 ~/.pine/
-  pine.json            global settings, routes, schedules, global MCP servers, event sources and plugins
+  pine.json            global settings, routes, schedules, global MCP servers and event sources
   models.json          optional: your own model servers, in pi's format
   .env                 secrets, referenced from the JSON files as ${NAME}
   auth.json            provider credentials, written by `pine login`
@@ -21,7 +21,6 @@ Everything pine needs is in its home directory: `~/.pine` by default, or `$PINE_
       skills/          skills only this agent has
       extensions/      pi extensions only this agent loads
       sessions/        conversation history (written by pine)
-  plugins/             your plugins (a convention; any path works)
   skills/              skills for all agents, once pine.json lists the folder
   sandbox/             per-agent private home and generated sandbox profiles (written by pine)
   data/                event log, task queue, media, control token, files of event sources (written by pine)
@@ -63,7 +62,6 @@ Removing the source removes the entry. See [sources.md](sources.md).
   "sources": {},
   "sourceTypes": {},
   "subscribe": [],
-  "plugins": [],
   "extensions": [],
   "skills": [],
   "routes": [],
@@ -104,7 +102,6 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `sources` | `{}` | Event sources every agent can subscribe to. See [sources.md](sources.md). |
 | `sourceTypes` | `{}` | Source types of your own: a name and the module that implements it, e.g. `{ "doorbell": "./sources/doorbell.ts" }`. The module says which options it takes, and agents can then set up sources of that type by tool call. |
 | `subscribe` | `[]` | Subscriptions for all agents: every agent that can use the source is woken in its main conversation. |
-| `plugins` | `[]` | Global plugins: `"pine:telegram"` or `{ "use": "./plugins/x.ts", "options": {} }`. See [plugins.md](plugins.md). |
 | `extensions` | `[]` | Paths of pi extensions loaded into every agent's sessions. |
 | `skills` | `[]` | Folders of skills available to every agent. |
 | `routes` | `[]` | See [events.md](events.md). |
@@ -124,7 +121,6 @@ Every key is optional; `{}` is a valid agent.
   "tools": ["read", "bash", "edit", "write", "grep", "find", "ls"],
   "mcp": { "library": { "command": "library-mcp" } },
   "globalMcp": ["web"],
-  "plugins": ["./deadlines.ts"],
   "delegates": [],
   "subagents": { "maxParallel": 3 },
   "sandbox": { "network": false, "read": ["~/Documents/law-library"] }
@@ -149,10 +145,8 @@ Every key is optional; `{}` is a valid agent.
 | `tools` | `read`, `bash`, `edit`, `write` | Which of pi's built-in tools the agent gets: any of `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`. |
 | `mcp` | `{}` | MCP servers only this agent has. An entry with the name of a global server replaces it for this agent. An entry with `"session": "<conversation>"` was added for that conversation alone and is removed with it ([setup.md](setup.md)). |
 | `globalMcp` | `true` | `true`: every global server that includes this agent. `false`: none. A list of names: exactly those. |
-| `plugins` | `[]` | Plugins that serve only this agent. |
 | `sources` | `{}` | Event sources only this agent can subscribe to. An entry with `"session": "<conversation>"` was set up for that conversation alone and is removed with it. See [sources.md](sources.md). |
 | `subscribe` | `[]` | What this agent is subscribed to: a list of names, an object with `note`, `when`, `throttle`, `debounce` per source, or a list of entries with `source` and, for one conversation only, `session`. The agent's `subscribe` tool and `pine subscribe` write here. |
-| `globalPlugins` | `true` | `false` keeps the tools and extensions of global plugins out of this agent. |
 | `extensions`, `skills` | `[]` | Further pi extension files and skill folders for this agent. |
 | `bashTimeoutSec` | from `defaults` | Longest shell command. |
 | `bashDeny` | `[]` | Regular expressions; a shell command matching one is refused. A convenience, not a boundary: the sandbox is the boundary. |
@@ -180,7 +174,7 @@ Every key is optional; `{}` is a valid agent.
 | `sandbox.env` | `{}` | Extra environment variables for the agent's shell. Do not put secrets here; the agent can read them. |
 | `trustWorkspace` | `false` | `true` lets pi load `.pi/extensions`, `.pi/settings.json` and skills from the workspace. That is code execution inside the daemon for whoever can write there, the agent included. |
 | `approve` | `[]` | Tool calls that always need your approval: `"tool"` or `"tool:argument-glob"`, for example `"bash:*git push*"`. |
-| `approveWhenTainted` | `["publish_event", "mqtt_publish"]` | Tool calls that need approval once the session has seen outside content. |
+| `approveWhenTainted` | `["publish_event", "send"]` | Tool calls that need approval once the session has seen outside content. |
 | `untrusted` | read-only profile | What a run started by an untrusted event may use: `{ "tools": ["read","grep","find","ls"], "mcp": [], "delegates": [], "publish": [], "stateWrite": false, "subagents": false }`. `false` refuses such runs. |
 
 ## models.json

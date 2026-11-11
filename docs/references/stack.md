@@ -6,10 +6,10 @@
 |---|---|---|
 | Node 24+ | Runtime | Runs the TypeScript sources directly (type stripping). No build, no bundler. |
 | `@earendil-works/pi-coding-agent` 1.5.1 | The agent loop | Sessions, model calls, tool execution, compaction, retries, MCP client, skills, extensions. pine embeds it through its SDK. |
-| `node:sqlite` | Storage | One file, `data/pine.db`: events, tasks, shared state, plugin storage. WAL mode. |
+| `node:sqlite` | Storage | One file, `data/pine.db`: events, tasks, shared state, storage of sources. WAL mode. |
 | `undici` | HTTP client behind `fetch` | pine installs timeouts for the model servers' connection pools; the `web` MCP server uses it for address checks at connect time. |
 | `@earendil-works/pi-mcp` | MCP naming | pi's MCP package; pine uses its function that turns a server name into the prefix of its tool names. |
-| `mqtt` | MQTT client | Only loaded when the MQTT plugin is configured or an `mqtt` source starts. |
+| `mqtt` | MQTT client | Only loaded when an `mqtt` source starts. |
 | `@earendil-works/pi-tui` | Terminal UI toolkit | pi's own: full-screen layout, editor with completion, Markdown rendering. Used by `src/tui/`. |
 | `highlight.js` | Code colours | Colours code blocks in the terminal UI. |
 | `@playwright/mcp` | Browser automation | Started as a child of `mcp/browser.ts`, which filters its tools and proxies its traffic. `pine init` downloads the browser it drives. |
@@ -33,7 +33,7 @@ Every agent session is a pi `AgentSessionRuntime` created in `AgentManager.creat
 - pine's core extension (`coreExtension()`), which registers the agent's MCP servers, replaces
   the shell and file tools with sandboxed ones, adds the `download` tool, appends the `<pine>`
   block to the system prompt (the same text every turn), and gates every tool call;
-- the tools from `tools.ts` and from plugins, and the extensions plugins contribute.
+- the tools from `tools.ts`.
 
 A session costs little: the baseline measured about 8 MB for 50 sessions in one process.
 
@@ -101,5 +101,5 @@ Not verified yet, in rough order of importance:
 5. **Long uptimes.** Weeks of running: database growth, session file growth, MCP servers that
    die and reconnect.
 6. **Other platforms.** There is no sandbox outside macOS; the shell tool is withheld there.
-7. **Not built:** a Slack adapter, a web dashboard, voice. The plugin API is where a Slack
-   adapter would go.
+7. **Not built:** a Slack adapter, a web dashboard, voice. A Slack adapter would be a source
+   type like `telegram`: one that talks and can send.

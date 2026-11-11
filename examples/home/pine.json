@@ -31,7 +31,6 @@
       "description": "every morning at seven. Idle until an agent subscribes: /subscribe morning <what to do>"
     }
   },
-  "plugins": [],
   "routes": [],
   "schedules": []
 }

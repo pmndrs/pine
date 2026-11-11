@@ -48,6 +48,16 @@ export class Bus {
 		this.log = log;
 	}
 
+	/**
+	 * Take a secret out of what is already stored. A token the owner typed into a conversation
+	 * ("here is the bot's token") was in events and tasks before anyone knew it was one.
+	 */
+	scrub(secret: string): void {
+		if (secret.length < 8) return;
+		this.db.prepare("UPDATE events SET payload = replace(payload, ?, '[redacted]') WHERE instr(payload, ?) > 0").run(secret, secret);
+		for (const col of ["prompt", "result", "error", "meta"]) this.db.prepare(`UPDATE tasks SET ${col} = replace(${col}, ?, '[redacted]') WHERE instr(${col}, ?) > 0`).run(secret, secret);
+	}
+
 	publish(topic: string, payload: unknown = null, opts: PublishOptions = {}): PineEvent {
 		if (!topic || /[+#]/.test(topic)) throw new Error(`invalid topic: ${JSON.stringify(topic)}`);
 		const cause = opts.cause ?? undefined;
@@ -166,7 +176,7 @@ export class State {
 	}
 }
 
-/** Private key-value storage for plugins and the daemon (cursors, last-run times). No events. */
+/** Private key-value storage for sources and the daemon (cursors, last-run times). No events. */
 export class Kv {
 	private db: DatabaseSync;
 	constructor(db: DatabaseSync) {

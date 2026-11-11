@@ -244,6 +244,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const mine = host.available(agent.id, session);
 					if (!mine.length) return ok(`No event sources exist yet, so nothing is subscribed to anything and nothing wakes you by itself. You can set one up with add_source when your owner asks you to watch or react to something: a folder, a time (timer), an MQTT device, a webhook, an FTP drop for cameras. The "pine" skill has the details in references/sources.md.`);
 					const all = host.list();
+					const senders = host.senders(agent.id, session);
 					const lines = mine.map((s) => {
 						const info = all.find((x) => x.name === s.name && (x.scope === agent.id || x.scope === "global"));
 						const state = info?.error ? `not running: ${info.error}` : info?.running ? `running${info.last ? `, last event ${new Date(info.last.ts).toLocaleString("sv-SE")}` : ", no events yet"}` : "idle";
@@ -253,7 +254,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 							...(s.global ? [`    global: all agents are subscribed, each woken in its main conversation${session === "main" ? " (for you: this one)" : " (for you: not this one)"}${s.global.note ? `. Note: ${s.global.note}` : ""}`] : []),
 							...(s.elsewhere.length ? [`    other conversations of yours are subscribed on their own: ${s.elsewhere.join(", ")}`] : []),
 						];
-						return `${s.name} (${s.type}${s.description ? `: ${s.description}` : ""}) - ${state}\n${subs.length ? subs.join("\n") : "    nobody of yours is subscribed"}`;
+						const sends = senders.find((x) => x.name === s.name);
+						return `${s.name} (${s.type}${s.description ? `: ${s.description}` : ""}) - ${state}\n${subs.length ? subs.join("\n") : "    nobody of yours is subscribed"}${sends ? `\n    can send (tool: send): ${sends.sends}` : ""}`;
 					});
 					const hereToo = mine.filter((s) => s.local || (session === "main" && (s.agent || s.global))).length;
 					const lead = session === "main" ? "" : hereToo ? "" : " THIS conversation is not subscribed to anything: to be woken here, subscribe (without a scope), also to a source your main conversation already listens to.";
@@ -329,9 +331,9 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const facts = [...plan.does];
 					// Set up for this conversation alone: other conversations do not see it, and it goes when this one is removed.
 					const entry: Record<string, unknown> = { type, description: p.description, ...(scope === "local" ? { session: here() } : {}), ...plan.options };
-					if (p.own) {
+					if (p.own || plan.owner) {
 						entry.trust = "owner";
-						facts.push("treat what it reports like your own messages (full tools when it wakes the agent)");
+						if (!plan.owner) facts.push("treat what it reports like your own messages (full tools when it wakes the agent)");
 					}
 					// A source for all agents lives in pine.json; one for this agent or this conversation in its agent.json.
 					const owner = scope === "global" ? undefined : agent.id;
@@ -349,6 +351,23 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const kept = scope === "local" ? " It is this conversation's own: it is removed when this conversation is removed." : "";
 					if (!p.note) return ok(`Added the event source "${p.name}" (${made.type}).${extra}${kept} Nobody is subscribed yet; subscribe when you know what to do with its events.`);
 					return ok(`Added the event source "${p.name}" (${made.type}).${extra}${kept} ${await subscribeAs(scope, p.name, { note: p.note, throttle: p.throttle }, signal, ask)}`);
+				},
+			}),
+			defineTool({
+				name: "send",
+				label: "Send through a source",
+				description: "Send something out through an event source that can also send: a message to your owner on Telegram, a command to a device over MQTT. Use it to reach your owner when they are not in this conversation, or to act on a device. The sources tool lists which sources can send and what each takes. An answer to a message that came in through a source is sent back by itself; do not send it again.",
+				parameters: Type.Object({
+					source: Type.String({ description: "Name of the source to send through" }),
+					text: Type.Optional(Type.String({ description: "The message, for a source that sends messages" })),
+					data: Type.Optional(Type.String({ description: 'Further fields as a JSON object, for a source that takes them, e.g. {"topic": "lamp/set", "message": "on"}' })),
+				}),
+				execute: async (_id, p) => {
+					run();
+					const extra = parseLoose(p.data);
+					if (p.data !== undefined && (!extra || typeof extra !== "object" || Array.isArray(extra))) throw new Error('"data" must be a JSON object');
+					const done = await host.send(agent.id, p.source, { ...(extra as Record<string, unknown> | undefined), ...(p.text !== undefined ? { text: p.text } : {}), agent: agent.id }, here());
+					return ok(`${p.source}: ${done}`);
 				},
 			}),
 			defineTool({

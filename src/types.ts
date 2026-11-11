@@ -9,7 +9,7 @@ export interface PineEvent {
 	id: number;
 	ts: number;
 	topic: string;
-	/** Who published it: a plugin name, "router", "timer", "http", or "agent:<id>". */
+	/** Who published it: "source:<name>", "router", "timer", "http", or "agent:<id>". */
 	source: string;
 	payload: unknown;
 	/** Id of the event that led to this one. */

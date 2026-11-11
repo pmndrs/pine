@@ -248,7 +248,7 @@ password; do not give it to an agent that also handles untrusted events.
 
 ## Telegram, MQTT and other outputs
 
-Sending a Telegram message or an MQTT command is offered to agents as plain tools
-(`telegram_send`, `mqtt_publish`) by the plugins that own those connections, not as MCP servers:
-the daemon already holds the connection, and the plugin enforces who may be messaged and which
-topics may be written. See [plugins.md](plugins.md).
+Sending a Telegram message or an MQTT command is not an MCP server. Both are event sources
+that can also send, and an agent uses its `send` tool for them: the daemon already holds the
+connection, and the source decides who may be messaged and which topics may be written. See
+"Sending through a source" in [sources.md](sources.md).

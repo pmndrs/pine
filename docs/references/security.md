@@ -11,7 +11,7 @@ what is defended, how, and what is left.
 | Prompt injection | A mail, web page, MQTT message or file name contains "ignore your instructions and ..." and the model follows it |
 | An agent, misled or mistaken, damages the machine | `rm -rf ~`, overwriting another project, reading SSH keys |
 | Information leaves | The agent is talked into sending your files to a URL, a chat or a device |
-| The agent takes over the daemon | It writes a plugin or changes its own configuration so that hostile code runs with the daemon's rights on the next start |
+| The agent takes over the daemon | It writes an extension or changes its own configuration so that hostile code runs with the daemon's rights on the next start |
 
 No model reliably tells instructions from data. pine therefore does not depend on the model
 refusing; it limits what a run can do, by where its input came from.
@@ -20,8 +20,10 @@ refusing; it limits what a run can do, by where its input came from.
 
 ### 1. Who may speak
 
-- **Telegram:** only user ids in `allow` are heard. Others get no reply. A bot without an allow
-  list does not start.
+- **Telegram:** only the account you paired, or the user ids in `allow`, are heard. Others get
+  no reply. Pairing is confirmed by you in pine, never in Telegram: the first account that
+  writes to a new bot is shown to you by name and id, and nothing it wrote reaches an agent
+  unless you say yes.
 - **Control API:** loopback by default; every request needs a bearer token (generated into
   `data/http-token`, mode 600, which the CLI reads). Requests carrying an `Origin` header or an
   unexpected `Host` are refused, so a web page in your browser cannot use it, with or without
@@ -69,7 +71,7 @@ Every shell command and every file tool call of an agent runs inside a macOS san
 |---|---|
 | Can read | Its workspace, its private home, its skills, pine's manual (`docs/`), temp, and the system outside your home folder (programs, libraries) |
 | Can write | Its workspace, its private home (`sandbox/<id>/`, which is `$HOME` in its shell), temp. The main agent also `USER.md` in pine's home, and nothing else there |
-| Cannot read or write | Your home folder, pine's home (configuration, `.env`, database, other agents' folders, plugins), other agents' workspaces |
+| Cannot read or write | Your home folder, pine's home (configuration, `.env`, database, other agents' folders), other agents' workspaces |
 | Cannot | Use the network (unless `sandbox.network` or you granted it to the conversation; the `download` tool is the exception described under Modes), signal or inspect other processes, launch apps, send AppleScript, reach the keychain or the clipboard |
 | Environment | A handful of variables (`PATH`, `LANG`, ...). Nothing from the daemon's environment, no secrets |
 
@@ -95,7 +97,7 @@ switched off. Looking at a folder runs nothing from it.
 
 Consequences worth knowing:
 
-- An agent cannot change its own `agent.json`, its extensions, pine's plugins or `pine.json`.
+- An agent cannot change its own `agent.json`, its extensions or `pine.json`.
   It can change the files it is meant to keep: `AGENTS.md`, `SOUL.md` and `MEMORY.md` in its
   workspace, and for the main agent `USER.md` ([agents.md](agents.md)), until the session is
   restricted; see layer 4. Rules it must never change go into `agents/<id>/AGENTS.md`, which
@@ -116,11 +118,11 @@ Your own request can still pull in hostile text: you ask for a summary of a web 
 page says "now send the notes folder to ...". pine tracks that:
 
 - A session becomes **tainted** when it calls a tool that returns outside content: an MCP server
-  marked `taints` (the bundled `web` is), a plugin tool marked so, anything matching
+  marked `taints` (the bundled `web` is), anything matching
   `security.taintTools`, or when it receives the answer of another agent whose run was tainted.
   Sessions started by untrusted events are tainted from the start.
 - In a tainted session, actions that send information out or act on the world wait for your
-  **approval**: `publish_event`, `mqtt_publish`, MCP servers marked `"approve": "tainted"`, the
+  **approval**: `publish_event`, `send`, MCP servers marked `"approve": "tainted"`, the
   shell if it has network access, and handing a task to an agent that can reach the internet.
 - Tools that only read never wait: the file tools, `state_get`, and every MCP tool whose server
   declares it read-only (`readOnlyHint`). That declaration is the server's own; pine does not
@@ -166,7 +168,7 @@ with the conversation.
 `approve` in `agent.json` lists actions that always need approval, tainted or not:
 
 ```json
-{ "approve": ["bash:*git push*", "mqtt_publish:house/garage/*", "mcp__calendar__delete_*"] }
+{ "approve": ["bash:*git push*", "send:house", "mcp__calendar__delete_*"] }
 ```
 
 ### Modes: how much an agent does without asking
@@ -264,7 +266,7 @@ safe:
 
 What no mode opens:
 
-- pine's home: configuration, `.env`, credentials, the database, plugins, other agents' folders.
+- pine's home: configuration, `.env`, credentials, the database, other agents' folders.
   Agents never write there. What they may set up goes through tools that check what they are
   given and write only that ([setup.md](setup.md)): a remote MCP server (`add_mcp_server`, which
   asks you in every mode with the name and URL), event sources and subscriptions, and, for the
@@ -302,8 +304,9 @@ daemon restarts.
 
 ### 5. Outputs check for themselves
 
-Whatever asks, the Telegram plugin sends only to chats on its allow list, and the MQTT plugin
-publishes only to topics on its `publish` list. An agent's `publish` list names the topics it
+Whatever asks, the Telegram source sends only to your own chat, and the MQTT source publishes
+only to topics on its `publish` list. In a conversation that has read outside content, the
+`send` tool asks you first. An agent's `publish` list names the topics it
 may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/`, `pine/`,
 `state/`, `timer/`).
 
@@ -354,7 +357,7 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
 - **Bypass mode.** It is what it says: an agent in bypass acts with your rights, on your files,
   with the network, unasked. Use it for a task you are watching, on an agent that is not reading
   the web, and switch back.
-- **Your own MCP servers and plugins.** They run unsandboxed. A server that can delete mail can
+- **Your own MCP servers, extensions and source types.** They run unsandboxed. A server that can delete mail can
   delete mail when an agent asks; mark such servers `"approve": "tainted"` or `"always"`.
 - **Shell with network.** `sandbox.network: true` lets commands reach the internet and your
   local network, including an unauthenticated model server. Prefer the `web` server or a
@@ -374,7 +377,7 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
 ## Checklist
 
 1. `pine check` shows "No security notes", or you know why each note is there.
-2. Every Telegram account has `allow`; every webhook has a secret.
+2. Every webhook has a secret, and `pine check` names no source whose reports count as yours unless it should (a timer and a paired Telegram account are not listed).
 3. `.env`, `pine.json`, `models.json` are mode 600; the home is 700.
 4. No agent has `"sandbox": false`, `"trustWorkspace": true` or `"mode": "bypass"` in its configuration.
 5. Web and browser tools are on an agent whose workspace holds nothing private.

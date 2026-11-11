@@ -3,18 +3,18 @@
 ## The picture
 
 ```
-            adapters (plugins)                  the daemon                        model server
+              event sources                     the daemon                        model server
  ┌────────────────────────────────┐   ┌──────────────────────────────┐      ┌──────────────────┐
  │ telegram   long polling        │   │  event log (SQLite)          │      │ llama-server or  │
  │ mqtt       broker subscription │──►│  topic · payload · trust     │      │ any OpenAI-style │
- │ watch      new files           │   │        │                     │      │ endpoint         │
+ │ folder     new files           │   │        │                     │      │ endpoint         │
  │ http       webhooks, API       │   │        ▼                     │      └────────▲─────────┘
- │ timers     cron, intervals     │   │  routes                      │               │
+ │ timers     cron, intervals     │   │  routes and subscriptions    │               │
  └────────────────────────────────┘   │   when · debounce · throttle │               │ model slots
              ▲                        │        │                     │               │ (priority queue)
              │                        │        ├─ set state          │               │
-             │   out/telegram/...     │        ├─ publish event      │               │
-             │   out/mqtt             │        ├─ one model call ────┼───────────────┤
+             │   answers, and what    │        ├─ publish event      │               │
+             │   agents send          │        ├─ one model call ────┼───────────────┤
              └────────────────────────┤        └─ agent task         │               │
                                       │             │                │               │
                                       │   ┌─────────▼────────────┐   │               │
@@ -24,7 +24,7 @@
                                       │   ┌─────────▼────────────┐   │               │
                                       │   │ pi session           │───┼───────────────┘
                                       │   │  workspace, AGENTS.md│   │
-                                      │   │  tools, MCP, plugins │   │
+                                      │   │  tools, MCP          │   │
                                       │   │  policy gate         │   │
                                       │   └──┬───────────────┬───┘   │
                                       │      │ delegate      │ subagent
@@ -40,8 +40,8 @@ Everything that happens is an event. An event has:
 | Field | Meaning |
 |---|---|
 | `id`, `ts` | Position in the log and time |
-| `topic` | For example `telegram/main/message`, `mqtt/house/door`, `agent/gonzo/done` |
-| `source` | Who published it: a plugin name, `source:<name>`, `http`, `api`, `timer`, `route:<name>`, `agent:<id>` |
+| `topic` | For example `source/telegram/message`, `source/house/message`, `agent/gonzo/done` |
+| `source` | Who published it: `source:<name>`, `http`, `api`, `timer`, `route:<name>`, `agent:<id>` |
 | `payload` | Any JSON |
 | `trust` | `owner` or `untrusted`; set by the publisher according to how the content arrived |
 | `cause`, `hops` | The event that led to this one, and how many agent or route steps lie between it and an outside trigger |
@@ -102,8 +102,8 @@ When the daemon restarts, queued tasks run; a task that was running is marked fa
 ## Answers
 
 When a task ends, pine publishes `agent/<id>/done` or `agent/<id>/failed`. If the task has a
-reply target, the final text is also published there, for example on `out/telegram/main` with
-the chat id, and the Telegram plugin sends it. An agent that answers exactly `NO_REPLY` sends
+reply target, the final text is also published there, for example on `out/source/telegram` with
+the chat id, and the Telegram source sends it. An agent that answers exactly `NO_REPLY` sends
 nothing, which is how routine checks stay quiet.
 
 ## Agents working together
@@ -115,8 +115,9 @@ nothing, which is how routine checks stay quiet.
   returns their final answers. It keeps large searches out of the caller's context.
 - Shared state (`state_get`, `state_set`) holds small facts such as `house/mode` that every agent
   can read and that can be shown to an agent in every turn.
-- `publish_event` lets an agent put an event on a topic you allowed, which routes and plugins
-  then act on.
+- `publish_event` lets an agent put an event on a topic you allowed, which routes then act on.
+- `send` lets an agent reach out through a source that can send: a message to you on Telegram,
+  a command to a device over MQTT.
 
 Loops are cut: a delegation chain cannot revisit an agent or exceed
 `limits.maxDelegationDepth`, and events more than `limits.maxEventHops` steps away from an

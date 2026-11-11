@@ -236,7 +236,7 @@ are JSON with `Content-Type: application/json`.
   daemon. Queued tasks survive the restart. MCP servers, event sources, subscriptions and new
   agents need neither an edit nor a restart: ask an agent ([setup.md](setup.md)), or use
   `pine mcp add` and `pine subscribe`.
-- **An agent is stuck:** `pine status`, then `pine cancel <id>`. In Telegram: `/stop`.
+- **An agent is stuck:** `pine status`, then `pine cancel <id>`.
 - **An agent keeps asking for approval:** its session is tainted. `/reset` or `pine reset`.
 - **Back up:** the home directory. `data/pine.db` holds events and tasks, `agents/*/sessions`
   the conversations. Workspaces are wherever you put them.
@@ -256,7 +256,7 @@ are JSON with `Content-Type: application/json`.
 | The agent says a file is "not permitted" | It is outside the workspace. In `auto` mode it can ask you with `request_access`; to open a folder for good, use `sandbox.read` / `sandbox.write`. |
 | `git` complains about identity | The agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
 | A command needs the network | `sandbox.network: true` for that agent, or better a `commands` tool for that one command. |
-| Telegram bot does not react | Your user id is not in `allow` (set `logLevel` to `debug` and look for "ignored message from user"), or another program polls the same bot token. |
+| Telegram bot does not react | `pine sources`: is the `telegram` source running, and is a conversation subscribed? A new bot waits for you to confirm your account in pine (an approval request in the terminal UI, or `pine approvals`). Otherwise another program polls the same bot token. |
 | An event arrives but no task starts | See "When nothing happens" in [events.md](events.md) for routes and in [sources.md](sources.md) for subscriptions. |
 | The first answer after a pause is slow | The session was closed after `idleMs` and is being resumed; MCP servers start again. |
 
@@ -265,12 +265,12 @@ are JSON with `Content-Type: application/json`.
 | OpenClaw | pine |
 |---|---|
 | Agents in `openclaw.json` with `workspace-*` folders | One folder per agent under `agents/`; `workspace` points at the repository |
-| Telegram `bindings` | `"agent"` on a Telegram account |
+| Telegram `bindings` | A `telegram` source the agent sets up when you ask it to, and is subscribed to |
 | `SOUL.md`, `AGENTS.md`, `MEMORY.md` | The same three names in the agent's workspace, read into its prompt and written by the agent |
 | `USER.md` | One `USER.md` in pine's home for all agents, kept by the main agent |
 | `IDENTITY.md`, `TOOLS.md`, daily memory files | Not read by pine. Fold what matters into `SOUL.md`, `AGENTS.md` or `MEMORY.md`; other notes are ordinary files in the workspace |
 | Cron jobs | A `timer` source the agent subscribes to, or `schedules` plus a route |
 | Heartbeat | A `timer` source with `every`, subscribed with a note that ends in "reply NO_REPLY if nothing needs attention" |
 | `/hooks/*` mappings | A `webhook` source the agent subscribes to, or `http.hooks` plus a route |
-| Managed extensions that watch something and message Telegram themselves | An event source the agent subscribes to (a folder, an FTP drop, MQTT), or a plugin that publishes events and routes that decide. The agent then knows what happened |
+| Managed extensions that watch something and message Telegram themselves | An event source the agent subscribes to (a folder, an FTP drop, MQTT), and the `send` tool for what it reports to you on Telegram. The agent then knows what happened |
 | Skills | Skills, same format |

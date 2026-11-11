@@ -56,12 +56,12 @@ test("the limiter orders by priority and lends a slot while a run waits for othe
 
 test("configuration problems are reported together and name the file", async () => {
 	const h = await harness({ agents: { main: {} }, start: false });
-	fs.writeFileSync(path.join(h.home, "pine.json"), JSON.stringify({ main: "nobody", routes: [{ on: "x", agent: "ghost" }, { on: "y" }], mcp: { bad: {} }, http: { hooks: { open: {} } }, plugins: [{}] }));
+	fs.writeFileSync(path.join(h.home, "pine.json"), JSON.stringify({ main: "nobody", routes: [{ on: "x", agent: "ghost" }, { on: "y" }], mcp: { bad: {} }, http: { hooks: { open: {} } }, plugins: ["pine:telegram"] }));
 	fs.writeFileSync(path.join(h.home, "agents", "main", "agent.json"), JSON.stringify({ delegates: ["ghost"], token: "${PINE_TEST_UNSET_VAR}" }));
 	assert.throws(() => loadConfig(h.home), (e: any) => {
 		assert.ok(e instanceof ConfigError);
 		const all = e.problems.join("\n");
-		for (const expected of ['main agent "nobody"', 'unknown agent "ghost"', "needs one of agent, call, publish, set", 'mcp.bad needs "command", "url" or "pine"', "PINE_TEST_UNSET_VAR is not set", 'needs a "secret"', 'needs "use"', "no model"]) assert.ok(all.includes(expected), `missing: ${expected}\n${all}`);
+		for (const expected of ['main agent "nobody"', 'unknown agent "ghost"', "needs one of agent, call, publish, set", 'mcp.bad needs "command", "url" or "pine"', "PINE_TEST_UNSET_VAR is not set", 'needs a "secret"', "pine.json: plugins: plugins are gone. Telegram, MQTT and watched folders are event sources now", "no model"]) assert.ok(all.includes(expected), `missing: ${expected}\n${all}`);
 		return true;
 	});
 	await h.close();

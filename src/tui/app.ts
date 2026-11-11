@@ -627,7 +627,7 @@ class ApprovalDialog implements Component {
 		const body = [
 			c.bold(c.yellow("Approval needed")),
 			"",
-			`${c.gray("agent ")} ${this.req.agent} ${c.gray(`(task #${this.req.task})`)}`,
+			`${c.gray("agent ")} ${this.req.agent}${this.req.task ? ` ${c.gray(`(task #${this.req.task})`)}` : ""}`,
 			`${c.gray("action")} ${c.bold(String(this.req.tool))}`,
 			...String(this.req.summary ?? "").split("\n").slice(0, 8).flatMap((l) => wrapTextWithAnsi(`  ${l}`, inner)).slice(0, 12),
 			"",
@@ -1177,7 +1177,7 @@ export class PineTui {
 
 	/** An event that woke the agent, shown as what it is and not as something you typed: the source, and the start of what it reported. */
 	private eventLine(tab: Tab, label: string, prompt: string): void {
-		const body = prompt.replace(/^\[You are subscribed to[\s\S]*?\]\n\n/, "").replace(/^\[event on [^\n]*\]\n/, "").replace(/^Event [^\n]*:\n/, "");
+		const body = prompt.replace(/^\[(?:You are subscribed to|Your owner wrote|Somebody wrote)[\s\S]*?\]\n\n/, "").replace(/^\[event on [^\n]*\]\n/, "").replace(/^Event [^\n]*:\n/, "");
 		// Paths under the user's home are shown the short way, as one would type them.
 		this.say(tab, `${c.yellow("⚡")} ${c.bold(label)}\n${c.gray(`  ${short(oneLine(body).replaceAll(os.homedir(), "~"), 300)}`)}`);
 	}

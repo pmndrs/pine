@@ -29,7 +29,7 @@ src/
   cli.ts            command line; the only file that calls process.exit
   pine.ts           startPine(): builds and wires everything, returns a handle with stop()
   config.ts         loads and validates pine.json, agent.json, .env; all defaults live here
-  store.ts          SQLite: event log (Bus), shared state (State), plugin storage (Kv), tasks
+  store.ts          SQLite: event log (Bus), shared state (State), private storage (Kv), tasks
   agents.ts         AgentManager: task queue, pi sessions, conversations, the policy gate, the download tool, context block
   tools.ts          delegate, subagent, publish_event, request_access, state_get, state_set, and the setup tools
                     (add_mcp_server, remove_mcp_server, sources, subscribe, unsubscribe, add_source, remove_source, create_agent)
@@ -38,15 +38,13 @@ src/
   sandbox-fs.ts     read/write/edit/grep/find/ls executed through sandbox-exec
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
   source-types.ts   what a source type module declares: summary, options schema, plan()
-  sources/          the built-in source types: folder, mqtt, webhook, ftp, timer
+  sources/          the built-in source types: folder, mqtt, webhook, ftp, timer, telegram
   env-file.ts       sets and removes entries in .env (secrets of sources that agents set up)
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
   router.ts         routes: filter, debounce, set / publish / call / agent
   timers.ts         schedules (cron and intervals)
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   http.ts           control API and webhooks
-  plugins.ts        plugin loader and the API plugins get
-  plugins/          built-in plugins: telegram, mqtt, watch
   limiter.ts        model slots with priority
   login.ts          `pine login`: pi's sign-in flows, stored in <home>/auth.json
   mcp-config.ts     add/remove/list MCP servers in the files; runs pi's `mcp` CLI for state and OAuth sign-in
@@ -68,7 +66,7 @@ docs/               SKILL.md index and references/
 These are invariants. A change that breaks one needs a test that shows why it is still safe.
 
 1. **Nothing an agent can write is ever executed or trusted by the daemon.** Agents write only
-   to their workspace, their sandbox home and temp. Plugins, extensions, `agent.json` and
+   to their workspace, their sandbox home and temp. Extensions, `agent.json` and
    `pine.json` live elsewhere in pine's home, which the sandbox closes. Agents change
    configuration only through the setup tools in `src/tools.ts` (`add_mcp_server`,
    `remove_mcp_server`, `add_source`, `remove_source`, `subscribe`, `unsubscribe`, and for the
@@ -88,10 +86,11 @@ These are invariants. A change that breaks one needs a test that shows why it is
    produces a clear error early; do not rely on it. Never add a tool that reads or writes files in
    the daemon process on a path the model chose.
 3. **Trust comes from where an event entered, never from what it says.** Out of the box four
-   things publish `trust: "owner"`: an allow-listed Telegram user, the authenticated control API,
-   a schedule, and a `timer` source. Everything else is `untrusted` unless the configuration opts
-   in (`trust` on a route, on an MQTT plugin subscription, or on a source). `audit()` reports the
-   opt-ins on routes and MQTT plugin subscriptions; it does not look at sources yet. Children
+   things publish `trust: "owner"`: a Telegram account the owner paired in pine (or listed), the
+   authenticated control API, a schedule, and a `timer` source. Everything else is `untrusted`
+   unless the configuration opts in (`trust` on a route or on a source). A source type may vouch
+   for its sender (`owner` in its plan), which the owner is told before confirming. `audit()`
+   reports the opt-ins on routes and on sources other than timers and Telegram. Children
    inherit the weaker trust (`AgentManager.submit`).
 4. **Untrusted runs get their capabilities by registration.** Tools and MCP servers that the
    untrusted profile does not list are not registered in that session at all, and the session
@@ -102,10 +101,13 @@ These are invariants. A change that breaks one needs a test that shows why it is
    `approveWhenTainted` list in `config.ts`.
 6. **Secrets stay in `.env`.** They are interpolated into the configuration and never exported to
    `process.env`; `shellEnv()` builds the environment for child processes from an allow-list.
-   Anything a plugin holds should be registered with `pine.secret()` so it is redacted from
-   events and logs.
-7. **Outbound adapters check their own allow-lists.** Telegram sends only to `allow` and `chats`;
-   MQTT publishes only to `publish` topics. Do not move those checks into routes or prompts.
+   Anything a source holds should be registered with `source.secret()` so it is redacted from
+   events and logs. A secret an agent passes to `add_source` was typed into a conversation
+   first: `SourceHost.add` redacts it from then on and scrubs it from stored events and tasks.
+7. **A source that sends decides where to.** Telegram sends only to the owner's chat; MQTT
+   publishes only to `publish` topics. Do not move those checks into routes, prompts or the
+   `send` tool. There is one way to connect pine to something outside, in or out: a source
+   type in `src/sources/` with a schema. Do not add a second mechanism beside it.
 8. **Web access never reaches the local network.** `mcp/web.ts` checks addresses when it
    connects; `mcp/browser.ts` sends all browser traffic through its guard proxy and withholds the
    Playwright tools in `ALWAYS_BLOCKED`. When Playwright MCP is upgraded, list its tools again

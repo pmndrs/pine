@@ -12,18 +12,15 @@ A topic is a slash-separated name. Patterns use `+` for exactly one level and `#
 |---|---|
 | `cam/front/motion` | only that topic |
 | `cam/+/motion` | `cam/front/motion`, `cam/back/motion` |
-| `mqtt/#` | everything below `mqtt`, and `mqtt` itself |
+| `source/#` | everything below `source`, and `source` itself |
 | `#` | everything |
 
 Where events come from:
 
 | Source | Topics | Trust |
 |---|---|---|
-| Telegram plugin | `telegram/<account>/message` | owner (only allow-listed users are heard at all) |
-| MQTT plugin | `mqtt/<mqtt topic>` | untrusted |
-| watch plugin | `file/<name>/added` | untrusted |
 | Webhook `POST /hook/<name>` | `hook/<name>` (or the hook's `topic`) | untrusted |
-| Event sources ([sources.md](sources.md)) | `source/<name>/<event>`, or `source/<name>@<agent>/<event>` for an agent's own | untrusted; owner for a `timer` and for a source marked `"trust": "owner"` |
+| Event sources ([sources.md](sources.md)) | `source/<name>/<event>`, or `source/<name>@<agent>/<event>` for an agent's own | untrusted; owner for a `timer`, for a paired `telegram` account, and for a source marked `"trust": "owner"` |
 | `pine emit`, `POST /events` | whatever you name | owner |
 | Schedules | `timer/<name>` | owner |
 | Agents (`publish_event`) | topics in the agent's `publish` list | owner, or untrusted if the run was restricted |
@@ -36,7 +33,7 @@ bin/pine events -f
 ```
 
 ```bash
-bin/pine events --topic "mqtt/#" --limit 50
+bin/pine events --topic "source/#" --limit 50
 ```
 
 ## Routes
@@ -46,15 +43,19 @@ A route is an entry in `routes` in `pine.json`.
 ```json
 {
   "name": "front-door",
-  "on": "mqtt/house/door/front",
-  "when": { "payload.value.open": true, "state.house/mode": "away" },
+  "on": "source/house/message",
+  "when": { "payload.topic": "house/door/front", "payload.value.open": true, "state.house/mode": "away" },
   "throttleMs": "5m",
   "agent": "house",
   "prompt": "The front door was opened at {{time}} while the house is in away mode.",
   "session": "new",
-  "reply": { "topic": "out/telegram/main" }
+  "reply": { "topic": "out/source/telegram" }
 }
 ```
+
+Here `house` is an `mqtt` source and `telegram` a `telegram` source ([sources.md](sources.md)).
+A route does not subscribe to anything, so a source it relies on needs `"start": "always"`
+unless a conversation is subscribed to it anyway.
 
 | Key | Meaning |
 |---|---|
@@ -117,9 +118,9 @@ A full agent turn costs seconds of model time. Most events do not need one.
 
 ```json
 [
-  { "on": "mqtt/house/mode", "set": { "house/mode": "{{payload.value}}" } },
+  { "on": "source/house/message", "when": { "payload.topic": "house/mode" }, "set": { "house/mode": "{{payload.value}}" } },
 
-  { "on": "file/cam/added",
+  { "on": "source/cam/added",
     "debounceMs": "4s",
     "call": { "system": "You look at one camera image. Answer in one line: PERSON, VEHICLE, ANIMAL or NOTHING, then a short description.",
               "prompt": "Camera file {{payload.file}}" },
@@ -129,7 +130,7 @@ A full agent turn costs seconds of model time. Most events do not need one.
     "when": { "payload.verdict": { "regex": "^(PERSON|VEHICLE)" }, "state.house/mode": "away" },
     "agent": "house", "session": "new",
     "prompt": "Camera saw: {{payload.verdict}} ({{payload.file}}). The house is in away mode.",
-    "reply": { "topic": "out/telegram/main" } }
+    "reply": { "topic": "out/source/telegram" } }
 ]
 ```
 
@@ -164,7 +165,7 @@ A schedule only publishes an event. Pair it with a route:
 ```json
 { "on": "timer/morning", "agent": "main", "session": "new",
   "prompt": "Prepare the morning brief: calendar, open tasks, anything the house agent recorded overnight. Reply NO_REPLY if there is nothing worth reading.",
-  "reply": { "topic": "out/telegram/main" } }
+  "reply": { "topic": "out/source/telegram" } }
 ```
 
 ## Webhooks

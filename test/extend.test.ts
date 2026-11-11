@@ -42,41 +42,6 @@ test("MCP servers: global and per-agent, and their processes end with the sessio
 	await until(() => !alive(persistentPid), 3000, "the MCP server to exit when the daemon stops");
 });
 
-test("plugins: global ones serve every agent, an agent's own only that agent", async () => {
-	const globalPlugin = `export default (pine) => {
-	pine.tool({ name: "hello_tool", description: "says hello", parameters: { type: "object", properties: { who: { type: "string" } }, required: ["who"] }, execute: (p, ctx) => "hello " + p.who + " from " + ctx.agent + " (" + pine.options.greeting + ")" });
-	pine.extend((pi, agent) => pi.on("before_agent_start", async (e) => ({ systemPrompt: e.systemPrompt + "\\nGLOBAL-PLUGIN-FOR-" + agent.id })));
-	pine.bus.subscribe("test/ping", (e) => void pine.bus.publish("test/pong", { n: e.payload.n + 1 }, { cause: e }));
-	pine.onStop(() => require("node:fs").writeFileSync(pine.home + "/plugin-stopped", "1"));
-};
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);`;
-	const agentPlugin = `export default (pine) => { pine.tool({ name: "law_tool", description: "law for " + pine.agent, parameters: { type: "object", properties: {} }, execute: () => "paragraph 1" }); };`;
-	const h = await harness({
-		pine: { plugins: [{ use: "./plugins/hello.ts", options: { greeting: "moin" } }] },
-		files: { "plugins/hello.ts": globalPlugin },
-		agents: { main: {}, gonzo: { agent: { plugins: ["./law.ts"] }, dirFiles: { "law.ts": agentPlugin } }, solo: { agent: { globalPlugins: false } } },
-	});
-	const r = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "hello_tool", args: { who: "sam" } }] }]), ...owner });
-	assert.equal(r.text, "FINAL:: hello sam from main (moin)");
-	await h.pine.agents.run({ agent: "gonzo", prompt: mockMsg([{ tools: [{ name: "law_tool", args: {} }] }]), ...owner });
-	await h.pine.agents.run({ agent: "solo", prompt: "hi", ...owner });
-	const [main, gonzo, solo] = ["MAIN", "GONZO", "SOLO"].map((p) => h.requestsFor(`PERSONA-${p}`)[0]);
-	assert.ok(h.toolsOffered(main).includes("hello_tool") && !h.toolsOffered(main).includes("law_tool"));
-	assert.ok(h.toolsOffered(gonzo).includes("hello_tool") && h.toolsOffered(gonzo).includes("law_tool"));
-	assert.ok(!h.toolsOffered(solo).includes("hello_tool"));
-	assert.ok(h.system(main).includes("GLOBAL-PLUGIN-FOR-main") && h.system(gonzo).includes("GLOBAL-PLUGIN-FOR-gonzo") && !h.system(solo).includes("GLOBAL-PLUGIN"));
-
-	const pong = h.pine.bus.waitFor("test/pong");
-	const ping = h.pine.bus.publish("test/ping", { n: 1 });
-	const e = await pong;
-	assert.deepEqual([e.payload, e.source, e.cause], [{ n: 2 }, "hello", ping.id]);
-	const home = h.home;
-	const marker = path.join(home, "plugin-stopped");
-	await h.pine.stop();
-	assert.ok(fs.existsSync(marker), "onStop ran");
-	await h.close();
-});
-
 test("pi extensions and skills come from the configuration, never from the workspace", async () => {
 	const ext = (mark: string) => `export default function (pi) { pi.on("before_agent_start", async (e) => ({ systemPrompt: e.systemPrompt + "\\n${mark}" })); }`;
 	const skill = (name: string, mark: string) => `---\nname: ${name}\ndescription: ${mark}\n---\nbody\n`;

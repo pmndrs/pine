@@ -160,7 +160,7 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 	const restricted = variant === true || variant === "restricted";
 	if (variant === "open") {
 		// Bypass mode. The owner has said: act with my rights. What stays closed is what would let an
-		// agent rewrite the system that runs it: pine's home (configuration, secrets, plugins) and pine's code.
+		// agent rewrite the system that runs it: pine's home (configuration, secrets) and pine's code.
 		return `${[
 			"(version 1)",
 			"(allow default)",
@@ -247,7 +247,7 @@ export function matchesToolPattern(patterns: readonly string[], tool: string, su
 /** The part of a tool call a person needs to see to judge it. */
 export function toolSubject(tool: string, input: any): string {
 	if (!input || typeof input !== "object") return "";
-	const v = tool === "download" ? input.url : (input.command ?? input.topic ?? input.agent ?? input.path ?? input.url ?? input.key ?? input.query);
+	const v = tool === "download" ? input.url : tool === "send" ? input.source : (input.command ?? input.topic ?? input.agent ?? input.path ?? input.url ?? input.key ?? input.query);
 	return typeof v === "string" ? v : "";
 }
 
@@ -375,9 +375,9 @@ export function audit(cfg: PineConfig): string[] {
 	}
 	if (cfg.http && !["127.0.0.1", "localhost", "::1"].includes(cfg.http.host)) out.push(`http listens on ${cfg.http.host}; anyone who can reach it and knows the token controls every agent. Prefer loopback plus a tunnel.`);
 	for (const [name, h] of Object.entries(cfg.http?.hooks ?? {})) if (!h.secret) out.push(`http hook "${name}" has no secret; anyone who can reach the port can publish ${h.topic}`);
-	for (const ref of [...cfg.plugins, ...Object.values(cfg.agents).flatMap((a) => a.plugins)]) {
-		if (ref.use !== "pine:mqtt") continue;
-		for (const sub of (ref.options.subscribe as any[]) ?? []) if (sub?.trust === "owner") out.push(`mqtt subscription ${sub.topic} is treated as coming from you; anyone who can publish to the broker gets an agent's full tool set`);
+	// A source whose events count as the owner's words: fine for a clock or a paired Telegram account, a risk for anything others can feed.
+	for (const [where, sources] of [["pine.json", cfg.sources] as const, ...Object.values(cfg.agents).map((a) => [`agent ${a.id}`, a.sources] as const)]) {
+		for (const [name, s] of Object.entries(sources)) if (s.trust === "owner" && !["timer", "telegram"].includes(s.type ?? "")) out.push(`${where}: what the source "${name}" (${s.type ?? "custom"}) reports is treated as coming from you; whoever can feed it gets an agent's full tool set`);
 	}
 	for (const r of cfg.routes) if (r.trust === "owner") out.push(`route "${r.name}" treats events on ${r.on.join(", ")} as coming from you; whoever can publish there gets the agent's full tool set`);
 	return out;

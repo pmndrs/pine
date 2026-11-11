@@ -31,14 +31,6 @@ export interface McpServerConfig {
 	[key: string]: unknown;
 }
 
-export interface PluginRef {
-	/** "pine:<builtin>" or a path to a module, relative to the file that names it. */
-	use: string;
-	options: Record<string, unknown>;
-	/** Directory the path was resolved against. */
-	base: string;
-}
-
 /**
  * A source of outside events: a watched folder, an MQTT broker, a webhook, an FTP drop, a timer,
  * or your own module. Like an MCP server it only is there; nothing happens until an agent
@@ -65,7 +57,7 @@ export interface SourceConfig {
 	options: Record<string, any>;
 }
 
-export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "timer"];
+export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "timer", "telegram"];
 
 /**
  * A subscription: one conversation of an agent listens to one source, and each event of the source
@@ -82,6 +74,8 @@ export interface SubscriptionConfig {
 	debounceMs?: number;
 	/** Handle one event, then ignore the source for this long. Default 10 s, so a chatty device cannot keep a model busy. */
 	throttleMs: number;
+	/** Whether that is the default, as opposed to something the subscription said. A source somebody writes through is not held back by the default: every message counts. */
+	throttleDefault?: boolean;
 	/** The conversation that listens: the one the agent subscribed in. "main" unless said otherwise ("on-<source>" with `separate`). */
 	session: string;
 	/**
@@ -197,8 +191,6 @@ export interface AgentConfig {
 	sources: Record<string, SourceConfig>;
 	/** What this agent's conversations are subscribed to: its own sources or global ones. */
 	subscribe: SubscriptionConfig[];
-	plugins: PluginRef[];
-	globalPlugins: boolean;
 	extensions: string[];
 	skills: string[];
 	/** Extra instruction files loaded into the system prompt, besides AGENTS.md in the agent dir and the workspace. */
@@ -263,7 +255,6 @@ export interface PineConfig {
 	sourceTypes: Record<string, string>;
 	/** Subscriptions for everyone: each agent that can use the source is woken in its main conversation. */
 	subscribe: SubscriptionConfig[];
-	plugins: PluginRef[];
 	extensions: string[];
 	skills: string[];
 	routes: RouteConfig[];
@@ -280,7 +271,7 @@ export class ConfigError extends Error {
 	}
 }
 
-/** The pine checkout: bundled MCP servers and plugins live here. */
+/** The pine checkout: bundled MCP servers and source types live here. */
 export const PINE_ROOT = path.resolve(import.meta.dirname, "..");
 /**
  * How pine's own module files end: ".ts" in a checkout, where Node runs the sources as they are,
@@ -314,20 +305,13 @@ function interpolate(value: any, where: string, problems: string[], env: Record<
 	return value;
 }
 
-const pluginRefs = (list: unknown, base: string, where: string, problems: string[]): PluginRef[] => {
-	if (list === undefined) return [];
-	if (!Array.isArray(list)) {
-		problems.push(`${where}: must be an array`);
-		return [];
-	}
-	return list.flatMap((entry, i) => {
-		const ref = typeof entry === "string" ? { use: entry } : entry;
-		if (!ref || typeof ref.use !== "string") {
-			problems.push(`${where}[${i}]: needs "use"`);
-			return [];
-		}
-		return [{ use: ref.use, options: ref.options ?? {}, base }];
-	});
+/**
+ * pine had plugins once: modules listed under "plugins". What they did is done by event sources
+ * now, which agents set up themselves. An empty list in an older file is ignored; one that still
+ * names something is a problem to fix, with a pointer to what took its place.
+ */
+const noPlugins = (list: unknown, where: string, problems: string[]): void => {
+	if (Array.isArray(list) && list.length) problems.push(`${where}: plugins are gone. Telegram, MQTT and watched folders are event sources now, which an agent sets up when you ask it to ("watch telegram", "watch ~/Scans"); see docs/references/sources.md. Take the "plugins" entry out`);
 };
 
 const strings = (v: unknown, fallback: string[]): string[] => (Array.isArray(v) ? v.map(String) : fallback);
@@ -335,6 +319,7 @@ const paths = (v: unknown, base: string): string[] => strings(v, []).map((p) => 
 
 function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems: string[]): AgentConfig {
 	const where = `agents/${id}/agent.json`;
+	noPlugins(raw.plugins, `${where}: plugins`, problems);
 	const workspace = raw.workspace ? resolvePath(raw.workspace, dir) : path.join(dir, "workspace");
 	if (!raw.workspace) fs.mkdirSync(workspace, { recursive: true });
 	else if (!fs.existsSync(workspace)) problems.push(`${where}: workspace ${workspace} does not exist`);
@@ -352,8 +337,6 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 		globalMcp: raw.globalMcp ?? true,
 		sources: loadSources(raw.sources, dir, `${where}: sources`, problems, Object.keys(cfg.sourceTypes)),
 		subscribe: loadSubscriptions(raw.subscribe, `${where}: subscribe`, problems),
-		plugins: pluginRefs(raw.plugins, dir, `${where}: plugins`, problems),
-		globalPlugins: raw.globalPlugins ?? true,
 		extensions: paths(raw.extensions, dir),
 		skills: paths(raw.skills, dir),
 		context: paths(raw.context, dir),
@@ -372,7 +355,7 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 			env: raw.sandbox?.env ?? {},
 		},
 		approve: strings(raw.approve, []),
-		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "mqtt_publish"]),
+		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "send"]),
 		untrusted:
 			raw.untrusted === false
 				? false
@@ -457,6 +440,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 	const env = { ...process.env, PINE_HOME: home, PINE_ROOT, ...fileEnv };
 
 	const raw = interpolate(readJson(file, problems), "pine.json", problems, env);
+	noPlugins(raw?.plugins, "pine.json: plugins", problems);
 	const d = raw.defaults ?? {};
 	// Source types of the owner's own: a name and the module behind it.
 	const sourceTypes: Record<string, string> = {};
@@ -503,7 +487,6 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		sources: loadSources(raw.sources, home, "pine.json: sources", problems, Object.keys(sourceTypes)),
 		sourceTypes,
 		subscribe: loadSubscriptions(raw.subscribe, "pine.json: subscribe", problems),
-		plugins: pluginRefs(raw.plugins, home, "pine.json: plugins", problems),
 		extensions: paths(raw.extensions, home),
 		skills: paths(raw.skills, home),
 		routes: loadRoutes(raw.routes, problems),
@@ -696,6 +679,7 @@ export function subscriptionFrom(v: Record<string, any>): SubscriptionConfig {
 		when: v.when,
 		debounceMs: v.debounce !== undefined ? parseDuration(v.debounce) : undefined,
 		throttleMs: parseDuration(v.throttle ?? "10s"),
+		throttleDefault: v.throttle === undefined ? true : undefined,
 		separate,
 		prompt: typeof v.prompt === "string" ? v.prompt : undefined,
 	};

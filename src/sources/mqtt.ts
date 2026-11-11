@@ -1,26 +1,30 @@
 import { Type } from "typebox";
 import type { SourceType } from "../source-types.ts";
 import type { SourceApi } from "../sources.ts";
-import { errText, parseDuration } from "../util.ts";
+import { errText, matchesAny, parseDuration } from "../util.ts";
 
 /**
  * An MQTT broker: reports the messages on the topics you name. For home automation hubs, sensors,
  * and devices that speak MQTT themselves (a Bambu printer does, on mqtts://<printer>:8883 with the
  * user "bblp", its access code as password, the topic "device/<serial>/report" and insecureTls).
  *
- * options: { url, topics, username?, password?, clientId?, minInterval?, insecureTls? }
+ * options: { url, topics, publish?, username?, password?, clientId?, minInterval?, insecureTls? }
  *   topics       one MQTT topic filter or a list ("zigbee2mqtt/+", "device/+/report")
+ *   publish      topics an agent may send to, to act on a device ("zigbee2mqtt/+/set"). Without it nothing can be sent
  *   minInterval  drop messages that follow the last one on the same topic sooner than this ("30s")
  *   insecureTls  accept a certificate that cannot be verified, as devices with self-made ones need
  *
  * event "message": { topic, value }   value is parsed JSON when the message is JSON, else text
+ * It can send, to the topics on `publish` only: { topic, message, retain?, qos? }
  */
 export const type: SourceType = {
-	summary: "an MQTT broker: reports the messages on the topics you name. For home automation hubs, sensors, and devices that speak MQTT themselves (printers, plugs)",
+	summary: "an MQTT broker: reports the messages on the topics you name. For home automation hubs, sensors, and devices that speak MQTT themselves (printers, plugs). With \"publish\" it can also send, to act on a device",
+	sends: 'an MQTT message to a topic on its "publish" list, to act on a device: {"topic": "lamp/set", "message": "on"} (message: text or JSON)',
 	options: Type.Object(
 		{
 			url: Type.String({ description: "address of the broker: mqtt://host:1883, or mqtts://host:8883 for TLS" }),
 			topics: Type.Union([Type.String(), Type.Array(Type.String())], { description: 'the topic filters to listen to, e.g. "zigbee2mqtt/+" or ["device/+/report"]' }),
+			publish: Type.Optional(Type.Array(Type.String(), { description: 'topics you may send to, to act on a device, e.g. ["zigbee2mqtt/+/set"]. Only when your owner wants you to control something; without it nothing can be sent' })),
 			username: Type.Optional(Type.String({ description: "user name, if the broker wants one" })),
 			password: Type.Optional(Type.String({ description: "password, access code or token, if the broker wants one", secret: true })),
 			clientId: Type.Optional(Type.String({ description: "client id, for brokers that want a particular one" })),
@@ -40,7 +44,8 @@ export const type: SourceType = {
 		const topics = (Array.isArray(o.topics) ? o.topics : String(o.topics).split(",")).map((t: string) => t.trim()).filter(Boolean);
 		if (!topics.length) throw new Error(`needs "topics": which MQTT topics to listen to`);
 		if (o.minInterval) parseDuration(o.minInterval);
-		return { options: { ...o, topics }, does: [`connect to the MQTT broker ${url.host}${o.username ? ` as ${o.username}` : ""} and listen to ${topics.join(", ")}`, ...(o.password ? ["with the password given"] : []), ...(o.insecureTls ? ["without checking its certificate"] : [])], opens: true };
+		const publish = (Array.isArray(o.publish) ? o.publish : []).map((t: string) => String(t).trim()).filter(Boolean);
+		return { options: { ...o, topics, ...(publish.length ? { publish } : {}) }, does: [`connect to the MQTT broker ${url.host}${o.username ? ` as ${o.username}` : ""} and listen to ${topics.join(", ")}`, ...(publish.length ? [`let the agent send messages to ${publish.join(", ")}, which can switch and control devices`] : []), ...(o.password ? ["with the password given"] : []), ...(o.insecureTls ? ["without checking its certificate"] : [])], opens: true };
 	},
 };
 
@@ -74,5 +79,16 @@ export default async function mqttSource(source: SourceApi): Promise<void> {
 			// plain text
 		}
 		source.emit("message", { topic, value });
+	});
+
+	// Sending: only to the topics the owner put on the list, and never to a filter.
+	const allowed: string[] = (Array.isArray(o.publish) ? o.publish : []).map(String);
+	source.onSend(async (m) => {
+		const topic = String(m.topic ?? "");
+		if (!topic) throw new Error('say which topic: {"topic": "...", "message": "..."}');
+		if (/[+#]/.test(topic) || !matchesAny(allowed, topic)) throw new Error(`"${topic}" is not a topic this source may send to (${allowed.join(", ") || "none: it was set up to listen only"})`);
+		const message = m.message ?? m.text ?? "";
+		await new Promise<void>((resolve, reject) => client.publish(topic, typeof message === "string" ? message : JSON.stringify(message), { retain: m.retain === true, qos: [0, 1, 2].includes(m.qos) ? m.qos : 0 }, (err) => (err ? reject(err) : resolve())));
+		return `published to ${topic}`;
 	});
 }

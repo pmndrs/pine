@@ -5,7 +5,7 @@ import { Agent, Pool, setGlobalDispatcher } from "undici";
 import { AgentManager } from "./agents.ts";
 import { loadConfig, type PineConfig } from "./config.ts";
 import { HttpServer } from "./http.ts";
-import { type CompleteOptions, PluginHost } from "./plugins.ts";
+import type { CompleteOptions } from "./router.ts";
 import { Router } from "./router.ts";
 import { SourceHost } from "./sources.ts";
 import { Approvals, audit, Redactor } from "./security.ts";
@@ -20,7 +20,6 @@ export interface Pine {
 	tasks: TaskStore;
 	agents: AgentManager;
 	approvals: Approvals;
-	plugins: PluginHost;
 	sources: SourceHost;
 	http?: HttpServer;
 	/** Bearer token of the control API. */
@@ -89,8 +88,7 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 	const kv = new Kv(db);
 	const tasks = new TaskStore(db);
 	const approvals = new Approvals(bus, log.child("approvals"), cfg.security.approvalTimeoutMs);
-	const plugins = new PluginHost(cfg, log);
-	const agents = new AgentManager({ cfg, bus, state, kv, tasks, approvals, log: log.child("agents"), contributions: plugins });
+	const agents = new AgentManager({ cfg, bus, state, kv, tasks, approvals, log: log.child("agents") });
 
 	const complete = async (o: CompleteOptions): Promise<string> => {
 		const model = agents.resolveModel(o.model ?? cfg.defaults.model ?? Object.values(cfg.agents)[0].model!);
@@ -106,11 +104,10 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 	};
 
 	await agents.init();
-	await plugins.loadAll({ bus, state, kv, manager: agents, approvals, redactor, complete });
 	// eslint-disable-next-line prefer-const
 	let sources: SourceHost;
-	const router = new Router({ cfg, bus, state, manager: agents, complete, log: log.child("router"), mediaRoots: () => [...plugins.mediaRoots, ...sources.mediaRoots] });
-	sources = new SourceHost({ cfg, bus, kv, redactor, router, log: log.child("sources"), http: Boolean(cfg.http && opts.http !== false) });
+	const router = new Router({ cfg, bus, state, manager: agents, complete, log: log.child("router"), mediaRoots: () => sources.mediaRoots });
+	sources = new SourceHost({ cfg, bus, kv, redactor, router, log: log.child("sources"), http: Boolean(cfg.http && opts.http !== false), approvals });
 	agents.sources = sources;
 	router.start();
 	await sources.start();
@@ -140,13 +137,13 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 
 	const warnings = audit(cfg);
 	for (const w of warnings) log.warn(`security: ${w}`);
-	bus.publish("pine/started", { agents: Object.keys(cfg.agents), plugins: plugins.loaded.map((p) => p.name) }, { source: "pine" });
+	bus.publish("pine/started", { agents: Object.keys(cfg.agents) }, { source: "pine" });
 	const src = sources.list();
-	log.info(`pine is up: ${Object.keys(cfg.agents).length} agents, ${cfg.routes.length} routes, ${plugins.loaded.length} plugins, ${src.length} event sources (${src.filter((s) => s.running).length} running)`);
+	log.info(`pine is up: ${Object.keys(cfg.agents).length} agents, ${cfg.routes.length} routes, ${src.length} event sources (${src.filter((s) => s.running).length} running)`);
 
 	let stopped = false;
 	return {
-		cfg, bus, state, tasks, agents, approvals, plugins, sources, http, token, warnings, complete,
+		cfg, bus, state, tasks, agents, approvals, sources, http, token, warnings, complete,
 		async stop() {
 			if (stopped) return;
 			stopped = true;
@@ -155,7 +152,6 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 			await sources.stop();
 			router.stop();
 			await http?.stop();
-			await plugins.stopAll();
 			await agents.stop();
 			await bus.drain();
 			db.close();

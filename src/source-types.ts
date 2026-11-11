@@ -18,6 +18,12 @@ export interface SourcePlan {
 	read?: string;
 	/** What the agent should pass on once it is set up (where a device finds its password, for example). */
 	tell?: string;
+	/**
+	 * What it reports is the owner speaking, not outside content: the source itself makes sure of
+	 * who is on the other end (a Telegram account the owner paired, for example). The owner is told
+	 * so before they confirm.
+	 */
+	owner?: boolean;
 }
 
 export interface SourceSetup {
@@ -49,4 +55,16 @@ export interface SourceType {
 	options: TSchema;
 	/** Check the options and say what the source would do. Throw for what cannot work. Without it, a set-up is always put to the owner. */
 	plan?(options: Record<string, any>, setup: SourceSetup): SourcePlan;
+	/**
+	 * Its "message" events are somebody writing to the agent: the event's `text` is what they
+	 * wrote, it reaches the agent as a message rather than as a report, and the agent's answer goes
+	 * back through the source.
+	 */
+	talks?: boolean;
+	/**
+	 * It can also send. One line for the agent on what sending through it does and what to pass,
+	 * for example 'a Telegram message to your owner: {"text": "..."}'. The agent's `send` tool
+	 * offers every source that says this.
+	 */
+	sends?: string;
 }

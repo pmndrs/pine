@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import type { AgentManager } from "./agents.ts";
 import type { PineConfig, RouteConfig } from "./config.ts";
-import type { CompleteOptions } from "./plugins.ts";
+/** One model call without tools or history, as a route's "call" makes it. */
+export interface CompleteOptions {
+	prompt: string;
+	system?: string;
+	model?: string;
+	images?: Array<{ data: string; mimeType: string }>;
+	signal?: AbortSignal;
+}
 import type { Bus, State } from "./store.ts";
 import type { ImageRef, PineEvent, Trust } from "./types.ts";
 import { isInside, realish } from "./security.ts";
@@ -139,7 +146,7 @@ export class Router {
 	}
 
 	/**
-	 * Images an event carries. A file path is only honoured inside a directory a plugin declared as
+	 * Images an event carries. A file path is only honoured inside a directory a source declared as
 	 * media storage; otherwise an event could make the daemon read any file and hand it to the model.
 	 */
 	private imagesOf(e: PineEvent): ImageRef[] {

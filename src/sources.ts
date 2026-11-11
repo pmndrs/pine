@@ -9,7 +9,7 @@ import { setEnv, unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
 import type { SourcePlan, SourceType } from "./source-types.ts";
 import type { Router } from "./router.ts";
-import { realish, type Redactor } from "./security.ts";
+import { type Approvals, realish, type Redactor } from "./security.ts";
 import type { Bus, Kv } from "./store.ts";
 import type { PineEvent } from "./types.ts";
 import { errText, type Logger, resolvePath } from "./util.ts";
@@ -34,14 +34,35 @@ import { errText, type Logger, resolvePath } from "./util.ts";
 export interface SourceApi {
 	/** The name it has in the configuration. */
 	name: string;
+	/** What it is called in events and addresses: its name, or name@agent for an agent's own source. */
+	key: string;
 	options: Record<string, any>;
 	/** Folder that relative paths in the options are meant from. */
 	base: string;
 	/** A folder of its own for whatever it has to keep (received files, for example). */
 	dataDir: string;
 	log: Logger;
-	/** Report that something happened. `event` is a short word such as "added" or "message". */
-	emit(event: string, payload?: Record<string, unknown>, opts?: { persist?: boolean }): PineEvent;
+	/**
+	 * Report that something happened. `event` is a short word such as "added" or "message".
+	 * With `reply`, the answer of an agent that is woken by this event comes back to `onSend`, with
+	 * the fields given here (a chat to answer in, for example) next to its `text`.
+	 */
+	emit(event: string, payload?: Record<string, unknown>, opts?: { persist?: boolean; reply?: Record<string, unknown> }): PineEvent;
+	/**
+	 * For a source that can also send: called with an agent's answer to one of its events, and with
+	 * what an agent sends through it on its own. Return a short line on what was done; throw to
+	 * refuse. The source decides where things may go: it never sends anywhere it was not set up for.
+	 */
+	onSend(handler: (message: Record<string, any>) => void | string | Promise<void | string>): void;
+	/** Look at events of the system (read only): "agent/+/started", "approval/requested", ... */
+	on(pattern: string | string[], handler: (e: PineEvent) => void | Promise<void>): void;
+	/** Approval requests: put a question of its own to the owner, see the open ones, pass on the owner's answer. */
+	approvals: {
+		/** Ask the owner in pine's UI. Resolves with their answer; no answer in time counts as no. */
+		ask(summary: string, why: string): Promise<boolean>;
+		pending(): Array<{ id: string; agent: string; tool: string; summary: string; why: string; remember?: string; task: number }>;
+		decide(id: string, allow: boolean, by: string, always?: boolean): boolean;
+	};
 	/** Private storage that survives restarts. */
 	kv: { get<T = unknown>(key: string): T | undefined; set(key: string, value: unknown): void };
 	/** Keep this value out of events and messages. */
@@ -80,7 +101,11 @@ export interface SourceInfo {
 interface Running {
 	stops: Array<() => void | Promise<void>>;
 	hook?: (req: { headers: Record<string, string | string[] | undefined>; body: Buffer }) => void | Promise<void>;
+	send?: (message: Record<string, any>) => void | string | Promise<void | string>;
 }
+
+/** Where the answers to a source's events are published; the source host passes them to the source. */
+const outTopic = (key: string) => `out/source/${key}`;
 
 export class SourceHost {
 	private cfg: PineConfig;
@@ -95,12 +120,15 @@ export class SourceHost {
 	private errors = new Map<string, string>();
 	private seen = new Map<string, { ts: number; topic: string; count: number }>();
 	private off?: () => void;
+	private offOut?: () => void;
+	private approvals?: Approvals;
 	private globalRoutes: string[] = [];
 	mediaRoots: string[] = [];
 	/** Every source type there is: pine's own and the ones pine.json registers. `type` is what the module says about itself. */
 	private types = new Map<string, { file: string; type?: SourceType }>();
 
-	constructor(deps: { cfg: PineConfig; bus: Bus; kv: Kv; redactor: Redactor; router: Router; log: Logger; http: boolean }) {
+	constructor(deps: { cfg: PineConfig; bus: Bus; kv: Kv; redactor: Redactor; router: Router; log: Logger; http: boolean; approvals?: Approvals }) {
+		this.approvals = deps.approvals;
 		this.cfg = deps.cfg;
 		this.bus = deps.bus;
 		this.kv = deps.kv;
@@ -221,6 +249,17 @@ export class SourceHost {
 			const s = this.seen.get(key);
 			this.seen.set(key, { ts: e.ts, topic: e.topic, count: (s?.count ?? 0) + 1 });
 		}, "sources");
+		// An agent's answer to a source's event, on its way back out through that source.
+		this.offOut = this.bus.subscribe("out/source/+", async (e) => {
+			const key = e.topic.split("/")[2];
+			const send = this.running.get(key)?.send;
+			if (!send) return;
+			try {
+				await send((e.payload ?? {}) as Record<string, any>);
+			} catch (err) {
+				this.log.warn(`source ${key} could not send`, errText(err));
+			}
+		}, "sources-out");
 		for (const agent of Object.values(this.cfg.agents)) {
 			for (const sub of agent.subscribe) {
 				const found = sourceFor(this.cfg, agent.id, sub.source);
@@ -235,6 +274,7 @@ export class SourceHost {
 
 	async stop(): Promise<void> {
 		this.off?.();
+		this.offOut?.();
 		for (const key of [...this.running.keys()]) await this.halt(key);
 	}
 
@@ -244,12 +284,21 @@ export class SourceHost {
 	private route(agentId: string, key: string, source: SourceConfig, sub: SubscriptionConfig): RouteConfig {
 		const name = sub.source;
 		const what = `${source.type ?? "custom"}${source.description ? `: ${source.description}` : ""}`;
+		const type = source.type ? this.types.get(source.type)?.type : undefined;
+		// Somebody writing to the agent through the source: their words are the message, not a report about one.
+		const talk = type?.talks
+			? {
+					prompt: sub.prompt ?? "{{payload.text}}",
+					label: `${name}: {{payload.name}}`,
+					preface: `[${source.trust === "owner" ? "Your owner wrote" : "Somebody wrote"} this to you through "${name}" (${what}). Your answer is sent back there, so write it for that reader.${sub.note ? ` Your note for this subscription: ${sub.note}` : ""}]`,
+				}
+			: {};
 		return {
 			name: this.routeName(agentId, sub),
 			on: [`source/${key}/#`],
 			when: sub.when,
 			debounceMs: sub.debounceMs,
-			throttleMs: sub.throttleMs || undefined,
+			throttleMs: type?.talks && sub.throttleDefault ? undefined : sub.throttleMs || undefined,
 			// One bucket per subscription, whatever the event is called.
 			key: "subscription",
 			agent: agentId,
@@ -257,7 +306,8 @@ export class SourceHost {
 			prompt: sub.prompt,
 			preface: `[You are subscribed to the event source "${name}" (${what}), and it has just reported the event below.${sub.note ? ` Your note for this subscription: ${sub.note}` : " Act on it as your instructions say."} If nothing needs doing, say so in one line.]`,
 			label: `${name}: {{topic}}`,
-			reply: false,
+			...talk,
+			// Where an answer goes is the event's to say: a source that can send asks for it, the others do not.
 			// The agent subscribed in a conversation with its owner, and that is where it is woken, with
 			// the tools it has there. What a source that is not the owner's reports is outside content
 			// in that conversation, like a page the agent read. `separate` keeps such events out of it:
@@ -297,13 +347,27 @@ export class SourceHost {
 		const prefix = `source:${key}:`;
 		const api: SourceApi = {
 			name,
+			key,
 			options: source.options,
 			base: source.base,
 			dataDir,
 			log: this.log.child(key),
 			emit: (event, payload, opts) => {
 				if (!/^[a-z][a-z0-9_-]{0,39}$/.test(event)) throw new Error(`source ${key}: "${event}" is not a usable event name`);
-				return this.bus.publish(`source/${key}/${event}`, payload ?? {}, { source: `source:${key}`, trust: source.trust, persist: opts?.persist });
+				return this.bus.publish(`source/${key}/${event}`, payload ?? {}, { source: `source:${key}`, trust: source.trust, persist: opts?.persist, reply: opts?.reply ? { topic: outTopic(key), payload: opts.reply } : undefined });
+			},
+			onSend: (handler) => void (run.send = handler),
+			on: (pattern, handler) => void run.stops.push(this.bus.subscribe(pattern, async (e) => {
+				try {
+					await handler(e);
+				} catch (err) {
+					this.log.warn(`source ${key} failed on ${e.topic}`, errText(err));
+				}
+			}, `source:${key}`)),
+			approvals: {
+				ask: async (summary, why) => (this.approvals ? (await this.approvals.request({ agent: `${name} (event source)`, task: 0, tool: source.type ?? name, summary, why })).allow : false),
+				pending: () => this.approvals?.pending() ?? [],
+				decide: (id, allow, by, always) => this.approvals?.decide(id, allow, by, always) ?? false,
 			},
 			kv: { get: (k) => this.kv.get(prefix + k), set: (k, v) => this.kv.set(prefix + k, v) },
 			secret: (value) => this.redactor.add([value]),
@@ -336,6 +400,27 @@ export class SourceHost {
 			}
 		}
 		this.log.info(`source ${key} stopped`);
+	}
+
+	/**
+	 * The sources an agent can send through, with what sending does. A global one or its own;
+	 * one that was set up for a single conversation only from there.
+	 */
+	senders(agentId: string, session = "main"): Array<{ name: string; type: string; sends: string }> {
+		return this.available(agentId, session).flatMap((s) => {
+			const sends = this.types.get(s.type)?.type?.sends;
+			return sends ? [{ name: s.name, type: s.type, sends }] : [];
+		});
+	}
+
+	/** Send something out through a source, started if it is not running. Throws with the source's own reason if it refuses. */
+	async send(agentId: string, name: string, message: Record<string, any>, session = "main"): Promise<string> {
+		if (!this.senders(agentId, session).some((s) => s.name === name)) throw new Error(`"${name}" is not a source you can send through. ${this.senders(agentId, session).map((s) => `${s.name}: ${s.sends}`).join("; ") || "There is none."}`);
+		const found = sourceFor(this.cfg, agentId, name)!;
+		await this.ensure(found.key);
+		const send = this.running.get(found.key)?.send;
+		if (!send) throw new Error(`${name} is not running${this.errors.get(found.key) ? `: ${this.errors.get(found.key)}` : ""}`);
+		return String((await send(message)) ?? "sent");
 	}
 
 	/** The handler for POST /hook/<key>, if a running source takes web requests under that name. */
@@ -412,6 +497,9 @@ export class SourceHost {
 			const env = this.envName(name, agentId, key);
 			kept[env] = String(entry[key]);
 			entry[key] = `\${${env}}`;
+			// From here on it is a secret: kept out of what follows, and taken out of what was stored when it was said.
+			this.redactor.add([kept[env]]);
+			this.bus.scrub(kept[env]);
 		}
 		setEnv(this.cfg.home, kept);
 		editJson(file, (json) => {

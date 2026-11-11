@@ -161,8 +161,8 @@ test("a run started by an outside event gets a reduced tool set and its own sess
 	h.pine.bus.publish("hook/mail", { text: inject }, { source: "http" });
 	await until(() => h.pine.tasks.list({ status: "done" }).length === 2);
 	const [ownerReq, outsideReq] = [h.mock.state.requests[0], h.mock.state.requests[1]];
-	assert.deepEqual(h.toolsOffered(ownerReq).filter((t) => !["request_access", "add_mcp_server", "remove_mcp_server", "subscribe", "unsubscribe", "add_source", "remove_source", "create_agent"].includes(t)).sort(), ["bash", "delegate", "download", "edit", "publish_event", "read", "sources", "state_get", "state_set", "subagent", "write"]);
-	assert.ok(h.toolsOffered(ownerReq).includes("add_mcp_server"));
+	assert.deepEqual(h.toolsOffered(ownerReq).filter((t) => !["request_access", "add_mcp_server", "remove_mcp_server", "subscribe", "unsubscribe", "add_source", "remove_source", "send", "create_agent"].includes(t)).sort(), ["bash", "delegate", "download", "edit", "publish_event", "read", "sources", "state_get", "state_set", "subagent", "write"]);
+	assert.ok(h.toolsOffered(ownerReq).includes("add_mcp_server") && h.toolsOffered(ownerReq).includes("send"));
 	assert.ok(!h.toolsOffered(outsideReq).includes("request_access") && !h.toolsOffered(outsideReq).includes("add_mcp_server"), "a run started from outside cannot ask for more access or change the setup");
 	assert.deepEqual(h.toolsOffered(outsideReq).sort(), ["find", "grep", "ls", "read", "state_get"]);
 	assert.deepEqual(h.toolResults(), ["Tool bash not found", "Tool delegate not found", "Tool publish_event not found", "Tool write not found"]);

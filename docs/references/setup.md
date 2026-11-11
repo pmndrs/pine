@@ -116,7 +116,7 @@ follow its new name.
 
 ## What stays yours
 
-An agent's built-in tools, model, plugins, skills, its sandbox settings, routes and schedules,
+An agent's built-in tools, model, skills, its sandbox settings, routes and schedules,
 local MCP servers, and removing agents: these are changed in the files or with the `pine`
 command, and most need a restart. See [configuration.md](configuration.md),
 [agents.md](agents.md), [mcp.md](mcp.md) and [sources.md](sources.md).

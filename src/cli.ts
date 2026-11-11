@@ -307,7 +307,6 @@ async function main(): Promise<void> {
 	if (cmd === "check") {
 		out(`home       ${cfg.home}`);
 		out(`http       ${cfg.http ? `${cfg.http.host}:${cfg.http.port}, hooks: ${Object.keys(cfg.http.hooks).join(", ") || "none"}` : "off"}`);
-		out(`plugins    ${cfg.plugins.map((p) => p.use).join(", ") || "none"}`);
 		out(`global mcp ${Object.keys(cfg.mcp).join(", ") || "none"}`);
 		out(`routes     ${cfg.routes.length}, schedules ${cfg.schedules.length}`);
 		for (const a of Object.values(cfg.agents)) {
@@ -316,7 +315,6 @@ async function main(): Promise<void> {
 			out(`  model      ${a.model ?? cfg.defaults.model}`);
 			out(`  tools      ${(a.tools ?? ["read", "bash", "edit", "write"]).join(", ")}`);
 			out(`  mcp        ${Object.keys(effectiveMcp(cfg, a)).join(", ") || "none"}`);
-			out(`  plugins    ${a.plugins.map((p) => p.use).join(", ") || "none"}${a.globalPlugins ? " + global" : ""}`);
 			out(`  delegates  ${a.delegates.join(", ") || "none"}; sub-agents ${a.subagents.enabled ? `up to ${a.subagents.maxParallel}` : "off"}`);
 			out(`  mode       ${a.mode}`);
 			out(`  sandbox    ${a.sandbox.enabled ? `on, network ${a.sandbox.network ? "allowed" : "blocked"}` : "OFF"}; untrusted events: ${a.untrusted === false ? "refused" : a.untrusted.tools.join(", ") || "no tools"}`);

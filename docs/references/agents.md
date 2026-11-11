@@ -75,7 +75,7 @@ Its system prompt is put together from, in this order:
    After them the instruction files of a folder opened for the conversation, and any files in
    `context`.
 4. Its skills: one line each; the agent reads a skill's file when it needs it. One skill is
-   always there: `pine`, this manual. An agent asked for a plugin, a skill or another model
+   always there: `pine`, this manual. An agent asked for a skill, a schedule or another model
    reads it and tells you what to put into which file; an MCP server or an event source it
    sets up itself by tool call ([setup.md](setup.md)).
 5. A `<pine>` block: who the agent is, which agents it can delegate to, which MCP servers it
@@ -136,14 +136,15 @@ A session is one conversation with history.
 | a name, for example `tg-123456` or `case-okapi` | A separate named conversation |
 | `new` | A fresh conversation that is thrown away after the task |
 
-Routes pick the session with `"session"`, the CLI with `--session`. Telegram chats use
-`tg-<chat id>`. Runs started by untrusted events use a twin of the session with `~u` appended,
+Routes pick the session with `"session"`, the CLI with `--session`. What you write on Telegram
+arrives in the conversation that subscribed to the Telegram source. Runs started by untrusted
+events use a twin of the session with `~u` appended,
 so they never see or extend your own conversation.
 
-Tasks for one session queue up. With `"whenBusy": "steer"` on a route or Telegram account, a new
-message is instead shown to the agent in the middle of what it is doing.
+Tasks for one session queue up. With `"whenBusy": "steer"` on a route, a new message is instead
+shown to the agent in the middle of what it is doing.
 
-`pine reset <agent> [session]` (or `/reset` in the terminal UI or in Telegram) starts a session
+`pine reset <agent> [session]` (or `/reset` in the terminal UI) starts a session
 over. The old history is kept on disk next to it with a `.reset-<time>` suffix for
 `limits.eventRetentionDays`. What the conversation was subscribed to on its own ends with the
 reset.
@@ -151,8 +152,7 @@ reset.
 A named conversation does not stay for ever. One that is not an agent's `main`, not pinned, not
 open in a tab of the terminal UI and not subscribed to an event source is removed with its
 history after `limits.conversationDays` (7) without a message. That holds for every named
-conversation: one you opened in the terminal UI, a Telegram chat's (`tg-<chat id>`), a
-delegation thread's, one a route names. Pin the ones to keep (`/pin`, or the list of
+conversation: one you opened in the terminal UI, a delegation thread's, one a route names. Pin the ones to keep (`/pin`, or the list of
 conversations in the terminal UI; see [tui.md](tui.md)), or set `limits.conversationDays` to
 `0` to keep them all. MCP servers and event sources that were set up for one conversation go
 with it ([setup.md](setup.md)).
@@ -240,6 +240,41 @@ Do not route untrusted text into a key that agents see.
 - `NO_REPLY` as the whole answer sends nothing.
 - A failed task (model error, timeout, cancelled) sends "`<agent>` could not finish: ..." to
   the reply target, so you are not left waiting.
+
+## pi extensions
+
+Any pi extension works in pine sessions. One that adds a line to every system prompt:
+
+```ts
+// ~/.pine/agents/gonzo/extensions/citations.ts
+export default function (pi) {
+	pi.on("before_agent_start", async (event) => ({ systemPrompt: `${event.systemPrompt}\n\nCite the paragraph for every legal claim.` }));
+}
+```
+
+Files in `agents/<id>/extensions/` are found automatically; list others under `extensions`.
+pi's extension guide is in `node_modules/@earendil-works/pi-coding-agent/docs/extensions.md`.
+Things that need a terminal UI (dialogs, widgets) have no effect in the daemon.
+
+`.pi/extensions/` in a workspace is deliberately not loaded; see `trustWorkspace` in
+[configuration.md](configuration.md).
+
+## Skills
+
+A skill is a folder with a `SKILL.md` that starts with a name and a description:
+
+```markdown
+---
+name: inverter
+description: Read and interpret the inverter's daily export. Use for questions about solar yield.
+---
+
+1. The exports are in `data/inverter/YYYY-MM.csv` ...
+```
+
+The agent sees the description in its system prompt and reads the file when the task calls for
+it. Put skills for one agent in `agents/<id>/skills/`, skills for all in a folder listed under
+`skills` in `pine.json`.
 
 ## Checking on agents
 

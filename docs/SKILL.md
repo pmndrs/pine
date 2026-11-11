@@ -1,6 +1,6 @@
 ---
 name: pine
-description: Run, configure and extend pine, the event-driven multi-agent daemon built on the pi coding agent SDK. Use when setting up agents and their workspaces, routing events (Telegram, MQTT, files, webhooks, schedules) to agents, subscribing agents to event sources (folders, MQTT, webhooks, FTP uploads, timers), adding MCP servers or plugins, delegating between agents, reviewing what is protected against prompt injection, or changing pine's code.
+description: Run, configure and extend pine, the event-driven multi-agent daemon built on the pi coding agent SDK. Use when setting up agents and their workspaces, routing events (Telegram, MQTT, files, webhooks, schedules) to agents, subscribing agents to event sources (Telegram, folders, MQTT, webhooks, FTP uploads, timers), adding MCP servers, reaching agents on Telegram, delegating between agents, reviewing what is protected against prompt injection, or changing pine's code.
 ---
 
 # pine
@@ -31,7 +31,7 @@ you set up by calling a tool, described below and in [references/setup.md](refer
 remote MCP servers, event sources and subscriptions, for the conversation you are in or for
 yourself as an agent. Creating agents and anything for all agents is the main agent's job; if
 you are not the main agent, send your owner to it. For everything else your owner asks about (a
-plugin, a skill, a schedule, your built-in tools or model):
+skill, a schedule, a route, your built-in tools or model):
 
 1. Read the reference for it from the table below. The files are in `references/` next to this
    one; use their absolute paths.
@@ -85,9 +85,8 @@ hand work to the agents listed in your prompt, and write shared state under your
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
 | Know what agents can set up by tool call, for whom, and what you are asked: MCP servers, event sources, new agents | [references/setup.md](references/setup.md) |
 | Add an agent, give it a workspace, tools and a persona; delegation, sub-agents, sessions, shared state | [references/agents.md](references/agents.md) |
-| Let an agent react to the outside world: a watched folder, MQTT devices, webhooks, FTP uploads from cameras, timers; subscribing and unsubscribing | [references/sources.md](references/sources.md) |
+| Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, webhooks, FTP uploads from cameras, timers; subscribing, unsubscribing, sending | [references/sources.md](references/sources.md) |
 | Write rules for events yourself: set state, publish, single model calls, schedules, debounce | [references/events.md](references/events.md) |
-| Connect Telegram, MQTT or a watched folder; write a plugin; use pi extensions and skills | [references/plugins.md](references/plugins.md) |
 | Add MCP servers globally or per agent; web search, page reading and the bundled browser; turn shell commands into tools | [references/mcp.md](references/mcp.md) |
 | Understand the defences against outside abuse and prompt injection, and their limits | [references/security.md](references/security.md) |
 | Know the technology underneath and the pi behaviours pine works around; open points | [references/stack.md](references/stack.md) |
@@ -110,17 +109,17 @@ pine
 One agent, `main`, with web search and a browser, and the terminal UI to talk to it. Everything
 below is added on top of that when you need it.
 
-`~/.pine/pine.json`, with Telegram as a second way in:
+`~/.pine/pine.json`:
 
 ```json
 {
   "main": "main",
-  "defaults": { "model": "local/deepseek-v4.1-flash" },
-  "plugins": [
-    { "use": "pine:telegram", "options": { "accounts": { "main": { "token": "${TELEGRAM_MAIN_TOKEN}", "allow": [123456789], "agent": "main" } } } }
-  ]
+  "defaults": { "model": "local/deepseek-v4.1-flash" }
 }
 ```
+
+Telegram as a second way in is set up by asking the main agent: "watch Telegram, here is the
+bot's token". See [references/sources.md](references/sources.md).
 
 `~/.pine/agents/gonzo/agent.json`, a second agent, a specialist the main agent can hand work to
 (create the folder and a `workspace` folder in it; an `AGENTS.md` in the workspace says what
@@ -141,8 +140,7 @@ pine check
 pine start
 ```
 
-Now a Telegram message to the bot reaches `main`; `main` sees `gonzo` in its list of agents and
-can call `delegate`. `pine events -f` shows everything as it happens.
+`main` sees `gonzo` in its list of agents and can call `delegate`. `pine events -f` shows everything as it happens.
 
 ## Vocabulary
 
@@ -159,5 +157,4 @@ can call `delegate`. `pine events -f` shows everything as it happens.
 | untrusted | Everything else: data that may contain instructions it has no right to give |
 | tainted | A session that has seen outside content (a web page, an MCP result, an untrusted task) |
 | approval | Your yes or no to one tool call, asked in the terminal UI and over Telegram, or answered with `pine approve` |
-| plugin | A module in pine's home that adds adapters and tools |
 | extension | A pi extension: pi's own plug-in format, usable in pine sessions |
