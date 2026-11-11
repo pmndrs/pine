@@ -80,6 +80,7 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `defaults.model` | none | `provider/model-id` from `models.json`: the model of every agent whose `agent.json` names none. There is no built-in fallback: an agent with neither is a configuration error, which `pine check` and the start of pine report. |
 | `defaults.thinking` | `off` | Reasoning level for models that can reason: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
 | `defaults.mode` | `auto` | `manual`, `auto` or `bypass`: how much agents do without asking. See [security.md](security.md). |
+| `defaults.scope` | not set | How far the shell and file tools of agents reach that do not say themselves (`sandbox.scope`): `workspace` or `account`. Not set: `account` for the main agent, `workspace` for all others. Set it to `workspace` to keep every agent in its own folders. |
 | `defaults.bashTimeoutSec` | `300` | Longest a shell command may run. The model cannot raise it. |
 | `defaults.taskTimeoutSec` | `1800` | Longest a task may run before it is aborted. |
 | `defaults.idleMs` | `15m` | A live session without work is closed after this (and resumed from disk later). |
@@ -175,8 +176,9 @@ Every key is optional; `{}` is a valid agent.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | from `defaults` | `manual`: every action waits for approval. `auto`: works inside the sandbox and asks for the rest. `bypass`: never asks, and reaches your whole account. |
+| `mode` | from `defaults` | `manual`: every action waits for approval. `auto`: works within its scope (`sandbox.scope`) and asks for the rest. `bypass`: never asks, and reaches your whole account. |
 | `sandbox` | on | `false` runs shell and file tools with the daemon's full rights. Do not, unless the machine itself is disposable. |
+| `sandbox.scope` | `account` for the main agent, `workspace` for others | How far the agent's shell and file tools reach in your own conversations. `workspace`: its own folders, and what you grant. `account`: your whole user account and the network, like you at your terminal, with your home folder and environment; pine's home stays closed. After a conversation has read outside content you are asked once whether it keeps that. See [security.md](security.md), "The whole account". |
 | `sandbox.network` | `false` | Shell commands may use the network: the internet and your local network, ports of this machine included. See [security.md](security.md), "On Linux", for what that means for socket files. |
 | `sandbox.read`, `sandbox.write` | `[]` | Further folders the agent may read / write, besides its workspace. |
 | `sandbox.sharedTmp` | `true` | Allow `/tmp` and the user's temp folder. |

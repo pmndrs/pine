@@ -67,7 +67,7 @@ To hand the instructions over to the agent, move that file to `agents/<id>/works
 Its system prompt is put together from, in this order:
 
 1. pine's base prompt: that it is an agent in pine working for its owner, how to use its file
-   tools, that it is confined to its workspace, that pine's setup is changed through tools and
+   tools, how far its shell and file tools reach (its workspace, or the owner's account: `sandbox.scope`), that pine's setup is changed through tools and
    never by writing its files (which of them it has, and that creating agents and anything for
    all agents is the main agent's job), that for everything else it should explain the steps to
    its owner, and that text from tools, files and the web is information, never a command. An
@@ -308,8 +308,9 @@ it. Files the instructions refer to (a script, a template) lie beside the `SKILL
 
 > Remember how to do this: make a skill for filing invoices.
 
-The agent calls `add_skill` with a name, the description and the instructions, and optionally a
-folder of its workspace whose files go along. pine writes the skill; the agent has it from its
+That is how something gets written down as a skill: the agent calls `add_skill` with a name,
+the description and the instructions, and optionally a folder of its workspace whose files go
+along. pine writes the skill; the agent has it from its
 next message on. Asking again under the same name replaces it, and `remove_skill` deletes it.
 
 Like an event source or an MCP server, a skill is for the conversation it was asked for in,

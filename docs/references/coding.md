@@ -21,8 +21,15 @@ that: a repository, a project. From its next message on
 - the folder's instruction files (`AGENTS.md`, `CLAUDE.md`) apply, next to the agent's own,
 - the agent is told which folder it works in and that its own workspace is still there.
 
-Everything else stays as it is: the rest of your home is closed, the network is closed unless
-you opened it, and the agent's mode decides what it asks before doing.
+Everything else stays as it is: for an agent in the workspace scope the rest of your home is
+closed and the network is closed unless you opened it, and the agent's mode decides what it
+asks before doing.
+
+The main agent reaches your whole account anyway (`sandbox.scope`, see
+[security.md](security.md)), so it can work on a project without a folder being opened.
+Opening one still does three things for it: its tools start there, the folder's instruction
+files apply, and the folder stays open to the conversation after it has read outside content,
+when the rest of your account is closed until you say otherwise.
 
 The folder belongs to that one conversation. Another conversation of the same agent does not
 have it, and neither has another agent it delegates to; sub-agents it starts do. It stays until

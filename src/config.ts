@@ -175,6 +175,17 @@ export interface SandboxConfig {
 	/** Allow the shared temp directories (/tmp and the user's temp dir). */
 	sharedTmp: boolean;
 	env: Record<string, string>;
+	/**
+	 * How far the agent's shell and file tools reach in the owner's own conversations.
+	 * "workspace": its own folders, and what the owner grants. "account": the owner's whole user
+	 * account and the network, like a person at the terminal. Not set: see `sandboxScope`.
+	 */
+	scope?: "workspace" | "account";
+}
+
+/** An agent's reach: as configured for it or for all agents, and otherwise the whole account for the main agent and the workspace for the others. */
+export function sandboxScope(cfg: PineConfig, agent: AgentConfig): "workspace" | "account" {
+	return agent.sandbox.scope ?? cfg.defaults.scope ?? (agent.id === mainAgentId(cfg) ? "account" : "workspace");
 }
 
 /** What a run triggered by an untrusted event may use. */
@@ -237,7 +248,7 @@ export interface PineConfig {
 	dataDir: string;
 	logLevel: LogLevel;
 	main?: string;
-	defaults: { model?: string; thinking: string; mode: Mode; bashTimeoutSec: number; taskTimeoutSec: number; idleMs: number; settings: Record<string, unknown> };
+	defaults: { model?: string; thinking: string; mode: Mode; bashTimeoutSec: number; taskTimeoutSec: number; idleMs: number; settings: Record<string, unknown>; scope?: "workspace" | "account" };
 	limits: {
 		maxConcurrentRuns: number;
 		maxDelegationDepth: number;
@@ -338,6 +349,7 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 	const workspace = raw.workspace ? resolvePath(raw.workspace, dir) : path.join(dir, "workspace");
 	if (!raw.workspace) fs.mkdirSync(workspace, { recursive: true });
 	else if (!fs.existsSync(workspace)) problems.push(`${where}: workspace ${workspace} does not exist`);
+	if (raw.sandbox?.scope !== undefined && raw.sandbox.scope !== "workspace" && raw.sandbox.scope !== "account") problems.push(`${where}: sandbox.scope is "workspace" (the agent's own folders) or "account" (your whole user account)`);
 	const sub = raw.subagents === false ? { enabled: false } : raw.subagents === true || raw.subagents === undefined ? {} : raw.subagents;
 	const state = raw.state ?? {};
 	return {
@@ -369,6 +381,7 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 			write: paths(raw.sandbox?.write, dir),
 			sharedTmp: raw.sandbox?.sharedTmp !== false,
 			env: raw.sandbox?.env ?? {},
+			scope: raw.sandbox?.scope === "workspace" || raw.sandbox?.scope === "account" ? raw.sandbox.scope : undefined,
 		},
 		approve: strings(raw.approve, []),
 		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "send"]),
@@ -490,6 +503,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			taskTimeoutSec: d.taskTimeoutSec ?? 1800,
 			idleMs: parseDuration(d.idleMs ?? "15m"),
 			settings: d.settings ?? {},
+			scope: d.scope === "workspace" || d.scope === "account" ? d.scope : undefined,
 		},
 		limits: {
 			maxConcurrentRuns: l.maxConcurrentRuns ?? 2,

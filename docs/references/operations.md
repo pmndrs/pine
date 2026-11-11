@@ -267,8 +267,9 @@ are JSON with `Content-Type: application/json`.
 | `no daemon answers on http://127.0.0.1:7463` | The daemon is not running, or `http.port` differs from what the CLI reads in this home. |
 | A task fails with a connection error | The model server is down or `baseUrl` is wrong. `curl <baseUrl>/models` should answer. |
 | A task fails after minutes with a timeout | The model stopped streaming (`limits.modelStreamIdleMs`) or took too long to start (`limits.modelHeadersTimeoutMs`); raise them for a slow model. |
-| The agent says a file is "not permitted" | It is outside the workspace. In `auto` mode it can ask you with `request_access`; to open a folder for good, use `sandbox.read` / `sandbox.write`. |
-| `git` complains about identity | The agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
+| The agent says a file is "not permitted" | It is outside what the agent reaches. The main agent has your whole account (`sandbox.scope`), but not in a conversation that has read outside content unless you said yes to the question; other agents have their workspace. An agent can ask you with `request_access`; to open a folder for good, use `sandbox.read` / `sandbox.write`. |
+| The agent cannot stop a program it started (`kill: Operation not permitted`) | In the workspace scope every command has a sandbox of its own and cannot signal what an earlier one started. An agent with the scope `account` can. Otherwise stop it yourself. |
+| `git` complains about identity | In the workspace scope the agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
 | A command needs the network | `sandbox.network: true` for that agent, or better a `commands` tool for that one command. |
 | Telegram bot does not react | `pine sources`: is the `telegram` source running, and is a conversation subscribed? A new bot waits to be paired: write to it, and type the code it sends you into the question in the terminal UI (`pine sources` says whom it listens to). Otherwise another program polls the same bot token. |
 | An event arrives but no task starts | See "When nothing happens" in [events.md](events.md) for routes and in [sources.md](sources.md) for subscriptions. |

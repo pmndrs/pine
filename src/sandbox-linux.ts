@@ -39,9 +39,9 @@ export interface Jail {
 	 */
 	shared?: string[];
 	network: boolean;
-	/** "open" is bypass mode: the whole account, except pine's home and pine's code. */
+	/** "open" is the whole account, except pine's home and pine's code: bypass mode, or an agent whose scope is the account. */
 	variant: "normal" | "restricted" | "open";
-	/** For the restricted variant: what exists and may not be changed, and repositories whose folder may not be moved aside. */
+	/** For a run that has read outside content, in either reach: what exists and may not be changed, and repositories whose folder may not be moved aside. */
 	frozen?: { paths: string[]; repositories: string[] };
 }
 
@@ -185,6 +185,13 @@ export function bwrapArgs(jail: Jail): string[] {
 		const own = [...jail.ownedRead, ...jail.ownedWrite];
 		for (const p of shallowFirst(jail.closed)) if (!isInside(jail.pineHome, p) || own.some((r) => isInside(r, p))) close(p);
 		if (exists(jail.pineCode)) ro(jail.pineCode);
+		if (jail.frozen) {
+			// The whole account, kept by a conversation that has read outside content: what is read
+			// into the agent's prompt stays as it is, as in the restricted variant.
+			const closed = (p: string) => jail.closed.some((c) => isInside(c, p)) || (isInside(jail.pineHome, p) && !jail.ownedWrite.some((r) => isInside(r, p)));
+			for (const p of shallowFirst(jail.frozen.repositories.filter((p) => !closed(p)))) rw(p);
+			for (const p of shallowFirst(jail.frozen.paths.filter((p) => !closed(p)))) ro(p);
+		}
 		seal();
 		args.push(...POWERLESS, "--die-with-parent", "--");
 		return args;

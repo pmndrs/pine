@@ -147,15 +147,16 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					path: Type.Optional(Type.String({ description: "Absolute path of the file or folder" })),
 					write: Type.Optional(Type.Boolean({ description: "true to also change files there. Default: read only" })),
 					network: Type.Optional(Type.Boolean({ description: "true to ask for network access from the shell instead of a path" })),
+					account: Type.Optional(Type.Boolean({ description: "true to ask for your owner's whole account again, after they limited this conversation to your workspace" })),
 					reason: Type.String({ description: "Why you need it, in one sentence" }),
 				}),
 				execute: async (_id, p, signal) => {
 					const r = run();
-					if (!p.network && !p.path) throw new Error("give a path, or set network to true");
-					const kind = p.network ? "network" : p.write ? "write" : "read";
-					const what = p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
-					if (live.mode() === "bypass") return ok("You already have that access in bypass mode.");
-					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", summary: `${what}\nreason: ${p.reason}`, why: "the agent asks for access beyond its sandbox, for this conversation" }, signal));
+					if (!p.network && !p.path && !p.account) throw new Error("give a path, or set network to true");
+					const kind = p.account ? "account" : p.network ? "network" : p.write ? "write" : "read";
+					const what = p.account ? "access to your whole account and the network" : p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
+					if (live.wide()) return ok(live.mode() === "bypass" ? "You already have that access in bypass mode." : "You already have that access: your shell and file tools reach your owner's whole account and the network.");
+					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", summary: `${what}\nreason: ${p.reason}`, why: `the agent asks for access beyond its sandbox, for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
 					if (!decision.allow) throw new Error(`not granted (${decision.by}). Do not retry; work without it or tell your owner what is missing.`);
 					const refused = live.grant(kind, p.path);
 					if (refused) throw new Error(`cannot be granted: ${refused}`);

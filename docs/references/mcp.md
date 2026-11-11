@@ -263,7 +263,7 @@ opens the address and waits.
   conversation is reset or the daemon restarts. `localhost:5173` and `127.0.0.1:5173` are two
   questions; so are two ports.
 - A no blocks the call. The agent should not try another spelling of the address, or start a
-  browser of its own from the shell: the sandbox has no browser it can run.
+  browser of its own from the shell instead.
 - Only what the agent itself opens is asked about. What a page loads, links or redirects to on
   another local address is refused. If the page really needs it (an API on another port), the
   agent opens that address with `browser_navigate` once, which asks.
@@ -277,8 +277,11 @@ opens the address and waits.
 - `allowHosts` and `denyHosts` still apply.
 
 A server the agent starts from its own shell (`npm run dev`) can only listen on a port when the
-shell has network access: `request_access` with `network: true`, or `sandbox.network`. Start it
-in the background and give it a moment before opening the page.
+shell has network access. The main agent has it (the scope `account`); an agent in the
+workspace scope needs `request_access` with `network: true`, or `sandbox.network`. Start the
+server in the background and give it a moment before opening the page. An agent with the
+scope `account` can also stop it again with `kill`; in the workspace scope a command cannot
+stop what an earlier command started.
 
 ## Telegram, MQTT and other outputs
 

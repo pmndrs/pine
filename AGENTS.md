@@ -105,8 +105,16 @@ These are invariants. A change that breaks one needs a test that shows why it is
    whom it is for (`src/skills.ts`). They are written by `add_skill` into pine's home, which
    the agent reads and cannot write, and `add_skill` refuses in a tainted conversation.
 2. **File access is enforced by the OS, not by a path check.** (What the OS enforces depends on
-   the mode: `live.variant()` picks the normal, restricted or open profile for each call, and
-   access the owner granted with `request_access` is written into that session's profiles.)
+   the mode, the agent's scope and what the conversation has read: `live.variant()` picks the
+   normal, restricted or open profile for each call, and access the owner granted with
+   `request_access` is written into that session's profiles.)
+   The open profile is the owner's whole account. It is for bypass mode and for an agent whose
+   scope is the account (`sandboxScope` in `src/config.ts`: the main agent, unless configured
+   otherwise), in the owner's own conversations only (`live.wide()`). A conversation that has
+   read outside content loses it until the owner says it keeps it (`keepWide`, asked once in
+   the `tool_call` gate), and then runs in `open-restricted`, where what is read into the
+   agent's prompt still cannot be written. A run started from outside never has it. Do not add
+   a third way to the open profile, and do not make the answer survive a reset.
    In every variant pine's home and pine's code stay closed. Shell commands and all six file
    tools run behind `sandboxArgv()`: `sandbox-exec` with the profile from `sandboxProfile()` on
    macOS, `bwrap` with the mounts from `bwrapArgs()` on Linux. A rule goes into both or into
@@ -132,6 +140,8 @@ These are invariants. A change that breaks one needs a test that shows why it is
    `approveWhenTainted` list in `config.ts`.
 6. **Secrets stay in `.env`.** They are interpolated into the configuration and never exported to
    `process.env`; `shellEnv()` builds the environment for child processes from an allow-list.
+   With the whole account it is the owner's own environment instead, without the daemon's
+   variables and without anything whose name looks like a credential.
    Anything a source holds should be registered with `source.secret()` so it is redacted from
    events and logs. A secret an agent passes to `add_source` was typed into a conversation
    first: `SourceHost.add` redacts it from then on and scrubs it from stored events and tasks.

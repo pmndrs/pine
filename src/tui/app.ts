@@ -1660,7 +1660,7 @@ export class PineTui {
 				getArgumentCompletions: (prefix) =>
 					[
 						{ value: "manual", label: "manual", description: "ask before every action" },
-						{ value: "auto", label: "auto", description: "work inside the sandbox, ask for the rest" },
+						{ value: "auto", label: "auto", description: "work freely within the agent's reach, ask for the rest" },
 						{ value: "bypass", label: "bypass", description: "never ask; shell and files reach your whole account" },
 					].filter((m) => m.value.startsWith(prefix.trim())),
 				run: async (args) => {

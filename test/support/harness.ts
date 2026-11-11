@@ -68,7 +68,10 @@ export async function harness(spec: { pine?: Record<string, unknown>; agents: Re
 		path.join(home, "models.json"),
 		JSON.stringify({ providers: { mock: { name: "Mock", baseUrl: mock.baseUrl, api: "openai-completions", apiKey: "sk-mock", models: [{ id: "m", name: "Mock", contextWindow: 128000, maxTokens: 4096, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...(spec.model ?? {}) }] } } }),
 	);
-	write(path.join(home, "pine.json"), JSON.stringify({ defaults: { model: "mock/m" }, http: false, logLevel: "debug", ...(spec.pine ?? {}) }, null, 2));
+	// Tests script the model, and a scripted command must not reach the account of whoever runs
+	// them: every agent stays in its workspace unless a test asks for the account by name.
+	const defaults = { model: "mock/m", scope: "workspace", ...((spec.pine?.defaults as Record<string, unknown> | undefined) ?? {}) };
+	write(path.join(home, "pine.json"), JSON.stringify({ http: false, logLevel: "debug", ...(spec.pine ?? {}), defaults }, null, 2));
 	for (const [rel, content] of Object.entries(spec.files ?? {})) write(path.join(home, rel), content);
 	for (const [id, a] of Object.entries(spec.agents)) {
 		const dir = path.join(home, "agents", id);

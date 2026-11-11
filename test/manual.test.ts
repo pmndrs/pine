@@ -60,6 +60,10 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["what happens when a conversation is removed", /^(setup#|tui#|agents#sessions)/],
 		["connect an mcp server", /^(mcp#|setup#)/],
 		["look at my dev server on localhost in the browser", /^mcp#local-addresses$/],
+		["kill operation not permitted cannot stop dev server it started", /^(operations#|security#the-whole-account)/],
+		["let the agent work in my other projects and home folder", /^(security#(the-whole-account|3)|configuration#.*scope)/],
+		["asked whether it keeps my whole account after reading a web page", /^security#the-whole-account/],
+		["sandbox.scope", /^configuration#.*sandbox-scope$/],
 		["browser refused not reachable local address", /^(mcp#local-addresses|operations#)/],
 		// The first words of agents that knew nothing about pine, from runs with puzzles.
 		["stretch reminder working days 6 pm recurring", /^events#ask-the-agent/],

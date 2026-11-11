@@ -312,10 +312,12 @@ Event `changed`: `{ command, code, previousCode?, value, previous }` with `match
 `previousCode` is there when it changed, so `test -f build/done` or `ping -c1 nas` report by
 how they end.
 
-The command runs **like a command in that agent's own shell**: in the agent's sandbox, with its
-private home folder and without your environment. It reaches what the agent reaches and nothing
-else: no network unless the agent has it, none of your home folder beyond what the agent may
-read, none of pine's files. A source of all agents runs as the main agent. You are shown the
+The command runs **like a command in that agent's own shell in the workspace scope**: in the
+agent's sandbox, with its private home folder and without your environment, also for an agent
+that has your whole account in your conversations (nobody is there to answer for what a
+command on a clock does). It reaches the agent's own folders and nothing else: no network
+unless `sandbox.network` is set, none of your home folder beyond `sandbox.read`, none of
+pine's files. A source of all agents runs as the main agent. You are shown the
 command line before it is set up, every time. A command that cannot be started or runs out of
 time is a failed look (see below), not an event. `timeout` is at least `"1s"`, and a command
 line of more than 2000 characters is refused (put it into a script). If the agent's sandbox is

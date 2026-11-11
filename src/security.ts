@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type AgentConfig, agentSkillsDir, conversationsDir, globalSkillsDir, mainAgentId, PINE_ROOT, type PineConfig, userFile, WORKSPACE_FILES } from "./config.ts";
+import { type AgentConfig, agentSkillsDir, conversationsDir, globalSkillsDir, mainAgentId, PINE_ROOT, type PineConfig, sandboxScope, userFile, WORKSPACE_FILES } from "./config.ts";
 import { bwrapArgs, Guard, helperArgs, jailed, type Protected, protectedNow, SESSIONS } from "./sandbox-linux.ts";
 import type { Bus } from "./store.ts";
 import { type Logger, truncate } from "./util.ts";
@@ -92,9 +92,13 @@ export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
  * Which sandbox applies to a call.
  * normal:     the agent's own folders.
  * restricted: the same, and its instruction files are read-only (the run has handled outside content).
- * open:       bypass mode: the whole user account, except pine's home and pine's own code.
+ * open:       the whole user account, except pine's home and pine's own code: bypass mode, and
+ *             an agent whose scope is the account in a conversation of its owner's.
+ * open-restricted: the same reach, in a conversation that has read outside content and that the
+ *             owner let keep it. What is read into the agent's prompt stays as it is.
  */
-export type SandboxVariant = "normal" | "restricted" | "open";
+export type SandboxVariant = "normal" | "restricted" | "open" | "open-restricted";
+export const isOpen = (v: SandboxVariant | boolean): v is "open" | "open-restricted" => v === "open" || v === "open-restricted";
 
 /** pine's own program files. Never writable by an agent, in any mode. */
 const PINE_CODE = realish(PINE_ROOT);
@@ -102,11 +106,12 @@ const PINE_CODE = realish(PINE_ROOT);
 /** Why a file tool may not touch `target`, or undefined when it may. */
 export function checkPath(roots: Roots, kind: "read" | "write", target: string, cwd: string, variant: SandboxVariant | boolean): string | undefined {
 	const p = realish(path.isAbsolute(target) ? target : path.join(cwd, target));
-	const restricted = variant === true || variant === "restricted";
+	const restricted = variant === true || variant === "restricted" || variant === "open-restricted";
 	if (roots.secrets.some((s) => isInside(s, p))) return `${target} is not accessible to agents`;
-	if (variant === "open") {
+	if (isOpen(variant)) {
 		if (isInside(roots.home, p) && !(kind === "read" ? roots.ownedRead : roots.ownedWrite).some((r) => isInside(r, p))) return `${target} is part of pine's own configuration, which stays closed in every mode`;
 		if (kind === "write" && isInside(PINE_CODE, p)) return `${target} is part of pine's own code, which agents cannot change`;
+		if (kind === "write" && restricted) return ownRules(roots, target, p);
 		return undefined;
 	}
 	if (roots.others.some((o) => isInside(o, p))) return `${target} belongs to another agent; ask that agent instead`;
@@ -114,9 +119,14 @@ export function checkPath(roots: Roots, kind: "read" | "write", target: string, 
 	const inHome = isInside(roots.home, p);
 	const allowed = kind === "read" ? (inHome ? roots.ownedRead : roots.read) : inHome ? roots.ownedWrite : roots.write;
 	if (!allowed.some((r) => isInside(r, p))) return `${target} is outside the paths this agent may ${kind} (workspace: ${roots.workspace}). If you need it, call request_access with the path and the reason; your owner decides.`;
+	return kind === "write" && restricted ? ownRules(roots, target, p) : undefined;
+}
+
+/** What a run that has handled outside content may not write in the agent's own folders, however far it reaches otherwise. */
+function ownRules(roots: Roots, target: string, p: string): string | undefined {
 	const mine = [roots.workspace, ...(roots.folder !== undefined ? [roots.folder] : [])];
-	if (kind === "write" && restricted && mine.some((r) => isGitRunPath(r, p))) return `${target} is part of a repository's hooks or configuration, which make git run programs, and cannot be changed in a run that has handled outside content`;
-	if (kind === "write" && restricted && (mine.some((r) => isInstructionPath(r, p)) || isOwnFile(roots, p))) return `${target} holds agent instructions and cannot be changed in a run that has handled outside content`;
+	if (mine.some((r) => isGitRunPath(r, p))) return `${target} is part of a repository's hooks or configuration, which make git run programs, and cannot be changed in a run that has handled outside content`;
+	if (mine.some((r) => isInstructionPath(r, p)) || isOwnFile(roots, p)) return `${target} holds agent instructions and cannot be changed in a run that has handled outside content`;
 	return undefined;
 }
 
@@ -161,10 +171,19 @@ const subpaths = (list: string[]) => list.map((p) => `(subpath ${q(p)})`).join("
  */
 export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false): string {
 	const userHome = realish(os.homedir());
-	const restricted = variant === true || variant === "restricted";
-	if (variant === "open") {
-		// Bypass mode. The owner has said: act with my rights. What stays closed is what would let an
-		// agent rewrite the system that runs it: pine's home (configuration, secrets) and pine's code.
+	const restricted = variant === true || variant === "restricted" || variant === "open-restricted";
+	// What is read into the prompt cannot be rewritten by a run that outside content may steer.
+	const frozen = () => {
+		const out = [`(deny file-write* ${[roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))].map((f) => `(literal ${q(f)})`).join(" ")})`];
+		for (const dir of [roots.workspace, ...(roots.folder ? [roots.folder] : [])]) {
+			out.push(`(deny file-write* (regex #"^${rx(dir)}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") (regex #"^${rx(dir)}/${GIT_RUNS_PROFILE}") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(dir, d)))})`);
+		}
+		return out;
+	};
+	if (isOpen(variant)) {
+		// The owner's own rights: bypass mode, or an agent whose scope is the account. What stays
+		// closed is what would let an agent rewrite the system that runs it: pine's home
+		// (configuration, secrets) and pine's code.
 		return `${[
 			"(version 1)",
 			"(allow default)",
@@ -174,6 +193,7 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 			`(allow file-write* ${subpaths(roots.ownedWrite.filter((r) => isInside(roots.home, r)))})`,
 			`(deny file-read* file-write* ${subpaths(roots.secrets)})`,
 			`(deny file-write* (subpath ${q(PINE_CODE)}))`,
+			...(restricted ? frozen() : []),
 		].join("\n")}\n`;
 	}
 	const lines = [
@@ -201,13 +221,7 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		`(allow file-write* ${subpaths(roots.ownedWrite)})`,
 		`(deny file-read* file-write* ${subpaths([...roots.secrets, ...roots.others])})`,
 	];
-	if (restricted) {
-		// What is read into the prompt cannot be rewritten by a run that outside content may steer.
-		lines.push(`(deny file-write* ${[roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))].map((f) => `(literal ${q(f)})`).join(" ")})`);
-		for (const dir of [roots.workspace, ...(roots.folder ? [roots.folder] : [])]) {
-			lines.push(`(deny file-write* (regex #"^${rx(dir)}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") (regex #"^${rx(dir)}/${GIT_RUNS_PROFILE}") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(dir, d)))})`);
-		}
-	}
+	if (restricted) lines.push(...frozen());
 	if (agent.sandbox.network || network) {
 		// The network is addresses. A socket file is another program on this machine (a terminal
 		// multiplexer, an ssh agent, an editor's helper: some run commands for whoever connects),
@@ -291,7 +305,7 @@ export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, v
 	if (sandboxKind() !== "linux") return ["/usr/bin/sandbox-exec", "-p", sandboxProfile(cfg, agent, roots, variant, network)];
 	const v: SandboxVariant = variant === true ? "restricted" : variant === false ? "normal" : variant;
 	const net = agent.sandbox.network || network;
-	// Bypass is the owner's own session. Otherwise sockets between programs go with the network, as on macOS.
+	// With the whole account it is the owner's own session. Otherwise sockets between programs go with the network, as on macOS.
 	return jailed(
 		bwrap,
 		bwrapArgs({
@@ -302,12 +316,12 @@ export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, v
 			write: roots.write,
 			ownedRead: roots.ownedRead,
 			ownedWrite: roots.ownedWrite,
-			closed: v === "open" ? roots.secrets : [...roots.secrets, ...roots.others, ...SESSIONS],
+			closed: isOpen(v) ? roots.secrets : [...roots.secrets, ...roots.others, ...SESSIONS],
 			network: net,
-			variant: v,
-			frozen: v === "restricted" ? protectedNow(protectedOf(roots)) : undefined,
+			variant: isOpen(v) ? "open" : v,
+			frozen: v === "restricted" || v === "open-restricted" ? protectedNow(protectedOf(roots)) : undefined,
 		}),
-		v === "open" || net,
+		isOpen(v) || net,
 	);
 }
 
@@ -317,7 +331,7 @@ export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, v
  * not is removed again. On macOS the profile forbids it outright and there is nothing to do.
  */
 export function sandboxGuard(roots: Roots, variant: SandboxVariant | boolean): Guard | undefined {
-	return sandboxKind() === "linux" && (variant === true || variant === "restricted") ? new Guard(protectedOf(roots)) : undefined;
+	return sandboxKind() === "linux" && (variant === true || variant === "restricted" || variant === "open-restricted") ? new Guard(protectedOf(roots)) : undefined;
 }
 
 /**
@@ -332,10 +346,26 @@ export function helperArgv(write: string[] = []): string[] | undefined {
 	return undefined;
 }
 
-/** Environment for an agent's shell: nothing from the daemon except what a shell needs. */
-export function shellEnv(agent: AgentConfig, roots: Roots, sessionEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/** Names of environment variables that look like they hold a credential. The ssh agent's socket is an address, not one. */
+const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH/i;
+const secretName = (k: string) => SECRET_NAME.test(k) && k !== "SSH_AUTH_SOCK";
+
+/**
+ * Environment for an agent's shell: nothing from the daemon except what a shell needs, and a
+ * home of its own. With the whole account (`wide`) it is the owner's own home and environment,
+ * so that git, ssh, npm and the owner's toolchains behave as in their terminal; what looks like
+ * a credential by its name is still left out, and so is what belongs to the daemon.
+ */
+export function shellEnv(agent: AgentConfig, roots: Roots, sessionEnv: NodeJS.ProcessEnv, wide = false): NodeJS.ProcessEnv {
 	const keep = ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "USER", "LOGNAME", "SHELL"];
 	const env: NodeJS.ProcessEnv = {};
+	if (wide) {
+		for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !secretName(k) && !/^(PI|PINE)_/.test(k)) env[k] = v;
+		for (const [k, v] of Object.entries(sessionEnv)) if (k.startsWith("PI_") && !secretName(k)) env[k] = v;
+		env.HOME = os.homedir();
+		env.PINE_AGENT = agent.id;
+		return { ...env, ...agent.sandbox.env };
+	}
 	for (const k of keep) if (process.env[k] !== undefined) env[k] = process.env[k];
 	for (const [k, v] of Object.entries(sessionEnv)) if (k.startsWith("PI_") && !/KEY|TOKEN|SECRET|AUTH/i.test(k)) env[k] = v;
 	env.HOME = roots.sandboxHome;
@@ -502,6 +532,8 @@ export function audit(cfg: PineConfig): string[] {
 		if (!a.sandbox.enabled && tools.includes("bash")) out.push(`agent ${a.id}: sandbox is off and bash is enabled; its commands can read and change anything the daemon user can`);
 		if (a.sandbox.enabled && a.sandbox.network && tools.includes("bash")) out.push(`agent ${a.id}: shell has network access; a prompt injection could send workspace files anywhere (approval is required once the session has seen outside content)`);
 		if (a.mode === "bypass") out.push(`agent ${a.id}: bypass mode. It never asks, and its shell reaches your whole account and the network${cfg.security.bypassWhenTainted ? ", even after it has read outside content (security.bypassWhenTainted)" : " (it asks again once a session has read outside content)"}`);
+		// The main agent has the account unless told otherwise; that is how pine comes, and not a note. Another agent has it by somebody's choice.
+		if (a.sandbox.enabled && a.mode !== "bypass" && a.id !== mainAgentId(cfg) && sandboxScope(cfg, a) === "account" && tools.includes("bash")) out.push(`agent ${a.id}: its shell and file tools reach your whole account and the network in your own conversations (scope "account"); once a conversation has read outside content you are asked whether it keeps that`);
 		if (a.trustWorkspace) out.push(`agent ${a.id}: trustWorkspace is on; code in ${a.workspace}/.pi/extensions runs inside the daemon`);
 		if (isInside(realish(a.workspace), realish(cfg.home))) out.push(`agent ${a.id}: the workspace contains pine's home directory`);
 		if (a.untrusted && a.untrusted.tools.some((t) => ["bash", "write", "edit"].includes(t))) out.push(`agent ${a.id}: runs triggered by untrusted events may use ${a.untrusted.tools.filter((t) => ["bash", "write", "edit"].includes(t)).join(", ")}`);
