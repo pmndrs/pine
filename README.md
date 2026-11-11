@@ -7,13 +7,15 @@
 
 This is a small daemon that runs several AI agents. Yes, you've heard that before.
 
+<div align="center">
 ```
 + OpenCode, with a fresh GUI
 + OpenClaw automation, without configs or the weight
-+ [PI coding agent](https://pi.dev) for basic turns, auto compact and model providers.
------------------------------------------
++ PI coding agent for basic turns, auto compact and model providers
+-------------------------------------------------------------------
 = PINE
 ```
+</div>
 
 Some things it does very different:
 
