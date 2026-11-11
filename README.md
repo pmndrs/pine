@@ -1,4 +1,9 @@
-# pine
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
+    <img src="docs/images/logo-light.svg" alt="pine" width="360">
+  </picture>
+</h1>
 
 This is a small daemon that runs several AI agents. A "harness". Yes, you've heard that before.
 
@@ -15,17 +20,17 @@ Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [
 
 <p align="center">
   <img src="docs/images/meme.png" width="49%" alt="pine searches the web, downloads a picture and shows it in the terminal">
-  <img src="docs/images/drop.png" width="49%" alt="A picture dropped into the terminal, shown as a thumbnail, and the agent's answer about it">
+  <img src="docs/images/video.gif" width="49%" alt="pine fetches a video from the web and plays it in the terminal">
 </p>
 <p align="center">
-  <img src="docs/images/subscribe.png" width="49%" alt="Asked to watch a folder, the agent sets up an event source and subscribes to it">
-  <img src="docs/images/wake.png" width="49%" alt="A file changes, the agent wakes up and shows the git diff">
+  <img src="docs/images/drop.png" width="49%" alt="A picture dropped into the terminal, shown as a thumbnail, and the agent's answer about it">
+  <img src="docs/images/watch.png" width="49%" alt="Asked to watch a folder, the agent sets up an event source; a file changes, it wakes up and shows the git diff">
 </p>
 <p align="center">
   <img src="docs/images/tabs.png" width="49%" alt="Tabs for several agents and conversations, with the list of conversations: pinned ones stay, the others clean themselves up">
   <img src="docs/images/flipper.png" width="49%" alt="pine drives a Flipper Zero through an MCP server">
 </p>
-<p align="center"><sub>Pictures from the web · drag and drop · subscribing to a folder by asking · waking on a change with the diff · tabs, agents and conversations · MCP tools</sub></p>
+<p align="center"><sub>Pictures and video from the web · drag and drop · subscribing to a folder and waking on a change · tabs, agents and conversations · MCP tools</sub></p>
 
 ```
  Telegram ─┐                                   ┌─ rule: set state, publish
