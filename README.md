@@ -7,8 +7,8 @@
 
 <div align="center">
 <code>
-+ OpenCode, with a fresh GUI
-+ OpenClaw automation, without configs or the weight
++ OpenCode, inspired by its interactive TUI
++ OpenClaw automation, without the weight
 + PI coding agent for basic turns, auto compact and model providers
 -------------------------------------------------------------------
 = PINE
