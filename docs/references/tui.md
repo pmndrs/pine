@@ -204,7 +204,7 @@ The bottom bar shows the agent's mode; click it, press `shift+tab`, or use `/mod
 
 | Mode | What you will notice |
 |---|---|
-| `auto` | The agent works without asking. The main agent has your whole account and the network; after the conversation has read the web or other outside content, you are asked once whether it keeps them there. Another agent asks when it wants something outside its workspace ("read access to ~/dev/gonzo, reason: ..."). Any agent asks, after outside content, before it sends something out or acts on the world |
+| `auto` | The agent works without asking. The main agent has your whole account and the network. After a conversation has read the web or other outside content, you are asked once whether it keeps its full rights (the account, and the agent's own memory); a yes holds until you reset the conversation. Another agent asks when it wants something outside its workspace ("read access to ~/dev/gonzo, reason: ..."). Any agent asks, after outside content, before it sends something out or acts on the world |
 | `manual` | A dialog before every command, edit or message, until you answer "Always here" for that tool or server |
 | `bypass` | No dialogs. The agent can read and change files anywhere in your account and use the network. Shown in red |
 

@@ -167,15 +167,15 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					path: Type.Optional(Type.String({ description: "Absolute path of the file or folder" })),
 					write: Type.Optional(Type.Boolean({ description: "true to also change files there. Default: read only" })),
 					network: Type.Optional(Type.Boolean({ description: "true to ask for network access from the shell instead of a path" })),
-					account: Type.Optional(Type.Boolean({ description: "true to ask for your owner's whole account again, after they limited this conversation to your workspace" })),
+					account: Type.Optional(Type.Boolean({ description: "true to ask your owner to give this conversation its full rights back, after they limited it because it has read outside content" })),
 					reason: Type.String({ description: "Why you need it, in one sentence" }),
 				}),
 				execute: async (_id, p, signal) => {
 					const r = run();
 					if (!p.network && !p.path && !p.account) throw new Error("give a path, or set network to true");
 					const kind = p.account ? "account" : p.network ? "network" : p.write ? "write" : "read";
-					const what = p.account ? "access to your whole account and the network" : p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
-					if (live.wide()) return ok(live.mode() === "bypass" ? "You already have that access in bypass mode." : "You already have that access: your shell and file tools reach your owner's whole account and the network.");
+					const what = p.account ? "its full rights in this conversation again (your account and the network if it has them, its own memory and instructions)" : p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
+					if (live.mode() === "bypass" || (live.wide() && live.keeps())) return ok(live.mode() === "bypass" ? "You already have that access in bypass mode." : "You already have that access: your shell and file tools reach your owner's whole account and the network.");
 					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", summary: `${what}\nreason: ${p.reason}`, why: `the agent asks for access beyond its sandbox, for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
 					if (!decision.allow) throw new Error(`not granted (${decision.by}). Do not retry; work without it or tell your owner what is missing.`);
 					const refused = live.grant(kind, p.path);
@@ -501,7 +501,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					scope: Type.Optional(Type.String({ description: `Who gets it. ${serverScope}` })),
 				}),
 				execute: async (_id, p, signal) => {
-					run();
+					const r = run();
 					if (!p.url === !p.command) throw new Error("give either url (a remote server) or command (a local one)");
 					const secrets = [...new Set(p.secrets ?? [])];
 					if (secrets.length && !p.command) throw new Error("secrets are for a local server (command). A remote server signs in by itself: add it, and your owner signs in with /mcp login");
@@ -546,10 +546,32 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 						throw new Error(`could not be added: ${errText(e)}`);
 					}
 					await manager.refreshSessions(target ? [target] : undefined);
+					// A session gets its tools when it starts, so this turn does not have the new ones. The
+					// agent is called again by itself as soon as the turn ends, in the same conversation:
+					// nobody should have to send a message, let alone start a new chat, to go on.
+					let goesOn = false;
+					if (!profile.leaf && !r.task.session.startsWith("_t")) {
+						try {
+							manager.submit({
+								agent: agent.id,
+								session: r.task.session.replace(/~u$/, ""),
+								kind: "notify",
+								trust: "owner",
+								reply: r.task.reply,
+								prompt: `[pine: the MCP server "${p.name}" that you added is connected now. Its tools are in your tool list; their names start with ${mcpNamespace(p.name)}__. Go on with what your owner asked for. If no tool with that prefix is in your list, the server did not start or still needs its sign-in: say that plainly${p.command ? ", and run its command in your shell to see what it prints" : ""}.]`,
+							});
+							goesOn = true;
+						} catch {
+							// a full queue: the tools are there with the owner's next message instead
+						}
+					}
 					const signIn = p.command
 						? `If the server needs a sign-in, its documentation names the command for it (often the same command with "login" at the end). Run that in your shell, give your owner the link it prints, and wait for them.`
 						: `If the server requires sign-in, they stay missing until your owner signs in: /mcp login ${p.name} in the terminal UI, or "pine mcp login ${p.name}" in a shell. Tell them that.`;
-					return ok(`Your owner confirmed it. Added "${p.name}" for ${whose(scope)}. Its tools are available from your next message on; their names start with ${mcpNamespace(p.name)}__ (look at your tool list for the exact names, do not guess them). ${signIn}`);
+					const when = goesOn
+						? `You do not have its tools in this turn yet. Finish what else there is to do now (a sign-in, if it needs one) and end your turn with one short line: pine calls you again at once, in this same conversation, and then the tools are in your tool list. Do not tell your owner to start a new chat or to send another message`
+						: `Its tools are available from your next message on, in this same conversation`;
+					return ok(`Your owner confirmed it. Added "${p.name}" for ${whose(scope)}. ${when}; their names start with ${mcpNamespace(p.name)}__ (look at your tool list for the exact names, do not guess them). ${signIn}`);
 				},
 			}),
 			defineTool({
@@ -680,7 +702,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					// Its own thing needs no question; what reaches beyond this conversation does. And a
 					// skill is part of what the agent is told: from a conversation that has read outside
 					// content it is always put to the owner, with its instructions, like a schedule is.
-					if (live.tainted || scope === "global" || (scope === "agent" && !inMain) || live.mode() === "manual") {
+					if (!live.keeps() || scope === "global" || (scope === "agent" && !inMain) || live.mode() === "manual") {
 						const summary = `${replaces ? "replace" : "add"} the skill "${skill.name}" for ${whoIs(scope)}
 ${skill.description}${skill.copy.length ? `
 With ${skill.copy.length} file${skill.copy.length === 1 ? "" : "s"} from ${p.files}` : ""}

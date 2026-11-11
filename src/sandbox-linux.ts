@@ -250,6 +250,8 @@ export interface Protected {
 	names: string[];
 	/** Folders at the top of a root that may not change (.pi, .agents). */
 	dirs: string[];
+	/** Single files that may change all the same: the agent's own files, once the owner has said so for the conversation. */
+	open?: string[];
 }
 
 /** How far down the look goes. Exported because it is a limit of the protection, and the manual states it. */
@@ -290,6 +292,7 @@ export function protectedNow(p: Protected): { paths: string[]; repositories: str
 		}
 	};
 	for (const root of p.roots) if (isDir(root)) visit(root, 0, true);
+	for (const file of p.open ?? []) paths.delete(file);
 	return { paths: [...paths], repositories: [...repositories] };
 }
 

@@ -8,7 +8,7 @@ import { loadConfig } from "../src/config.ts";
 import os from "node:os";
 import { addServer, listServers, piMcp, removeServer, serverStates, splitCommand } from "../src/mcp-config.ts";
 import { sandboxAvailable } from "../src/security.ts";
-import { harness, mockMsg } from "./support/harness.ts";
+import { harness, mockMsg, until } from "./support/harness.ts";
 import { httpMcp } from "./support/http-mcp.ts";
 
 const run = promisify(execFile);
@@ -74,7 +74,7 @@ test("an agent proposes a remote server, the owner confirms, and it works withou
 	assert.equal(used.text, "FINAL:: looked up: grundbuch");
 	assert.equal(h.pine.agents.status().sessions.find((s) => s.session === "main")?.tainted, undefined);
 	assert.equal(asked.length, 2, "and using it asks nothing");
-	assert.equal(h.mock.state.requests.at(-1).body.messages.filter((m: any) => m.role === "user").length, 3, "the conversation went on; only its tools changed");
+	assert.equal(h.mock.state.requests.at(-1).body.messages.filter((m: any) => m.role === "user").length, 4, "the conversation went on, with pine's own call to go on in it; only its tools changed");
 	await h.pine.agents.run({ agent: "gonzo", prompt: "hi", ...owner });
 	assert.deepEqual(mcpTools(h, h.requestsFor("PERSONA-GONZO")[0]), ["mcp__notes__lookup"], "everyone means the other agents too");
 
@@ -188,6 +188,8 @@ test("setup by tool call: for the conversation by default, for the agent when as
 	r = await run("main", "other", [{ tools: [call("sources", {}), call("subscribe", { source: "proj" })] }]);
 	assert.match(h.toolResults().at(-2)!, /No event sources exist yet/);
 	assert.match(h.toolResults().at(-1)!, /"proj" is not an event source main can use|set up for the conversation "side"/);
+	// After a server was added the agent is called again by itself; that has to be over first.
+	await until(() => !h.pine.tasks.list({}).some((x) => x.status === "pending" || x.status === "running"));
 	assert.deepEqual(await h.pine.agents.removeSession("main", "side"), { removed: true, unsubscribed: ["proj"], sources: ["proj"], servers: ["notes"] });
 	assert.deepEqual(file(), pristine, "the conversation left nothing behind in the agent's file: no empty lists, no access that came with the folder");
 
@@ -341,7 +343,12 @@ test("an agent proposes a local server by its command; the owner confirms the co
 	// A yes: the entry says the program is to be held, and its tools are there with the next message.
 	allow = true;
 	await main([{ tools: [call("add_mcp_server", { name: "cad", command, description: "builds parts" })] }]);
-	assert.match(h.toolResults().at(-1)!, /Your owner confirmed it\. Added "cad".*its documentation names the command for it/);
+	assert.match(h.toolResults().at(-1)!, /Your owner confirmed it\. Added "cad".*pine calls you again at once, in this same conversation.*Do not tell your owner to start a new chat.*its documentation names the command for it/);
+	// It goes on by itself: called again in the same conversation, now with the server's tools.
+	const again = () => h.mock.state.requests.find((r: any) => JSON.stringify(r.body.messages.at(-1)).includes('the MCP server \\"cad\\" that you added is connected now'));
+	await until(() => again() && h.pine.tasks.list({ status: "done" }).some((x) => x.kind === "notify"), 5000, "the agent to be called again");
+	assert.deepEqual(mcpTools(h, again()).sort(), ["mcp__cad__home", "mcp__cad__peek"]);
+	assert.equal(h.pine.tasks.list({}).find((x) => x.kind === "notify")!.session, "main");
 	assert.deepEqual(agentJson().mcp.cad, { command: process.execPath, args: ["server.mjs"], sandboxed: true, description: "builds parts", approve: "tainted" });
 	await main([{ tools: [call("mcp__cad__peek", { path: "mine.txt" }), call("mcp__cad__peek", { path: path.join(dir, "notes.txt") }), call("mcp__cad__peek", { path: path.join(h.home, "pine.json") }), call("mcp__cad__home", {})] }]);
 	const out = h.toolResults().slice(-4);

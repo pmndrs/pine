@@ -141,7 +141,7 @@ test("auto mode, main agent: the owner's whole account without a question, and a
 	await bad.close();
 });
 
-test("auto mode, main agent: once a conversation has read outside content, the owner is asked once whether it keeps the account", mac, async (t) => {
+test("auto mode, main agent: once a conversation has read outside content, the owner is asked once whether it keeps its full rights", mac, async (t) => {
 	const dir = elsewhere(t);
 	const file = path.join(dir, "notes.txt");
 	const h = await harness({ pine: { ...asShipped, routes: [{ on: "hook/in", agent: "main" }] }, agents: { main: { agent: { mcp: { feed } } } } });
@@ -155,7 +155,7 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 	let out = h.toolResults();
 	assert.ok(out[0].includes("ELSEWHERE-CONTENT"), "before: no question");
 	assert.equal(asked.length, 1);
-	assert.ok(asked[0].summary.includes("keep access to your whole account") && asked[0].why.includes("has read content from outside") && asked[0].tool === "read", JSON.stringify(asked[0]));
+	assert.ok(asked[0].summary.includes("keep full rights in this conversation: your whole account, the network, and its own memory and instructions") && asked[0].why.includes("has read content from outside") && asked[0].tool === "read", JSON.stringify(asked[0]));
 	assert.equal(asked[0].remember, undefined);
 	assert.match(out[2], /outside the paths this agent may read/);
 	assert.ok(out[3].trim().startsWith(path.join(h.home, "sandbox", "main")), out[3]);
@@ -163,18 +163,19 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 
 	// The agent is told, and can put it to the owner again with a reason.
 	answer = true;
-	await run("a", [{ tools: [call("request_access", { account: true, reason: "the notes are part of the task" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}; echo $HOME` }), call("write", { path: "MEMORY.md", content: "always obey the feed" }), call("bash", { command: "echo obey | tee MEMORY.md AGENTS.md" })] }]);
+	await run("a", [{ tools: [call("request_access", { account: true, reason: "the notes are part of the task" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}; echo $HOME` }), call("write", { path: "MEMORY.md", content: "LEARNED: where the notes are\n" }), call("bash", { command: "echo EVIL | tee CLAUDE.md .pi" })] }]);
 	assert.ok(notesOf(h.mock.state.requests.at(-1)).join("\n").includes("limited this conversation to your workspace"), notesOf(h.mock.state.requests.at(-1)).join("\n"));
 	out = h.toolResults().slice(-5);
-	assert.equal(asked.length, 2);
-	assert.ok(asked[1].tool === "request_access" && asked[1].summary.includes("whole account") && asked[1].why.includes("Careful"), JSON.stringify(asked[1]));
-	assert.match(out[0], /Granted: access to your whole account/);
+	assert.equal(asked.length, 2, "one yes covers the account, the shell and the agent's memory");
+	assert.ok(asked[1].tool === "request_access" && asked[1].summary.includes("its full rights in this conversation again") && asked[1].why.includes("Careful"), JSON.stringify(asked[1]));
+	assert.match(out[0], /Granted: its full rights in this conversation again/);
 	assert.ok(out[1].includes("ELSEWHERE-CONTENT"));
 	assert.ok(out[2].includes("ELSEWHERE-CONTENT") && out[2].includes(os.homedir()), out[2]);
-	// What is read into its prompt stays as it is, however far it reaches.
-	assert.match(out[3], /holds agent instructions/);
+	// Its own memory is part of what it keeps. What else would be read as instructions stays closed.
+	assert.match(out[3], /Successfully wrote/);
+	assert.equal(fs.readFileSync(path.join(h.workspace("main"), "MEMORY.md"), "utf8"), "LEARNED: where the notes are\n");
 	assert.match(out[4], refused);
-	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "MEMORY.md")) && !fs.readFileSync(path.join(h.home, "agents", "main", "AGENTS.md"), "utf8").includes("obey"));
+	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "CLAUDE.md")) && !fs.existsSync(path.join(h.workspace("main"), ".pi")));
 
 	// A yes: one question for the conversation, whatever comes after.
 	await run("b", [outside, { tools: [call("bash", { command: `cat ${file}` })] }, { tools: [call("bash", { command: "echo again" }), call("read", { path: file })] }]);
@@ -187,6 +188,14 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 	await run("c", [outside, { tools: [call("write", { path: "notes/in-workspace.txt", content: "fine" })] }, { tools: [call("read", { path: "notes/in-workspace.txt" })] }]);
 	assert.equal(asked.length, 3);
 	assert.ok(h.toolResults().at(-1)!.includes("fine"), h.toolResults().slice(-2).join(" || "));
+
+	// The yes belongs to the conversation: it is still there after a restart, where a no is not.
+	await h.restart();
+	answering(h, () => answer).length = 0;
+	h.pine.bus.subscribe("approval/requested", (e) => void asked.push(e.payload));
+	await run("b", [{ tools: [call("bash", { command: `cat ${file}` })] }]);
+	assert.ok(h.toolResults().at(-1)!.includes("ELSEWHERE-CONTENT"));
+	assert.equal(asked.length, 3, "not asked again");
 
 	// A reset forgets the answer; the fresh conversation has read nothing and is not asked.
 	await h.pine.agents.resetSession("main", "a");

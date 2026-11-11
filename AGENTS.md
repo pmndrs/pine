@@ -103,11 +103,15 @@ These are invariants. A change that breaks one needs a test that shows why it is
    What an agent writes and pine reads back is text for its own prompt, never code or
    configuration: `AGENTS.md`, `SOUL.md` and `MEMORY.md` at the top of its workspace, and for
    the main agent `USER.md` in pine's home, the one file there an agent may write. A run that
-   has handled outside content cannot write any of them (`isOwnFile` in `src/security.ts`).
+   has handled outside content writes them only after the owner said that the conversation
+   keeps its full rights (`keepWide`, the one question in the `tool_call` gate; `ownFiles` and
+   `roots.ownOpen` in `src/security.ts` open exactly these files in the sandbox, and nothing
+   else that is read as instructions). A run started from outside is never asked.
    Skills are instructions too, and need no configuration entry: where the folder lies says
    whom it is for (`src/skills.ts`). They are written by `add_skill` into pine's home, which
-   the agent reads and cannot write, and in a tainted conversation `add_skill` always puts
-   the skill to the owner with its instructions, as `add_schedule` does with a task.
+   the agent reads and cannot write, and in a tainted conversation that the owner has not let
+   keep its rights `add_skill` puts the skill to the owner with its instructions, as
+   `add_schedule` does with a task.
 2. **File access is enforced by the OS, not by a path check.** (What the OS enforces depends on
    the mode, the agent's scope and what the conversation has read: `live.variant()` picks the
    normal, restricted or open profile for each call, and access the owner granted with
@@ -115,10 +119,14 @@ These are invariants. A change that breaks one needs a test that shows why it is
    The open profile is the owner's whole account. It is for bypass mode and for an agent whose
    scope is the account (`sandboxScope` in `src/config.ts`: the main agent, unless configured
    otherwise), in the owner's own conversations only (`live.wide()`). A conversation that has
-   read outside content loses it until the owner says it keeps it (`keepWide`, asked once in
-   the `tool_call` gate), and then runs in `open-restricted`, where what is read into the
-   agent's prompt still cannot be written. A run started from outside never has it. Do not add
-   a third way to the open profile, and do not make the answer survive a reset.
+   read outside content loses its full rights until the owner says it keeps them: one
+   question for everything (`keepWide`, asked in the `tool_call` gate with the first call that
+   needs any of it; `live.keeps()` is what other code asks). Then it runs in `open-restricted`,
+   where the agent's own files can be written and nothing else that is read as instructions.
+   A yes is stored with the conversation's outside-content mark and goes with it on a reset.
+   A run started from outside never has any of it. Something new that depends on a
+   conversation being clean goes under this one question, not a question of its own; and do
+   not add a third way to the open profile.
    In every variant pine's home and pine's code stay closed. Shell commands and all six file
    tools run behind `sandboxArgv()`: `sandbox-exec` with the profile from `sandboxProfile()` on
    macOS, `bwrap` with the mounts from `bwrapArgs()` on Linux. A rule goes into both or into

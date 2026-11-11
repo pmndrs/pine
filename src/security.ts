@@ -50,6 +50,11 @@ export interface Roots {
 	folder?: string;
 	/** USER.md in pine's home: what all agents know about the owner. Only the main agent may write it. */
 	userFile: string;
+	/**
+	 * The owner let this conversation change the agent's own files (MEMORY.md, AGENTS.md, SOUL.md,
+	 * and USER.md for the main agent) although it has read outside content.
+	 */
+	ownOpen?: boolean;
 	/** Read access is refused here even when a broader rule would allow it. */
 	secrets: string[];
 	/** Workspaces of the other agents. Agents exchange information through delegation, not through each other's files. */
@@ -135,6 +140,8 @@ export function checkPath(roots: Roots, kind: "read" | "write", given: string, c
 
 /** What a run that has handled outside content may not write in the agent's own folders, however far it reaches otherwise. */
 function ownRules(roots: Roots, target: string, p: string): string | undefined {
+	// Its own files, when the owner has said so for this conversation.
+	if (roots.ownOpen && ownFiles(roots).includes(p)) return undefined;
 	const mine = [roots.workspace, ...(roots.folder !== undefined ? [roots.folder] : [])];
 	if (mine.some((r) => isGitRunPath(r, p))) return `${target} is part of a repository's hooks or configuration, which make git run programs, and cannot be changed in a run that has handled outside content`;
 	if (mine.some((r) => isInstructionPath(r, p)) || isOwnFile(roots, p)) return `${target} holds agent instructions and cannot be changed in a run that has handled outside content`;
@@ -150,6 +157,18 @@ export function isInstructionPath(workspace: string, p: string): boolean {
 /** Whether a path is one of the files that are read into the agent's prompt from its workspace, or the owner's file in pine's home. */
 export function isOwnFile(roots: Roots, p: string): boolean {
 	return p === roots.userFile || (path.dirname(p) === roots.workspace && WORKSPACE_FILES.includes(path.basename(p)));
+}
+
+/** The files an agent keeps itself: its memory and instructions at the top of its workspace, and for the main agent what is known about the owner. */
+export function ownFiles(roots: Roots): string[] {
+	return [...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f)), ...(roots.ownedWrite.includes(roots.userFile) ? [roots.userFile] : [])];
+}
+
+/** The own file a path given to a file tool means, if it means one. */
+export function ownFileOf(roots: Roots, given: string, cwd: string): string | undefined {
+	const target = tilde(given);
+	const p = realish(path.isAbsolute(target) ? target : path.join(cwd, target));
+	return ownFiles(roots).includes(p) ? p : undefined;
 }
 
 /** Whether a path in one of the agent's folders is a repository's hooks or configuration, or the repository's own folder. */
@@ -189,6 +208,9 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		for (const dir of [roots.workspace, ...(roots.folder ? [roots.folder] : [])]) {
 			out.push(`(deny file-write* (regex #"^${rx(dir)}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") (regex #"^${rx(dir)}/${GIT_RUNS_PROFILE}") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(dir, d)))})`);
 		}
+		// The owner let this conversation keep its own files: exactly those, by name, and nothing
+		// that was not the agent's to write before. The last rule that matches a file decides.
+		if (roots.ownOpen) out.push(`(allow file-write* ${ownFiles(roots).map((f) => `(literal ${q(f)})`).join(" ")})`);
 		return out;
 	};
 	if (isOpen(variant)) {
@@ -305,6 +327,7 @@ const protectedOf = (roots: Roots): Protected => ({
 	files: [roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))],
 	names: INSTRUCTION_FILES,
 	dirs: INSTRUCTION_DIRS.filter((d) => !d.includes("/")),
+	open: roots.ownOpen ? ownFiles(roots) : [],
 });
 
 /**

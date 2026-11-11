@@ -199,27 +199,49 @@ stop a server it started a minute ago. With the scope `account` it has that, in 
 | Environment | Yours, with your home folder as `$HOME`. Variables whose name looks like a credential (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `AUTH`, ...) are left out, except the ssh agent's address; add what the agent should have with `sandbox.env` |
 
 This is the reach `bypass` mode has. What differs from bypass is what happens once the
-conversation has **read outside content** (a web page, a search result, a message from
-somebody else). From then on somebody else may be steering the agent, and an agent with your
-account and the network is exactly what such a text wants. So:
-
-- The conversation drops to the workspace scope at that moment.
-- The first shell command, or file outside the workspace, puts one question to you: keep your
-  whole account and the network in this conversation? A **yes** keeps it until the conversation
-  is reset or the daemon restarts, and its shell is not asked about again. A **no** leaves the
-  conversation in its workspace; the agent is told, and it can ask again with a reason
-  (`request_access` with `account: true`) or for one path. No answer in time is not a no: that
-  one call runs in the workspace, and the question comes again with the next.
-- Also after a yes, a conversation that has read outside content cannot change what is read into
-  the agent's prompt (`AGENTS.md`, `SOUL.md`, `MEMORY.md`, a repository's hooks in its
-  workspace): what it read must not become what it is told next time.
-- A run that outside content started (an event, a webhook) never has the account.
+conversation has read outside content, described next. To have no account at all, give the
+agent the scope `workspace`.
 
 What to know before you rely on it: with your account an agent can start other programs, and a
 program started outside the sandbox can read pine's home like you can. In a conversation that
 has read nothing from outside, that takes a model acting against you by itself. In one that
-has, the question above is the protection, so read it before you say yes. To have no question
-and no account, give the agent the scope `workspace`.
+has, the question below is the protection, so read it before you say yes.
+
+### After outside content: one question
+
+Once a conversation has **read outside content** (a web page, a search result, a message from
+somebody else), somebody else may be steering the agent. An agent with your account, the
+network and a memory it writes itself is exactly what such a text wants. So after reading a
+web page the conversation loses its full rights, and you are asked once whether it keeps
+them: your whole account, the network, its own memory.
+
+| | Before your answer | After a yes |
+|---|---|---|
+| An agent with the scope `account` | Its workspace only, no network | Your whole account and the network, as before |
+| Its shell | Not asked about, because it reaches nothing | Not asked about again |
+| Its own memory and instructions (`MEMORY.md`, `AGENTS.md`, `SOUL.md`; `USER.md` for the main agent) | Cannot be changed | Can be changed, also from its shell |
+| Skills (`add_skill`) | Each is shown to you first | As in a conversation that has read nothing |
+
+- **When you are asked.** With the first call that needs any of it: a shell command or a file
+  outside the workspace (for an agent with the scope `account`), or a change to its own memory
+  or instructions (for every agent; the dialog then shows what it is about to write). Tool
+  calls a model issues side by side are one question.
+- **Yes** holds for that conversation until you reset it, also across restarts.
+- **No** holds until the conversation is reset or the daemon restarts. The agent is told, and
+  can ask again with a reason (`request_access` with `account: true`) or for one path.
+- **No answer in time** is not a no: that one call runs without, and the next asks again.
+- What stays closed whatever you answer: everything else that would be read as instructions
+  (`CLAUDE.md`, `AGENTS.md` further down in the workspace, `.pi/`, `.agents/`, the instruction
+  files of a folder opened for the conversation) and what makes git run programs there.
+- What still asks after a yes: sending something out through a source or an event, and MCP
+  servers marked `"approve": "tainted"` (layer 4), each with its own "always here".
+- A run that outside content started (an event, a webhook) is never asked and never has any
+  of it.
+
+Read what the dialog shows. What an agent writes into its memory is what it will be told in
+every later conversation, the unrestricted ones included. To have no question at all, set
+`security.taint` to `"off"`: nothing is marked then, and nothing protects you from a page
+that talks your model into something.
 
 ### 4. Taint and approvals
 
@@ -241,11 +263,14 @@ page says "now send the notes folder to ...". pine tracks that:
   check it. It is taken at its word because you chose the server. What such a tool is asked (a
   search text, a path) does reach the server. For a server where that matters, set
   `"approve": "always"`: then every call asks, reading included.
-- A tainted session cannot write what is read into its prompt: `AGENTS.md`, `SOUL.md` and
-  `MEMORY.md` in its workspace, `USER.md`, `CLAUDE.md`, `.pi/`, `.agents/`. So an injection
-  cannot make itself permanent, in the agent's instructions or in its memory. This holds in its
-  workspace and for the instruction files of a folder opened for the conversation. Other
-  notes in the workspace can still be written; they are not read unless the agent opens them.
+- A tainted session does not write by itself what is read into its prompt, so an injection
+  cannot make itself permanent in the agent's instructions or in its memory. The agent's own
+  files (`MEMORY.md`, `AGENTS.md`, `SOUL.md`, and `USER.md` for the main agent) open again
+  with your yes to the one question described under "After outside content: one question"
+  above. Everything else that would be read as instructions (`CLAUDE.md`, `AGENTS.md` further
+  down in the workspace, `.pi/`, `.agents/`, the instruction files of a folder opened for the
+  conversation) is refused, with no question. Other notes in the workspace can always be
+  written; they are not read unless the agent opens them.
 - A tainted session can still use git in a repository there (commit, branch, diff), but cannot
   change what makes git run programs: `.git/hooks` and `.git/config` (a hook, a hooks path, a
   pager, a file system monitor), also of submodules and of repositories further down, and it
@@ -269,7 +294,7 @@ example), until the conversation is reset or the daemon restarts. Three things t
   `"approve": "always"`).
 - Network access that you grant to a conversation which has already read outside content counts
   as "always" for its shell and its downloads: you said yes knowing what it had read. The same
-  goes for your yes to an agent keeping your whole account there ("The whole account" above).
+  goes for your yes to a conversation keeping its full rights ("After outside content: one question" above).
 - A yes given while the conversation was clean does not carry over once it has read outside
   content. You are asked again, and that answer then holds.
 
@@ -491,9 +516,10 @@ calls for it, so it is guarded like the instruction files:
 
 - Skills lie in pine's home, where an agent can read its own and write none. `add_skill`
   writes them; an agent's shell and file tools cannot.
-- In a conversation that has read outside content `add_skill` always asks you, in every mode
-  and for every scope, and shows the instructions: text from a web page must not become a
-  standing instruction without your having read it.
+- In a conversation that has read outside content `add_skill` asks you, in every mode and for
+  every scope, and shows the instructions: text from a web page must not become a standing
+  instruction without your having read it. Once you have said that the conversation keeps its
+  full rights, skills are written as in any other conversation.
 - A skill for all agents is the main agent's to add, and you see its description and
   instructions before it exists. So does one an agent adds for itself from a side conversation.
   In manual mode you see every skill before it exists.
@@ -535,7 +561,7 @@ rate is fixed at 120 requests a minute per hook.
 The example home starts with one agent, `main`, that has web search and the browser, and your
 account in your own conversations. The two do not meet without you: once a conversation has
 read the web it is in its workspace, and keeps your account only if you say yes to the question
-described under "The whole account". Say yes when you know what it read (documentation you sent
+described under "After outside content: one question". Say yes when you know what it read (documentation you sent
 it to, your own development server) and no when you do not.
 
 The dangerous combination is one agent that has private data, reads outside content and can

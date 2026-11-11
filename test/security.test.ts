@@ -280,6 +280,8 @@ test("after a session has seen outside content, actions that send things out nee
 
 test("a tainted session cannot rewrite its own instructions, with file tools or the shell", { skip: !sandboxAvailable() }, async () => {
 	const h = await harness({ agents: { main: { agent: { mcp: { feed } }, files: { "AGENTS.md": "RULES\n" } } } });
+	// The owner is asked about the agent's own file and says no. For the rest there is no question.
+	h.pine.bus.subscribe("approval/requested", (e) => void h.pine.approvals.decide((e.payload as any).id, false, "test"));
 	const attempt = [{ name: "write", args: { path: "AGENTS.md", content: "EVIL" } }, { name: "write", args: { path: ".pi/extensions/x.ts", content: "EVIL" } }, { name: "bash", args: { command: "echo EVIL | tee -a AGENTS.md; echo fine | tee notes.md" } }];
 	const clean = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "write", args: { path: "AGENTS.md", content: "RULES v2\n" } }] }]), ...owner });
 	assert.equal(clean.status, "done");

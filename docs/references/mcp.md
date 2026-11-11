@@ -49,8 +49,10 @@ tools, and the server is removed with the conversation (in an agent's main conve
 the agent's, in all its conversations). Say "for you as an agent" to keep it for the agent from
 any conversation, and ask the **main agent** for "all agents": only it can add or remove a
 server for everyone. `remove_mcp_server` takes a server out again. See [setup.md](setup.md).
-If you allow it, the server is written to the configuration and its tools are there from your
-next message, without a restart. The question comes in every mode, bypass included, because
+If you allow it, the server is written to the configuration, without a restart. The agent
+does not have the new tools in the turn in which it added the server, so pine calls it again
+by itself as soon as that turn ends, in the same conversation, and it goes on with the tools.
+You do not have to send a message, and there is no need for a new conversation. The question comes in every mode, bypass included, because
 it changes pine itself.
 
 A **local server** is a program that somebody else wrote and that keeps running while the agent

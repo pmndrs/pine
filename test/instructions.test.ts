@@ -58,9 +58,16 @@ test("instructions: an agent writes its own files and sees them from its next me
 	await h.close();
 });
 
-test("instructions: a conversation that has read outside content cannot rewrite what goes into the prompt", mac, async () => {
+test("instructions: a conversation that has read outside content changes the agent's memory and instructions only with the owner's yes", mac, async () => {
 	const h = await harness({ files: { "USER.md": "OWNER-V1\n" }, agents: { main: { agent: { mcp: { feed } }, files: { "SOUL.md": "SOUL-V1\n", "MEMORY.md": "MEMORY-V1\n" } } } });
 	const ws = h.workspace("main"), user = path.join(h.home, "USER.md");
+	const asked: any[] = [];
+	let answer = false;
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		h.pine.approvals.decide((e.payload as any).id, answer, "test");
+	});
+	// A no: nothing of it is written, by tool or by command, and three writes side by side are one question.
 	await h.pine.agents.run({
 		agent: "main",
 		prompt: mockMsg([
@@ -74,6 +81,27 @@ test("instructions: a conversation that has read outside content cannot rewrite 
 	assert.ok(refused.test(out[3]) && out[3].includes("fine"), out[3]);
 	assert.deepEqual([fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8"), fs.readFileSync(path.join(ws, "SOUL.md"), "utf8"), fs.readFileSync(user, "utf8")], ["MEMORY-V1\n", "SOUL-V1\n", "OWNER-V1\n"]);
 	assert.equal(fs.readFileSync(path.join(ws, "notes.md"), "utf8"), "fine\n", "ordinary notes can still be written");
+	assert.equal(asked.length, 1);
+	assert.ok(asked[0].summary.startsWith("write MEMORY.md: the agent's own memory") && asked[0].summary.includes("EVIL") && asked[0].summary.includes("keep full rights in this conversation: its own memory and instructions") && asked[0].why.includes("is read in every later conversation"), JSON.stringify(asked[0]));
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("write", { path: "MEMORY.md", content: "EVIL" })] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /holds agent instructions/);
+	assert.equal(asked.length, 1, "the no holds for the conversation");
+
+	// A yes, in another conversation: the owner has seen what it writes, and it keeps its memory there.
+	answer = true;
+	const two = (tools: any[]) => h.pine.agents.run({ agent: "main", session: "two", prompt: mockMsg([{ tools }]), ...owner });
+	await two([call("mcp__feed__echo", { text: "x" })]);
+	await two([call("write", { path: "MEMORY.md", content: "LEARNED: the server is installed\n" })]);
+	assert.equal(asked.length, 2);
+	assert.ok(asked[1].summary.includes("LEARNED: the server is installed"));
+	await two([call("edit", { path: "MEMORY.md", edits: [{ oldText: "installed", newText: "installed and signed in" }] }), call("write", { path: user, content: "OWNER-V2\n" })]);
+	await two([call("bash", { command: "echo MORE | tee -a MEMORY.md; echo EVIL | tee CLAUDE.md .pi" }), call("write", { path: "CLAUDE.md", content: "EVIL" })]);
+	assert.equal(asked.length, 2, "one question for the conversation");
+	assert.equal(fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8"), "LEARNED: the server is installed and signed in\nMORE\n");
+	assert.equal(fs.readFileSync(user, "utf8"), "OWNER-V2\n");
+	// Only its own files: what else would be read as instructions stays as it is.
+	assert.match(h.toolResults().at(-1)!, /holds agent instructions/);
+	assert.ok(!fs.existsSync(path.join(ws, "CLAUDE.md")) && !fs.existsSync(path.join(ws, ".pi")));
 	await h.close();
 });
 

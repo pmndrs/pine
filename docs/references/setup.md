@@ -80,9 +80,10 @@ In manual mode, and in a conversation that has read outside content, the questio
 otherwise skipped are asked too (ending a subscription: in manual mode only).
 
 In a conversation that has read outside content two things are stricter, because what they
-write is read back as instructions or runs as a program. `add_skill` always asks, whoever the
-skill is for, and shows its instructions. `add_source_type` is refused: start a new
-conversation for it.
+write is read back as instructions or runs as a program. `add_skill` asks, whoever the skill
+is for, and shows its instructions, until you have said that the conversation keeps its full
+rights ([security.md](security.md), "After outside content: one question").
+`add_source_type` is refused: start a new conversation for it.
  Runs with the
 reduced tool set, which outside events start through a route or a subscription marked
 `separate`, have none of these tools, and neither have sub-agents.
@@ -114,7 +115,8 @@ reduced tool set, which outside events start through a route or a subscription m
 | `create_agent` `id` `description` `instructions` [`model`] [`tools`] | Main agent only. See below. |
 
 Everything takes effect without a restart. An agent has new MCP tools and new skills from its
-next message on.
+next message on, in the same conversation. After `add_mcp_server` that next message is pine's
+own: the agent is called again at once and goes on with the new tools.
 
 ## Creating an agent
 
