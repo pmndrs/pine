@@ -43,6 +43,7 @@ src/
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
   router.ts         routes: filter, debounce, set / publish / call / agent
   timers.ts         schedules (cron and intervals)
+  workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   http.ts           control API and webhooks
   plugins.ts        plugin loader and the API plugins get
   plugins/          built-in plugins: telegram, mqtt, watch
@@ -50,6 +51,7 @@ src/
   login.ts          `pine login`: pi's sign-in flows, stored in <home>/auth.json
   mcp-config.ts     add/remove/list MCP servers in the files; runs pi's `mcp` CLI for state and OAuth sign-in
   tui/              terminal UI: app.ts (tabs, commands, rendering), client.ts (API + event stream), run.ts,
+                    code-pane.ts (the pane beside a conversation: changes, files, tool output),
                     theme.ts (colours, markdown), highlight.ts (code colours),
                     picture.ts (pictures and video: conversion with sips, Kitty-protocol or half-block drawing)
   types.ts, util.ts shared types; topics, templates, filters, durations, logger
@@ -109,6 +111,13 @@ These are invariants. A change that breaks one needs a test that shows why it is
    addresses clickable. Do not render agent output in a way that hides a link's target.
 10. **The terminal UI is only a client.** It uses the control API like the CLI; it must not reach
    into the daemon, so that attached and embedded modes behave the same.
+11. **Only the owner opens a folder for a conversation, and looking at one runs nothing.**
+   `setFolder` in `src/agents.ts` is reached from the control API only; there is no tool for it.
+   It refuses pine's home, pine's code and other agents' workspaces in either direction, and a
+   run started by outside content does not get the folder. `src/workspace-view.ts` serves the
+   code pane: every path is resolved and must stay inside the folder, and `git` runs through
+   `sandbox-exec` without write access or network and with everything a repository's
+   configuration could make it start turned off. Keep new git calls on that `git()` helper.
 
 ## pi behaviours pine depends on
 

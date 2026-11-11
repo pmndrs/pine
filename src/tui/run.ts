@@ -18,7 +18,7 @@ const reachable = async (url: string) => {
  * Open the terminal UI. It attaches to a running daemon; if none answers, it starts one inside
  * this process (logging to data/pine.log) and stops it again on exit.
  */
-export async function runTui(cfg: PineConfig): Promise<void> {
+export async function runTui(cfg: PineConfig, opts: { folder?: string } = {}): Promise<void> {
 	if (!cfg.http) throw new Error("the terminal UI needs the control API; remove \"http\": false from pine.json");
 	if (!process.stdout.isTTY || !process.stdin.isTTY) throw new Error("the terminal UI needs an interactive terminal");
 	const base = `http://${cfg.http.host === "0.0.0.0" ? "127.0.0.1" : cfg.http.host}:${cfg.http.port}`;
@@ -79,6 +79,8 @@ export async function runTui(cfg: PineConfig): Promise<void> {
 	process.on("SIGTERM", () => void app.stop());
 	try {
 		await app.start();
+		// Started as "pine <folder>": the same tabs as always, and one on that folder.
+		if (opts.folder) await app.openFolder(opts.folder);
 	} catch (e) {
 		await app.stop();
 		throw e;

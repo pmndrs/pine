@@ -78,6 +78,21 @@ sandbox rather than in the daemon. That closes the usual gap of "check the path,
 replacing a file with a symlink after the check gains nothing, because the operating system
 applies the policy at the moment of access.
 
+A conversation that you opened a folder for (`pine <folder>`, `/folder`, the folder in the UI's
+bottom bar) can also read and write that folder, and its tools start there. That is the whole
+of it: the folder is that conversation's and the sub-agents it starts, not the agent's other
+conversations', not that of an agent it delegates to, and not that of a run that outside
+content started. Only you can open one; agents have no tool for it. pine's home, pine's own
+program and other agents' workspaces are refused, also as part of a larger folder. The
+folder's `AGENTS.md` and `CLAUDE.md` become instructions to the agent, so open folders whose
+authors you would let instruct it. See [coding.md](coding.md).
+
+The code pane of the terminal UI reads through the daemon, not through an agent: it lists and
+shows files of the conversation's folder only, with links resolved, and runs `git` for the
+changes inside a sandbox that cannot write and has no network, with the programs a repository
+can name for git to start (diff drivers, text converters, hooks, a file system monitor)
+switched off. Looking at a folder runs nothing from it.
+
 Consequences worth knowing:
 
 - An agent cannot change its own `agent.json`, its extensions, pine's plugins or `pine.json`.
@@ -111,7 +126,14 @@ page says "now send the notes folder to ...". pine tracks that:
   search text, a path) does reach the server. For a server where that matters, set
   `"approve": "always"`: then every call asks, reading included.
 - A tainted session cannot write its instruction files (`AGENTS.md`, `CLAUDE.md`, `.pi/`,
-  `.agents/`, git hooks), so an injection cannot make itself permanent.
+  `.agents/`), so an injection cannot make itself permanent. This holds in its workspace and in
+  a folder opened for the conversation.
+- A tainted session can still use git in a repository there (commit, branch, diff), but cannot
+  change what makes git run programs: `.git/hooks` and `.git/config` (a hook, a hooks path, a
+  pager, a file system monitor), also of submodules and of repositories further down, and it
+  cannot move a `.git` folder aside to put another in its place. Anything put there would run
+  with your rights the next time you use git in that folder. A session that has read no outside
+  content can change them, like everything else in its folders.
 - Events a tainted session publishes are `untrusted`.
 
 An approval request arrives in the terminal UI as a dialog and in Telegram with buttons, showing

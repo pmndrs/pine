@@ -9,14 +9,15 @@ This is a small daemon that runs several AI agents. A "harness". Yes, you've hea
 
 We needed something different:
 
-- Orchestrating agents, ... well, boring. Yes it does that.
-- Letting agents react to any external event: chat, FTP, webhooks, MQTT, timers, etc, in a simple modular way. Without configs. Agents can subscribe to any installed event source and react accordingly. List available sources and unsubscribe. Event sources are simple to create (it's a \*.ts service with a schema). Basically this allows you to create full automation workflows and with complete ease.
-- No configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling agents what you want. MAIN has special administrative tool calls. No agent will touch or bypass into user config (your tokens), etc.
-- A CLI that doesn't suck. That feels like a desktop UI, with interactive tabs, buttons, scroll regions, etc. That is able to show images, videos, formats markdown, etc. That can drag and drop files and images (with thumbnails) - and yes in a shell.
-- Basics inbuilt: computer use, tool calls, internet, browsing and operating live websites
-- Doesn't do unintuitive. If it's running it's on. If it isn't it isn't.
+- Orchestrating agents, sub-agents, ... well, boring. Yes it does that.
+- **Letting agents react to external events**: chat, FTP, webhooks, MQTT, timers, etc. In a simple, modular way, and without configs. Agents can subscribe to any installed event source and react accordingly, or list available sources and unsubscribe. Event sources are simple to create, it's a \*.ts service with a schema. This allows you to create full automation workflows by just stating what you want: "watch my security cam, ring the alarm if someone enters while i'm away".
+- **No configs** that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling agents what you want. MAIN has special administrative tool calls. No agent will touch or bypass into user config (your tokens), etc.
+- **A CLI that feels new**. Like a desktop UI. Interactive tabs, buttons, scroll regions. Images and videos are actually shown, formats markdown. Drag and drop files with real thumbails - and yes it's running in your shell (all Kitty shells, GHOSTTY et al, with lower quality fallbacks for old terminals).
+- **All basics inbuilt**: computer use, tool calls, internet, browsing and operating live websites
+- **Coding assistance**: diffs, output files, git integration, current folders ...
+- **Doesn't do unintuitive**. If it's running it's on. If it isn't it isn't.
 
-Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [pi coding agent](https://pi.dev) for basic turns, auto compact and hosted model providers.
+PINE = OpenCode with a fresh GUI + Openclaw automation without configs + [PI coding agent](https://pi.dev) for basic turns, auto compact and hosted model providers.
 
 <p align="center">
   <img src="docs/images/meme.png" width="49%" alt="pine searches the web, downloads a picture and shows it in the terminal">
@@ -30,7 +31,11 @@ Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [
   <img src="docs/images/tabs.png" width="49%" alt="Tabs for several agents and conversations, with the list of conversations: pinned ones stay, the others clean themselves up">
   <img src="docs/images/flipper.png" width="49%" alt="pine drives a Flipper Zero through an MCP server">
 </p>
-<p align="center"><sub>Pictures and video from the web · drag and drop · subscribing to a folder and waking on a change · tabs, agents and conversations · MCP tools</sub></p>
+<p align="center">
+  <img src="docs/images/code.png" width="49%" alt="The code pane beside a conversation: the git diff of a file the agent just changed">
+  <img src="docs/images/folder.png" width="49%" alt="pine started in a project folder: the agent inspects it, and the folder menu lists the folders a conversation can work in">
+</p>
+<p align="center"><sub>Pictures and video from the web · drag and drop · subscribing to a folder and waking on a change · tabs, agents and conversations · MCP tools · the code pane with git diffs · a folder per conversation</sub></p>
 
 ```
  Telegram ─┐                                   ┌─ rule: set state, publish
@@ -73,6 +78,14 @@ local llama-server goes into `~/.pine/models.json`. To run pine without the UI, 
 `pine start`. See [operations.md](docs/references/operations.md) and
 [tui.md](docs/references/tui.md).
 
+To work on a project, start it in that folder. The agent gets that folder for the
+conversation, and `▤ code` (or `ctrl+g`) opens a pane with git changes and diffs, the files and
+the output of its tool calls ([coding.md](docs/references/coding.md)):
+
+```bash
+pine .
+```
+
 To get a newer version later, with whatever it needs:
 
 ```bash
@@ -87,6 +100,7 @@ Start at [docs/SKILL.md](docs/SKILL.md); it indexes everything.
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | Understand how the pieces fit                                                           | [overview.md](docs/references/overview.md)                   |
 | Use the terminal UI                                                                     | [tui.md](docs/references/tui.md)                             |
+| Work on a project: `pine .`, the code pane with git changes, files and tool output      | [coding.md](docs/references/coding.md)                       |
 | Install, run, use the CLI, run it as a service                                          | [operations.md](docs/references/operations.md)               |
 | Write `pine.json` and `agent.json`                                                      | [configuration.md](docs/references/configuration.md)         |
 | Let agents set things up by tool call instead of editing files                          | [setup.md](docs/references/setup.md)                         |

@@ -105,13 +105,13 @@ test("tui: tabs, slash commands and keys", async () => {
 	await t.sees('model "nope/nothing" is not defined');
 
 	// Modes: by command and by shift+tab; the bar at the bottom always shows the mode.
-	await t.sees(/gonzo · main · mock\/m · reasoning off · auto/);
+	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · auto/);
 	t.term.type([KEY.shiftTab]);
 	await t.sees("gonzo is now in manual mode");
-	await t.sees(/gonzo · main · mock\/m · reasoning off · manual/);
+	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · manual/);
 	await t.send("/mode bypass");
 	await t.sees("gonzo is now in bypass mode");
-	await t.sees(/gonzo · main · mock\/m · reasoning off · bypass/);
+	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · bypass/);
 	assert.equal(t.h.pine.cfg.agents.gonzo.mode, "bypass");
 	assert.equal(t.h.pine.cfg.agents.main.mode, "auto", "the mode belongs to one agent");
 	await t.send("/mode auto");
@@ -253,7 +253,7 @@ test("tui: the mouse works on tabs, their close buttons, the bottom bar and the 
 	await t.sees("│ Mode for main");
 	await click("asks before every action");
 	await t.sees("main is now in manual mode");
-	await t.sees(/main · main · mock\/m · reasoning off · manual/);
+	await t.sees(/main · main · no folder · mock\/m · reasoning off · manual/);
 
 	await click("main", last());
 	await t.sees("│ Agent");
@@ -321,7 +321,7 @@ test("tui: dropped files are attached, shown, removable, and arrive in the agent
 test("tui: bypass in a conversation that has read outside content is a choice, and a pause is announced", { skip: process.platform !== "darwin" }, async () => {
 	const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
 	const t = await open({ agents: { main: { agent: { mcp: { feed }, mode: "bypass" } } } });
-	await t.sees(/main · main · mock\/m · reasoning off · bypass/);
+	await t.sees(/main · main · no folder · mock\/m · reasoning off · bypass/);
 	const outside = path.join(os.homedir(), ".zshenv-does-not-matter");
 
 	// Bypass from the configuration: it applies until the conversation reads outside content, then says so.
@@ -459,7 +459,7 @@ test("tui: reasoning level and context use are shown in the bottom bar; the leve
 	const t = await open({ agents: { main: { agent: { description: "front desk" } } }, model: { reasoning: true, contextWindow: 20000 }, mockOptions: { prefixCache: true } });
 	await t.sees("type a message");
 	const bar = () => t.app.screen().at(-1)!;
-	assert.match(bar(), /main · main · mock\/m · reasoning off · auto/);
+	assert.match(bar(), /main · main · no folder · mock\/m · reasoning off · auto/);
 	assert.ok(!/context|cache/.test(bar()), "no figures before the model has answered once");
 	assert.ok(!/embedded|test ·/.test(bar()), "the bar holds only what is about the conversation");
 

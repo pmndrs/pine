@@ -80,6 +80,11 @@ shell. Agents cannot read each other's workspaces; they talk through `delegate`.
 Two agents may share a workspace if you give them the same path. They can then overwrite each
 other's files.
 
+A single conversation can work somewhere else without any of this: `pine <folder>`, or the
+folder in the bottom bar of the terminal UI, opens a folder of yours for that one conversation.
+Its tools then start there and may change what is in it, and the folder's `AGENTS.md` applies
+next to the agent's own. See [coding.md](coding.md).
+
 ## Sessions
 
 A session is one conversation with history.

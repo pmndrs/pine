@@ -5,6 +5,7 @@ import { mainAgentId, type PineConfig } from "./config.ts";
 import { type Approvals, timingSafeEqual } from "./security.ts";
 import type { Bus, State, TaskStore } from "./store.ts";
 import { addServer, listServers, removeServer } from "./mcp-config.ts";
+import { changes, diffOf, listDir, readText } from "./workspace-view.ts";
 import type { SourceHost } from "./sources.ts";
 import { errText, type Logger, topicMatches } from "./util.ts";
 
@@ -110,13 +111,30 @@ export class HttpServer {
 				}
 				if (url.pathname === "/ui/tabs") return send(200, this.manager.uiTabs());
 				if (parts[0] === "tasks" && parts[2] === "transcript" && parts.length === 3) {
-					const t = this.manager.transcript(Number(parts[1]));
+					const t = this.manager.transcript(Number(parts[1]), q.get("full") === "1");
 					return t ? send(200, t) : send(404, { error: "no such task" });
 				}
 				// Pictures for a UI to show. They are never sent to a model from here.
 				if (parts[0] === "media" && parts[1] === "tool" && parts.length === 3) return sendPicture(this.manager.toolImage(parts[2]));
 				if (parts[0] === "tasks" && parts[2] === "images" && parts.length === 4) return sendPicture(this.manager.taskImage(Number(parts[1]), Number(parts[3])));
-				if (parts[0] === "agents" && parts[2] === "image" && parts.length === 3) return sendPicture(this.manager.workspaceImage(parts[1], q.get("path") ?? ""));
+				if (parts[0] === "agents" && parts[2] === "image" && parts.length === 3) return sendPicture(this.manager.workspaceImage(parts[1], q.get("path") ?? "", q.get("session") ?? undefined));
+				// The folder a conversation works in, and what a UI shows of it: files, and what git says changed.
+				if (parts[0] === "agents" && parts[2] === "folder" && parts.length === 3) {
+					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+					return send(200, { folder: this.manager.folderOf(parts[1], q.get("session") ?? "main"), workspace: this.cfg.agents[parts[1]].workspace });
+				}
+				if (parts[0] === "agents" && parts[2] === "folders" && parts.length === 3) {
+					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+					return send(200, this.manager.folders(parts[1]));
+				}
+				if (parts[0] === "agents" && parts[2] === "view" && parts.length === 4) {
+					const root = this.manager.viewRoot(parts[1], q.get("session") ?? "main");
+					if (!root) throw new HttpError(404, "no such agent");
+					const rel = q.get("path") ?? "";
+					const found = parts[3] === "changes" ? { root, ...(await changes(root)) } : parts[3] === "diff" ? await diffOf(root, rel) : parts[3] === "tree" ? listDir(root, rel) : parts[3] === "file" ? readText(root, rel) : undefined;
+					if (!found) throw new HttpError(404, "nothing there");
+					return send(200, found);
+				}
 				if (parts[0] === "tasks" && parts.length === 2) {
 					const t = this.tasks.get(Number(parts[1]));
 					return t ? send(200, t) : send(404, { error: "no such task" });
@@ -216,7 +234,15 @@ export class HttpServer {
 				return send(200, { unsubscribed: (await this.sources?.closeSession(parts[1], String(body.session ?? ""))) ?? [] });
 			}
 			// The tabs a UI has open, kept so that it opens with the same ones next time.
-			if (url.pathname === "/ui/tabs") return send(200, (this.manager.saveUiTabs(body.tabs, body.active), { ok: true }));
+			if (url.pathname === "/ui/tabs") return send(200, (this.manager.saveUiTabs(body.tabs, body.active, body.code), { ok: true }));
+			if (parts[0] === "agents" && parts[2] === "folder" && parts.length === 3) {
+				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+				try {
+					return send(200, await this.manager.setFolder(parts[1], String(body.session ?? "main"), typeof body.folder === "string" && body.folder ? body.folder : null));
+				} catch (e) {
+					throw new HttpError(409, errText(e));
+				}
+			}
 			if (parts[0] === "agents" && ["remove", "rename", "pin"].includes(parts[2]) && parts.length === 3) {
 				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 				if (typeof body.session !== "string" || !body.session) throw new HttpError(400, "session: the conversation's name");

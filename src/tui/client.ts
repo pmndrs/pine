@@ -8,6 +8,8 @@ export interface Conversation {
 	pinned: boolean;
 	open: boolean;
 	expires?: number;
+	/** The folder opened for it, if any. */
+	folder?: string;
 }
 
 export interface AgentInfo {
@@ -55,7 +57,7 @@ export class Client {
 	}
 	toolImage = (id: string) => this.picture("GET", `/media/tool/${encodeURIComponent(id)}`);
 	taskImage = (task: number, n: number) => this.picture("GET", `/tasks/${task}/images/${n}`);
-	workspaceImage = (agent: string, file: string) => this.picture("GET", `/agents/${encodeURIComponent(agent)}/image?path=${encodeURIComponent(file)}`);
+	workspaceImage = (agent: string, file: string, session?: string) => this.picture("GET", `/agents/${encodeURIComponent(agent)}/image?path=${encodeURIComponent(file)}${session ? `&session=${encodeURIComponent(session)}` : ""}`);
 	fetchImage = (url: string) => this.picture("POST", "/images/fetch", { url });
 
 	sources = () => this.get<any[]>("/sources");
@@ -76,8 +78,16 @@ export class Client {
 	removeSession = (agent: string, session: string) => this.post<{ removed: boolean; unsubscribed: string[]; sources: string[]; servers: string[] }>(`/agents/${agent}/remove`, { session });
 	renameSession = (agent: string, session: string, to: string) => this.post<{ session: string }>(`/agents/${agent}/rename`, { session, to });
 	pinSession = (agent: string, session: string, pinned: boolean) => this.post<{ pinned: boolean }>(`/agents/${agent}/pin`, { session, pinned });
-	tabs = () => this.get<{ tabs: Array<{ agent: string; session: string }>; active: number }>("/ui/tabs");
-	saveTabs = (tabs: Array<{ agent: string; session: string }>, active: number) => this.post<{ ok: boolean }>("/ui/tabs", { tabs, active });
+	folder = (agent: string, session: string) => this.get<{ folder?: string; workspace: string }>(`/agents/${agent}/folder?session=${encodeURIComponent(session)}`);
+	folders = (agent: string) => this.get<Array<{ session: string; folder: string }>>(`/agents/${agent}/folders`);
+	setFolder = (agent: string, session: string, folder: string | null) => this.post<{ folder?: string }>(`/agents/${agent}/folder`, { session, folder });
+	changes = (agent: string, session: string) => this.get<{ root: string; repo: boolean; branch?: string; files: Array<{ path: string; status: string; added?: number; removed?: number }>; more: boolean }>(`/agents/${agent}/view/changes?session=${encodeURIComponent(session)}`);
+	diff = (agent: string, session: string, file: string) => this.get<{ diff: string; truncated: boolean }>(`/agents/${agent}/view/diff?session=${encodeURIComponent(session)}&path=${encodeURIComponent(file)}`);
+	tree = (agent: string, session: string, dir: string) => this.get<{ entries: Array<{ name: string; dir: boolean; size: number }>; more: boolean }>(`/agents/${agent}/view/tree?session=${encodeURIComponent(session)}&path=${encodeURIComponent(dir)}`);
+	file = (agent: string, session: string, file: string) => this.get<{ text?: string; size: number; binary: boolean; truncated: boolean }>(`/agents/${agent}/view/file?session=${encodeURIComponent(session)}&path=${encodeURIComponent(file)}`);
+	output = (task: number) => this.get<{ task: Task; entries: TranscriptEntry[] }>(`/tasks/${task}/transcript?full=1`);
+	tabs = () => this.get<{ tabs: Array<{ agent: string; session: string }>; active: number; code?: boolean }>("/ui/tabs");
+	saveTabs = (tabs: Array<{ agent: string; session: string }>, active: number, code = false) => this.post<{ ok: boolean }>("/ui/tabs", { tabs, active, code });
 	history = (agent: string, session: string, limit = 30) => this.get<Task[]>(`/tasks?agent=${encodeURIComponent(agent)}&session=${encodeURIComponent(session)}&limit=${limit}`);
 	prompt = (agent: string, prompt: string, session: string, attachments?: Array<{ name: string; data: string }>) => this.post<{ task: number }>(`/agents/${agent}/prompt`, { prompt, session, wait: false, attachments });
 	ask = (agent: string, prompt: string, session: string) => this.post<TaskResult>(`/agents/${agent}/prompt`, { prompt, session });

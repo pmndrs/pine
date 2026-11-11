@@ -263,6 +263,43 @@ test("a tainted session cannot rewrite its own instructions, with file tools or 
 	await h.close();
 });
 
+test("a tainted session can use git in a repository but not change what makes git run programs", { skip: process.platform !== "darwin" }, async () => {
+	const h = await harness({ agents: { main: { agent: { mcp: { feed } }, files: { "a.txt": "one\n" } } } });
+	const ws = h.workspace("main");
+	const bash = (command: string) => ({ name: "bash", args: { command } });
+	const id = "-c user.name=t -c user.email=t@example.com -c commit.gpgsign=false";
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [bash(`git init -q -b main . && git ${id} add a.txt && git ${id} commit -q -m first && git config core.editor true && echo SETUP-OK`)] }]), ...owner });
+	assert.ok(h.toolResults().at(-1)!.includes("SETUP-OK"), `an untainted owner session sets a repository up as it likes: ${h.toolResults().at(-1)}`);
+	const config = fs.readFileSync(path.join(ws, ".git", "config"), "utf8");
+
+	await h.pine.agents.run({
+		agent: "main",
+		prompt: mockMsg([
+			{ tools: [{ name: "mcp__feed__echo", args: { text: "x" } }] },
+			{
+				tools: [
+					bash(`echo two | tee -a a.txt && git ${id} commit -q -am second && git log --oneline | wc -l`),
+					bash("printf '#!/bin/sh\\ntouch /tmp/pwned\\n' > .git/hooks/pre-commit; echo hook:$?"),
+					bash("git config core.hooksPath /tmp/evil; echo config:$?; git config core.fsmonitor 'touch /tmp/pwned'; echo fsmonitor:$?"),
+					bash("mv .git .git-old; echo move:$?"),
+					{ name: "write", args: { path: ".git/hooks/post-commit", content: "#!/bin/sh\ntouch /tmp/pwned\n" } },
+					{ name: "write", args: { path: ".git/config", content: "[core]\n\thooksPath = /tmp/evil\n" } },
+				],
+			},
+		]),
+		...owner,
+	});
+	const out = h.toolResults().slice(-6);
+	assert.match(out[0], /^\s*2\s*$/m, `committing still works: ${out[0]}`);
+	assert.ok(out[1].includes("hook:1") && /Operation not permitted/.test(out[1]), out[1]);
+	assert.ok(/config:(?!0)\d+/.test(out[2]) && /fsmonitor:(?!0)\d+/.test(out[2]), out[2]);
+	assert.ok(out[3].includes("move:1"), out[3]);
+	assert.ok(/hooks or configuration/.test(out[4]) && /hooks or configuration/.test(out[5]), `${out[4]} | ${out[5]}`);
+	assert.equal(fs.readFileSync(path.join(ws, ".git", "config"), "utf8"), config);
+	assert.ok(!fs.existsSync(path.join(ws, ".git", "hooks", "pre-commit")) && !fs.existsSync(path.join(ws, ".git", "hooks", "post-commit")));
+	await h.close();
+});
+
 test("policy on shell commands: deny patterns and a time limit the model cannot lift", async () => {
 	const h = await harness({ agents: { main: { agent: { bashTimeoutSec: 0.3, bashDeny: ["\\bsudo\\b", "git\\s+push"] } } } });
 	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "bash", args: { command: "sudo ls" } }, { name: "bash", args: { command: "sleep 2; echo late", timeout: 600 } }, { name: "bash", args: { command: "sleep 2; echo late" } }] }]), ...owner });

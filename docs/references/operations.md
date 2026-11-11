@@ -134,6 +134,7 @@ the example home, `pine init` copies the files you do not have yet and overwrite
 | Command | What it does |
 |---|---|
 | `pine`, `pine tui` | The terminal UI; starts a daemon inside if none is running |
+| `pine .`, `pine <folder>` | The terminal UI with one more tab: a conversation of the main agent that works in that folder (the one from last time, if there is one). A first word that is a command stays a command. See [coding.md](coding.md) |
 | `pine login <provider>`, `pine logout <provider>` | Sign in to a model provider. `--api-key` or `--oauth` force the kind of sign-in |
 | `pine init [dir]` | Set pine up: a home directory from the example and the browser its web tools drive. Safe to run again |
 | `pine update [--check]` | Bring pine up to date. `--check` only says whether there is something newer. See "Updating" |
@@ -194,12 +195,14 @@ are JSON with `Content-Type: application/json`.
 | `POST /agents/<id>/pin` `{ session, pinned? }` | Pin a conversation so that it is kept, or with `pinned: false` take the pin off |
 | `POST /agents/<id>/rename` `{ session, to }` | Give a conversation another name; its history, pin, subscriptions and what was set up for it follow |
 | `POST /agents/<id>/remove` `{ session }` | Remove a conversation for good, with its history and what was set up for it alone. Not the main one, and not while it is working |
-| `GET /ui/tabs`, `POST /ui/tabs` `{ tabs, active }` | The tabs the terminal UI has open (`tabs` is a list of `{ agent, session }`), kept so that the same ones open next time |
+| `GET /ui/tabs`, `POST /ui/tabs` `{ tabs, active, code? }` | The tabs the terminal UI has open (`tabs` is a list of `{ agent, session }`) and whether its code pane was open, kept so that it opens the same way next time |
+| `GET /agents/<id>/folder?session=`, `GET /agents/<id>/folders`, `POST /agents/<id>/folder` `{ session, folder }` | The folder a conversation works in; every conversation of the agent that has one; open a folder for a conversation (`folder: null` closes it). Refused for pine's home, pine's program and other agents' workspaces, and while the conversation is working |
+| `GET /agents/<id>/view/changes?session=`, `/view/diff?session=&path=`, `/view/tree?session=&path=`, `/view/file?session=&path=` | What the code pane shows of a conversation's folder (or of the agent's workspace): what git says changed, one file's diff, what is in a folder, a file's text. Read-only, and nothing outside that folder |
 | `POST /agents/<id>/model` `{ model }` | Switch an agent's model and save it in its `agent.json` |
 | `POST /agents/<id>/thinking` `{ level }` | Set an agent's reasoning level and save it in its `agent.json` |
 | `POST /agents/<id>/mode` `{ mode, session?, anyway? }` | Switch an agent's mode until the daemon restarts. `anyway: true` with a `session` keeps bypass in force in that conversation although it has read outside content |
 | `GET /tasks?agent=&session=&status=&limit=`, `GET /tasks/<id>` | Tasks |
-| `GET /tasks/<id>/transcript` | What a task did, step by step: the text it was given, what it wrote, its tool calls with the start of each result |
+| `GET /tasks/<id>/transcript` | What a task did, step by step: the text it was given, what it wrote, its tool calls with the start of each result. With `?full=1`: with the whole result of each call, up to 200 000 characters |
 | `GET /events?topic=&after=&limit=` | Event log; `after=<id>` pages forward |
 | `GET /events/stream?topic=` | Live events as server-sent events |
 | `GET /state?key=` | Shared state |
@@ -208,7 +211,7 @@ are JSON with `Content-Type: application/json`.
 | `POST /agents/<id>/reset` `{ session? }` | Reset a session. What it was subscribed to on its own ends too |
 | `GET /media/tool/<id>` | A picture a tool returned. The ids are in the `images` field of `agent/<id>/tool` events and of transcript steps |
 | `GET /tasks/<id>/images/<n>` | The n-th picture that came with a task (an attachment, a Telegram photo) |
-| `GET /agents/<id>/image?path=` | A picture or video file in that agent's workspace. Anything that is not an image or video file inside the workspace is "not found" |
+| `GET /agents/<id>/image?path=&session=` | A picture or video file in that agent's workspace or, with `session`, in the folder opened for that conversation. Anything that is not an image or video file in there is "not found" |
 | `POST /images/fetch` `{ url }` | Fetch a picture or video from the web for display: https and public addresses only; pictures up to 20 MB, videos up to 100 MB |
 | `GET /sources`, `GET /agents/<id>/sources` | Event sources and their state; the ones that agent can subscribe to |
 | `POST /agents/<id>/subscribe` `{ source, session?, note?, when?, throttle?, debounce?, separate? }`, `POST /agents/<id>/unsubscribe` `{ source, session? }` | Change an agent's subscriptions (written to its `agent.json`); `session` makes it one conversation's |

@@ -78,6 +78,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 |---|---|
 | See how events, routes, tasks and sessions fit together | [references/overview.md](references/overview.md) |
 | Chat with agents in the terminal: tabs, slash commands, approvals, switching models | [references/tui.md](references/tui.md) |
+| Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output | [references/coding.md](references/coding.md) |
 | Install it, start it, use the CLI, run it at login, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
 | Know what agents can set up by tool call, for whom, and what you are asked: MCP servers, event sources, new agents | [references/setup.md](references/setup.md) |

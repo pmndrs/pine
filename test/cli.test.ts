@@ -123,3 +123,16 @@ test("pine update knows how pine was installed and which version is newer; pine 
 	const version = await run(process.execPath, [CLI, "version"]);
 	assert.match(version.stdout, /^pine \d+\.\d+\.\d+ \(checkout in /);
 });
+
+test("pine <folder>: a first word that is a folder opens the UI there; a path that is no folder says so", async (t) => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-folder-arg-")));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+	fs.mkdirSync(path.join(dir, "project"));
+	fs.mkdirSync(path.join(dir, "status"));
+	const pine = (...args: string[]) => run(process.execPath, [CLI, ...args, "--home", path.join(dir, "no-home")], { cwd: dir }).then((r) => r.stdout + r.stderr, (e) => String(e.stdout) + String(e.stderr));
+	// Without a terminal the UI cannot open, which is how a test sees that it was the UI that was asked for.
+	for (const word of [".", "project", "./project", dir]) assert.match(await pine(word), /No pine home at/, word);
+	assert.match(await pine("./nothing-here"), /\.\/nothing-here is not a folder/);
+	assert.match(await pine("nothing-here"), /No pine home|unknown command|ENOENT|pine\.json/);
+	assert.doesNotMatch(await pine("status"), /No pine home at .* yet\. Create one/, "a command keeps its meaning when a folder has its name");
+});

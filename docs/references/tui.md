@@ -11,7 +11,7 @@ running it attaches to it; otherwise it starts one inside the same process, logs
 `pine` works without further setup, given Claude Code is installed and signed in.
 
 ```
- pine  1 main   2 main·notes ⠹  3 events                                   ← tabs
+ pine  1 main   2 main·notes ⠹  3 events                           ▤ code  ← tabs, and the code pane's button
 ──────────────────────────────────────────────────────────────────────────
  what is on the front page of example.com?                                 ← you
 
@@ -27,8 +27,12 @@ running it attaches to it; otherwise it starts one inside the same process, logs
  /mo                                                                       ← input
 ──────────────────────────────────────────────────────────────────────────
  → model       [provider/id] — Show or switch this agent's model          ← command suggestions
- main · main · dev/claude-haiku · reasoning off · auto · context 12% · cache 94%      /help
+ main · main · no folder · dev/claude-haiku · reasoning off · auto · context 12%      /help
 ```
+
+`pine .` or `pine <folder>` opens the same UI with one more tab: a conversation that works in
+that folder. That, and the pane that shows git changes, files and tool output beside a
+conversation, are described in [coding.md](coding.md).
 
 ## Mouse
 
@@ -42,6 +46,8 @@ Everything in the two bars reacts to a click.
 | The agent name in the bottom bar | A list of agents; picking one opens its tab. Below them: the sub-agents and delegated tasks this conversation started; picking one opens its work |
 | A `↳ ... ▸ open` line in the conversation | A tab with that sub-agent's or delegated task's work |
 | The conversation name next to it | This agent's conversations, and "+ new conversation" |
+| The folder next to it (`no folder`, or a path) | The folder this conversation works in: none, where pine was started, one in use elsewhere, or one you pick. See [coding.md](coding.md) |
+| `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output. In the pane: its three views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
 | The model | The models you have credentials for |
 | `reasoning <level>` | How much the model thinks before answering: off, minimal, low, medium, high, xhigh, max |
 | The mode (`auto`, `manual`, `bypass`) | The three modes |
@@ -56,7 +62,7 @@ Everything in the two bars reacts to a click.
 
 The lists are filtered as you type; `enter` picks, `esc` closes, and a click on an entry picks
 it. The same lists open from the keyboard with `/agent`, `/sessions`, `/model`, `/reasoning` and
-`/mode` without an argument.
+`/mode` and `/folder` without an argument.
 
 The bar also shows `context 37%`: how full the conversation's context window is. It turns
 yellow from 65% and red from 85%. Nothing needs doing when it fills up: pi summarises the older
@@ -88,6 +94,9 @@ and go out with your next message. `/attach <path>` does the same from the keybo
 What the agent gets: the files are saved into `inbox/` in its workspace, the message says which
 files arrived, and images are also shown to the model directly if the model accepts images. Up
 to 10 files of at most 20 MB each per message.
+
+A folder dropped on the terminal is not attached: it is opened for the conversation, as with
+`/folder` ([coding.md](coding.md)).
 
 ## Tabs
 
@@ -144,6 +153,8 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/rename <name>` | Another name for this conversation and its tab. Its history, pin and subscriptions go with it. Not for an agent's main conversation |
 | `/pin`, `/unpin` | Keep this conversation however long it is unused, or let it go again |
 | `/reset` | Forget this conversation and start fresh (also clears "has seen outside content") |
+| `/folder [path\|none]` | Open a folder of yours for this conversation: the agent's tools start there and may read and change it. `none` closes it again; without an argument, a list. See [coding.md](coding.md) |
+| `/code [changes\|files\|output\|off]` | Open the code pane beside the conversation, on that view; without an argument it opens and closes |
 | `/stop` | Stop what the agent is doing |
 | `/model [provider/id]` | Switch the agent's model. Without an argument, a list to search and pick from; or type a few letters after it: `/model deepseek` |
 | `/reasoning [level]` | Set how much the model thinks before answering; without an argument, choose from a list. Saved like the model. A model that cannot reason ignores it |
@@ -175,6 +186,10 @@ never comes back up in bypass unless its `agent.json` says so.
 | `up` / `down` | Earlier inputs |
 | `esc` | Stop the agent. While a list or dialog is open, it only closes that |
 | `shift+tab` | Next mode for this agent: auto, manual, bypass (while the input is empty) |
+| `tab` | Next tab (while the input is empty) |
+| `alt+1` ... `alt+9` | Go to that tab |
+| `ctrl+t`, `ctrl+w` | New conversation; close the tab |
+| `ctrl+g` | Open or close the code pane |
 | `pgup` / `pgdn`, mouse wheel | Scroll |
 | `ctrl+c` | Clear the input; twice on an empty input quits |
 | `ctrl+d` | Quit (while the input is empty) |
@@ -246,7 +261,8 @@ terminal with real pictures.
 
 A terminal draws a real picture above all text. While a menu or a dialog lies over a picture or
 a video, that one is therefore drawn with half blocks, so the menu is whole; the real picture
-returns when the menu closes.
+returns when the menu closes. The same holds while the code pane is open beside the
+conversation: a real picture can only be drawn at the left edge of a full line.
 
 A thumbnail is at most 44 characters wide and 14 lines high. Click it to enlarge it, click again
 to shrink it. Pictures are also there when you reopen a conversation and in a task's own tab.

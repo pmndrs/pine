@@ -13,6 +13,7 @@ import {
 	type OverlayHandle,
 	fuzzyFilter,
 	getCapabilities,
+	HStack,
 	hyperlink,
 	ScrollView,
 	setCapabilities,
@@ -34,6 +35,7 @@ import type { TranscriptEntry } from "../types.ts";
 import type { PineEvent, Task } from "../types.ts";
 import { errText, expandHome } from "../util.ts";
 import type { AgentInfo, Client, Conversation } from "./client.ts";
+import { CodePane, PANE_VIEWS, type PaneView } from "./code-pane.ts";
 import { isImageFile, isVideoFile, mimeOf, Picture, picturesAsText, picturesIn, prepare, prepareVideo, Slot, stopVideos, Video } from "./picture.ts";
 import { Answer, c, editorTheme, selectTheme, SPINNER } from "./theme.ts";
 
@@ -43,6 +45,8 @@ interface Tab {
 	kind: "chat" | "events" | "task";
 	agent: string;
 	session: string;
+	/** The folder of the owner's that this conversation works in, if one was opened for it. */
+	folder?: string;
 	/** For a task tab: the task it shows, and how deep that task sits under its conversation. */
 	task?: number;
 	baseDepth: number;
@@ -77,6 +81,54 @@ interface Tab {
 	attachments: Array<{ path: string; name: string; size: number }>;
 	/** The "bypass is paused here" note was shown already. */
 	pauseNoted: boolean;
+}
+
+/** Below this many columns the code pane takes the whole width instead of half of it. */
+const SIDE_BY_SIDE = 100;
+
+const RULE = Array.from({ length: 400 }, () => c.gray("│"));
+
+const tilde = (p: string) => (p === os.homedir() ? "~" : p.startsWith(`${os.homedir()}/`) ? `~${p.slice(os.homedir().length)}` : p);
+
+/** The library's name for "this component lays out children". */
+const LAYOUT = Symbol.for("@earendil-works/pi-tui/layout-node");
+
+/**
+ * A conversation with the code pane beside it. The pane gets half the width (the library's own
+ * sharing of free room is not an even split), or all of it where two halves would be too narrow.
+ */
+class Split extends HStack {
+	private side: Component;
+	private columns: () => number;
+	constructor(main: Component, rule: Component, side: Component, open: () => boolean, columns: () => number) {
+		super([
+			{ component: main, basis: 0, grow: 1, shrink: 1, minSize: 1, visible: (v) => !(open() && v.width < SIDE_BY_SIDE) },
+			{ component: rule, basis: 1, grow: 0, shrink: 0, visible: (v) => open() && v.width >= SIDE_BY_SIDE },
+			{ component: side, basis: 0, grow: 1, shrink: 1, minSize: 1, visible: () => open() },
+		]);
+		this.side = side;
+		this.columns = columns;
+	}
+	[LAYOUT](): any {
+		const node = (HStack.prototype as any)[LAYOUT].call(this);
+		const width = this.columns();
+		if (width < SIDE_BY_SIDE) return node;
+		const side = Math.max(44, Math.min(96, Math.floor(width / 2)));
+		return { ...node, entries: node.entries.map((e: any) => (e.component === this.side ? { ...e, basis: side, grow: 0, shrink: 0 } : e)) };
+	}
+}
+
+/**
+ * What a conversation shows. A real picture can only be drawn at the left edge of a full line;
+ * with a pane beside the conversation it would lie across that pane, so pictures are drawn as
+ * text for as long as the pane is there.
+ */
+class Doc extends Container {
+	asText: () => boolean = () => false;
+	override render(width: number): string[] {
+		const lines = super.render(width);
+		return this.asText() ? picturesAsText(lines, () => true) : lines;
+	}
 }
 
 /** A stretch of one screen line that reacts to a click. Columns are zero-based, `to` is exclusive. */
@@ -205,10 +257,10 @@ class Linked implements Component {
 
 /**
  * Text that a terminal pastes when files are dropped on it: one or more paths, with spaces
- * escaped or the path in quotes, sometimes as file:// URLs. Returns the files only when every
- * piece of the text is an existing file; otherwise the text is ordinary input.
+ * escaped or the path in quotes, sometimes as file:// URLs. Returns the files (with `folders`: the folders) only when every
+ * piece of the text is an existing one; otherwise the text is ordinary input.
  */
-export function droppedFiles(text: string): string[] | null {
+export function droppedFiles(text: string, folders = false): string[] | null {
 	const tokens: string[] = [];
 	let cur = "";
 	let quote = "";
@@ -236,7 +288,8 @@ export function droppedFiles(text: string): string[] | null {
 		}
 		file = expandHome(file);
 		try {
-			if (!path.isAbsolute(file) || !fs.statSync(file).isFile()) return null;
+			const stat = path.isAbsolute(file) ? fs.statSync(file) : undefined;
+			if (!stat || !(folders ? stat.isDirectory() : stat.isFile())) return null;
 		} catch {
 			return null;
 		}
@@ -287,6 +340,8 @@ class Button implements Component {
 
 const SCOPES = ["local", "agent", "global"];
 const SCOPE_HELP: Record<string, string> = { local: "only this conversation, until it is closed", agent: "the agent, in its main conversation", global: "every agent" };
+
+const PANE_HELP: Record<string, string> = { changes: "what git says changed in the folder, with the diff of each file", files: "the files of the folder", output: "what the agent's tool calls printed", off: "close the pane" };
 
 const childKind = (kind: string) => (kind === "subagent" ? "sub-agent" : kind === "delegate" ? "delegated task" : kind);
 
@@ -638,6 +693,10 @@ export interface TuiOptions {
 	openFile?: (file: string) => void;
 	/** Opens a web address when it is clicked. Default: the system's browser. */
 	openUrl?: (url: string) => void;
+	/** Lets the user pick a folder; resolves with nothing when they do not. Default: the system's folder chooser (macOS). */
+	chooseFolder?: () => Promise<string | undefined>;
+	/** The folder pine was started in, offered in the folder menu. Default: the process's. */
+	cwd?: string;
 	/** MCP server administration that needs this machine: connection states and browser sign-in. */
 	mcp?: {
 		/** The configured servers. `states` also asks each one whether it connects, which takes a moment. */
@@ -684,6 +743,10 @@ export class PineTui {
 	private stopped = false;
 	/** While the tabs of last time are being opened again. */
 	private restoring = false;
+	/** The pane beside a conversation: changes, files, tool output. */
+	private code: CodePane;
+	private codeOpen = false;
+	private codeRule: Component = { invalidate() {}, render: () => RULE };
 
 	constructor(opts: TuiOptions) {
 		this.opts = opts;
@@ -713,6 +776,12 @@ export class PineTui {
 			{ component: this.editor, shrink: 1, minSize: 3 },
 			{ component: this.footer, shrink: 1, minSize: 0 },
 		]);
+		this.code = new CodePane({
+			client: this.client,
+			redraw: () => this.tui.requestRender(),
+			close: () => this.showCode(false),
+			target: () => (this.active?.kind === "chat" ? { agent: this.active.agent, session: this.active.session } : undefined),
+		});
 		this.defineCommands();
 		this.editor.setAutocompleteProvider(new CombinedAutocompleteProvider(this.commands, process.cwd(), null));
 		this.tui.addInputListener((data) => (this.onKey(data) ? { consume: true } : undefined));
@@ -748,7 +817,7 @@ export class PineTui {
 		}, 120);
 		this.spinner.unref?.();
 		// The same tabs as last time, in the same order.
-		const saved = await this.client.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0 }));
+		const saved = await this.client.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0, code: false }));
 		const again = saved.tabs.filter((t) => this.agents.some((a) => a.id === t.agent));
 		this.restoring = true;
 		try {
@@ -759,6 +828,7 @@ export class PineTui {
 		} finally {
 			this.restoring = false;
 		}
+		if (saved.code) this.showCode(true);
 		this.saveTabs();
 		void this.refreshTaints();
 	}
@@ -767,7 +837,7 @@ export class PineTui {
 	private saveTabs(): void {
 		if (this.restoring || this.stopped) return;
 		const chats = this.tabs.filter((t) => t.kind === "chat");
-		void this.client.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), Math.max(0, chats.indexOf(this.active))).catch(() => {});
+		void this.client.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), Math.max(0, chats.indexOf(this.active)), this.codeOpen).catch(() => {});
 	}
 
 	async stop(): Promise<void> {
@@ -777,6 +847,7 @@ export class PineTui {
 		clearTimeout(this.noticeTimer);
 		// Leaving keeps every conversation as it is: the same tabs open again next time.
 		this.unsubscribe?.();
+		this.code.stop();
 		stopVideos();
 		if (this.mediaDir) fs.rmSync(this.mediaDir, { recursive: true, force: true });
 		this.tui.stop();
@@ -792,13 +863,17 @@ export class PineTui {
 	// ---- tabs ------------------------------------------------------------------------------------
 
 	private newTab(kind: Tab["kind"], agent: string, session: string): Tab {
-		const doc = new Container();
+		const doc = new Doc();
 		const scroll = new ScrollView(doc, { follow: "end", primary: true, overscroll: "chain", scrollbar: "auto" });
+		// A conversation can have the code pane beside it: half the width each, or the pane alone where that is too narrow.
+		const beside = kind === "chat";
+		doc.asText = () => beside && this.codeOpen;
+		const body = beside ? new Split(scroll, this.codeRule, this.code.component, () => this.codeOpen, () => this.opts.terminal.columns) : scroll;
 		const tab: Tab = {
 			id: this.nextTabId++, kind, agent, session, doc, scroll,
 			layout: new VStack([
 				{ component: this.header, basis: "auto", grow: 0, shrink: 0 },
-				{ component: scroll, basis: 0, grow: 1, shrink: 1, minSize: 1 },
+				{ component: body, basis: 0, grow: 1, shrink: 1, minSize: 1 },
 				{ component: this.dock, basis: "auto", grow: 0, shrink: 1, minSize: 1 },
 			]),
 			roots: new Set(), running: new Set(), awaiting: [], blocks: new Map(), tools: new Map(), streamed: new Map(), approvals: new Map(), baseDepth: 0, children: new Map(),
@@ -817,7 +892,8 @@ export class PineTui {
 		this.activate(tab);
 		this.saveTabs();
 		const info = this.agents.find((a) => a.id === agent);
-		this.say(tab, c.gray(`${c.bold(agent)}${info?.description ? ` · ${info.description}` : ""}\nsession ${session} · model ${info?.model ?? "?"} · type a message, / for commands, or click the bar below`));
+		tab.folder = (await this.client.folder(agent, session).catch(() => undefined))?.folder;
+		this.say(tab, c.gray(`${c.bold(agent)}${info?.description ? ` · ${info.description}` : ""}\nsession ${session} · model ${info?.model ?? "?"}${tab.folder ? ` · works in ${tilde(tab.folder)}` : ""} · type a message, / for commands, or click the bar below`));
 		try {
 			const history = (await this.client.history(agent, session)).filter((t) => t.depth === 0).reverse();
 			if (history.length) this.say(tab, c.gray(`── earlier in this session (${history.length}) ──`));
@@ -901,6 +977,7 @@ export class PineTui {
 		this.tui.setLayoutRoot(tab.layout);
 		this.tui.setFocus(this.editor);
 		tab.scroll.scrollToEnd();
+		if (this.codeOpen) this.code.show();
 		this.tui.requestRender();
 		this.saveTabs();
 		const waiting = [...tab.approvals.values()][0];
@@ -931,6 +1008,83 @@ export class PineTui {
 		if (this.active === tab) this.activate(this.tabs[Math.max(0, i - 1)]);
 		else this.tui.requestRender();
 		this.saveTabs();
+	}
+
+	// ---- the code pane and the folder of a conversation -------------------------------------------
+
+	/** Open or close the pane beside the conversation, optionally on one of its views. */
+	private showCode(open: boolean, view?: PaneView): void {
+		this.codeOpen = open;
+		if (open) this.code.show(view);
+		// Pictures change between real ones and text with the pane; what was drawn is drawn anew.
+		for (const t of this.tabs) t.doc.invalidate();
+		this.tui.requestRender(true);
+		this.saveTabs();
+	}
+
+	/** Give a conversation a folder to work in, or with `null` take it back to the agent's own workspace. */
+	private async setFolder(tab: Tab, folder: string | null): Promise<void> {
+		if (tab.kind !== "chat") return;
+		let now: string | undefined;
+		try {
+			now = (await this.client.setFolder(tab.agent, tab.session, folder ? path.resolve(expandHome(folder)) : null)).folder;
+		} catch (e) {
+			return void this.say(tab, c.red(`the folder was not changed: ${errText(e)}`));
+		}
+		for (const t of this.tabs) if (t.kind === "chat" && t.agent === tab.agent && t.session === tab.session) t.folder = now;
+		this.say(tab, now
+			? `${c.gray("this conversation now works in")} ${c.bold(tilde(now))}${c.gray(`: ${tab.agent}'s tools start there and may read and change what is in it, from your next message on.`)}`
+			: c.gray(`this conversation works in ${tab.agent}'s own workspace again; the folder is closed to it from your next message on.`));
+		this.code.forget({ agent: tab.agent, session: tab.session });
+		this.tui.requestRender();
+	}
+
+	private async pickFolder(): Promise<void> {
+		const t = this.active;
+		if (t.kind !== "chat") return;
+		const here = path.resolve(this.opts.cwd ?? process.cwd());
+		const used = await this.client.folders(t.agent).catch(() => [] as Array<{ session: string; folder: string }>);
+		const items: SelectItem[] = [{ value: "none", label: "No folder", description: `${t.agent}'s own workspace` }];
+		if (t.folder) items.push({ value: t.folder, label: tilde(t.folder), description: "this conversation's folder" });
+		// A home folder holds pine's own files and is refused anyway, so it is not offered.
+		if (here !== t.folder && here !== os.homedir() && here !== "/") items.push({ value: here, label: tilde(here), description: "where pine was started" });
+		for (const u of used) if (!items.some((i) => i.value === u.folder) && items.length < 9) items.push({ value: u.folder, label: tilde(u.folder), description: `also open in ${u.session}` });
+		items.push({ value: "pick", label: "Pick a folder …", description: "choose one, or type /folder <path>" });
+		const chosen = await this.pick(`Folder for ${t.agent}·${t.session}`, items, t.folder ?? "none");
+		if (!chosen || chosen === (t.folder ?? "none")) return;
+		if (chosen !== "pick") return this.setFolder(t, chosen === "none" ? null : chosen);
+		const picked = await (this.opts.chooseFolder ?? chooseFolder)();
+		// The window of the chooser took the keyboard; the screen is drawn anew when it is back.
+		this.tui.requestRender(true);
+		if (picked) await this.setFolder(t, picked);
+		else if (process.platform !== "darwin" && !this.opts.chooseFolder) this.flash("type /folder <path> to open a folder", 6000);
+	}
+
+	/**
+	 * `pine <folder>`: a tab on the conversation that works in that folder. The one that already
+	 * does is opened again; otherwise the main agent gets a new conversation named after the folder.
+	 */
+	async openFolder(dir: string): Promise<void> {
+		const agent = (this.agents.find((a) => a.main) ?? this.agents[0]).id;
+		let full = path.resolve(expandHome(dir));
+		try {
+			full = fs.realpathSync(full);
+		} catch {
+			return void this.say(this.active, c.red(`${dir} is not a folder`));
+		}
+		const used = await this.client.folders(agent).catch(() => [] as Array<{ session: string; folder: string }>);
+		const have = used.find((u) => u.folder === full);
+		if (have) return this.openTab(agent, have.session);
+		const taken = new Set(["main", ...used.map((u) => u.session), ...(await this.client.sessions(agent).catch(() => [] as Conversation[])).map((x) => x.session)]);
+		const base = (path.basename(full).replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "folder").slice(0, 24);
+		let name = base;
+		for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+		try {
+			await this.client.setFolder(agent, name, full);
+		} catch (e) {
+			return void this.say(this.active, c.red(`${tilde(full)} was not opened: ${errText(e)}`));
+		}
+		await this.openTab(agent, name);
 	}
 
 	// ---- transcript ------------------------------------------------------------------------------
@@ -1006,7 +1160,7 @@ export class PineTui {
 		for (const ref of picturesIn(text ?? "")) {
 			const name = ref.caption || path.basename(ref.target.split("?")[0]) || "picture";
 			if (!ref.remote) {
-				this.picture(tab, name, () => this.client.workspaceImage(agent, ref.target), `(no picture at ${ref.target} in the workspace)`, live);
+				this.picture(tab, name, () => this.client.workspaceImage(agent, ref.target, tab.kind === "chat" ? tab.session : undefined), `(no picture at ${ref.target} in the ${tab.folder ? "folder or the " : ""}workspace)`, live);
 				continue;
 			}
 			let slot: Slot | undefined;
@@ -1077,6 +1231,9 @@ export class PineTui {
 		// Files dropped on the terminal arrive as pasted paths. Take them as attachments.
 		const paste = data.match(/\x1b\[200~([\s\S]*?)\x1b\[201~/);
 		if (paste && this.active.kind === "chat") {
+			// One folder dropped on the terminal: that is the folder this conversation is to work in.
+			const folder = droppedFiles(paste[1], true);
+			if (folder?.length === 1) return void this.setFolder(this.active, folder[0]), true;
 			const files = droppedFiles(paste[1]);
 			if (files) return files.forEach((f) => this.attachFile(f)), true;
 		}
@@ -1118,6 +1275,7 @@ export class PineTui {
 			return void this.setMode(this.active, order[(order.indexOf(info?.mode ?? "auto") + 1) % order.length]).catch((e) => this.flash(errText(e))), true;
 		}
 		if (matchesKey(data, "ctrl+t")) return void this.run("new"), true;
+		if (matchesKey(data, "ctrl+g")) return this.showCode(!this.codeOpen), true;
 		if (matchesKey(data, "ctrl+w")) return this.closeTab(this.active), true;
 		for (let n = 1; n <= 9; n++) {
 			if (matchesKey(data, `alt+${n}` as any) && this.tabs[n - 1]) return this.activate(this.tabs[n - 1]), true;
@@ -1406,6 +1564,27 @@ export class PineTui {
 					this.say(t, c.gray("fresh conversation"));
 				},
 			},
+			{
+				name: "folder", description: "The folder this conversation works in: open one, or none", argumentHint: "[path|none]",
+				run: async (args) => {
+					const t = chat();
+					if (!t) return;
+					const wanted = args.trim();
+					if (!wanted) return this.pickFolder();
+					return this.setFolder(t, /^(none|off|-)$/i.test(wanted) ? null : (droppedFiles(wanted, true)?.[0] ?? wanted));
+				},
+			},
+			{
+				name: "code", description: "The pane beside the conversation: changes (git), files, tool output", argumentHint: "[changes|files|output|off]",
+				getArgumentCompletions: (prefix) => [...PANE_VIEWS, "off"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v, description: PANE_HELP[v] })),
+				run: (args) => {
+					const word = args.trim().toLowerCase();
+					if (word && word !== "off" && !PANE_VIEWS.includes(word as PaneView)) return this.flash("usage: /code [changes|files|output|off]");
+					if (this.active.kind !== "chat") return this.flash("switch to a conversation tab first");
+					// Without a word it opens and closes, like the button and ctrl+g.
+					this.showCode(word ? word !== "off" : !this.codeOpen, word && word !== "off" ? (word as PaneView) : undefined);
+				},
+			},
 			{ name: "stop", description: "Stop what the agent is doing (also: esc)", run: () => (this.active.running.size ? this.stopRunning(this.active) : this.flash("nothing is running")) },
 			{
 				name: "model", description: "Show or switch this agent's model", argumentHint: "[provider/id]",
@@ -1629,7 +1808,7 @@ export class PineTui {
 		const cmds = this.commands.filter((x) => x.name !== "exit").map((x) => `  ${c.accent(`/${x.name}`)}${x.argumentHint ? c.gray(` ${x.argumentHint}`) : ""}${" ".repeat(Math.max(1, 24 - x.name.length - (x.argumentHint?.length ?? -1) - 2))}${x.description}`);
 		const keys = [
 			["enter", "send"], ["shift+enter", "new line"], ["esc", "stop the agent"], ["tab", "next tab (when the input is empty)"], ["shift+tab", "next mode: auto, manual, bypass (when the input is empty)"],
-			["alt+1..9", "go to tab"], ["ctrl+t", "new conversation"], ["ctrl+w", "close tab"], ["pgup / pgdn", "scroll"], ["mouse", "click a tab, its ×, +, a web address, or agent / conversation / model / reasoning / mode in the bottom bar; drop files to attach"], ["ctrl+c twice, ctrl+d", "quit"],
+			["alt+1..9", "go to tab"], ["ctrl+t", "new conversation"], ["ctrl+w", "close tab"], ["ctrl+g", "open or close the code pane (changes, files, tool output)"], ["pgup / pgdn", "scroll"], ["mouse", "click a tab, its ×, +, ▤ code, a web address, or agent / conversation / folder / model / reasoning / mode in the bottom bar; drop files to attach"], ["ctrl+c twice, ctrl+d", "quit"],
 		].map(([k, d]) => `  ${c.accent(k.padEnd(22))} ${d}`);
 		this.say(this.active, [c.bold("Commands"), ...cmds, "", c.bold("Keys"), ...keys].join("\n"));
 	}
@@ -1831,6 +2010,8 @@ export class PineTui {
 				break;
 			}
 		}
+		// A tool that finished may have changed files, and a finished task has new output to show.
+		if (this.codeOpen && tab === this.active && ((kind === "tool" && p.phase !== "start") || kind === "done" || kind === "failed")) this.code.touch();
 		if (tab !== this.active) tab.unread = true;
 		this.tui.requestRender();
 	}
@@ -1891,9 +2072,14 @@ export class PineTui {
 			line.add(`${mark} `);
 		});
 		line.add(c.gray(" + "), () => void this.run("new"));
-		this.headerHits = line.hits;
-		const right = this.connected ? "" : c.red(" reconnecting… ");
-		return [truncateToWidth(line.text + " ".repeat(Math.max(0, width - line.width - visibleWidth(right))) + right, width), c.gray("─".repeat(width))];
+		// At the right edge, and always in view however many tabs there are: the button of the code pane.
+		const right = new Line().add(this.connected ? "" : c.red(" reconnecting… "));
+		if (this.active.kind === "chat") right.add(this.codeOpen ? c.bgAccent(" ▤ code ") : c.gray(" ▤ code "), () => this.showCode(!this.codeOpen));
+		const room = Math.max(0, width - right.width);
+		const at = Math.max(0, width - right.width);
+		this.headerHits = [...line.hits.filter((h) => h.from < room).map((h) => ({ ...h, to: Math.min(h.to, room) })), ...right.hits.map((h) => ({ ...h, from: h.from + at, to: h.to + at }))];
+		const left = truncateToWidth(line.text, room);
+		return [truncateToWidth(left + " ".repeat(Math.max(0, room - visibleWidth(left))) + right.text, width), c.gray("─".repeat(width))];
 	}
 
 	private renderAttachments(width: number): string[] {
@@ -1941,6 +2127,8 @@ export class PineTui {
 			.add(c.gray(" · "))
 			.add(c.gray(t.session), () => void this.pickSession())
 			.add(c.gray(" · "))
+			.add(t.folder ? c.cyan(short(tilde(t.folder), 34)) : c.gray("no folder"), () => void this.pickFolder())
+			.add(c.gray(" · "))
 			.add(c.gray(info?.model ?? ""), () => void this.pickModel())
 			.add(c.gray(" · "))
 			.add(c.gray(`reasoning ${info?.thinking ?? "off"}`), () => void this.pickReasoning())
@@ -1956,4 +2144,16 @@ export class PineTui {
 		const gap = Math.max(1, width - line.width - visibleWidth(right));
 		return [truncateToWidth(line.text + " ".repeat(gap) + right, width)];
 	}
+}
+
+/** The system's own window for choosing a folder. Resolves with nothing when it is closed without a choice, or where there is none. */
+function chooseFolder(): Promise<string | undefined> {
+	if (process.platform !== "darwin") return Promise.resolve(undefined);
+	return new Promise((resolve) => {
+		const child = spawn("/usr/bin/osascript", ["-e", 'POSIX path of (choose folder with prompt "A folder for this conversation")'], { stdio: ["ignore", "pipe", "ignore"] });
+		let out = "";
+		child.stdout.on("data", (d) => (out += d));
+		child.on("error", () => resolve(undefined));
+		child.on("close", (code) => resolve(code === 0 && out.trim() ? out.trim() : undefined));
+	});
 }

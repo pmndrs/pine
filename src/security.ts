@@ -39,6 +39,13 @@ export interface Roots {
 	/** The agent's own roots, without the shared temp directories. */
 	ownedRead: string[];
 	ownedWrite: string[];
+	/**
+	 * Where this session's shell and file tools start. The agent's workspace, or the folder the
+	 * owner opened for the conversation, which is then readable and writable like the workspace.
+	 */
+	cwd: string;
+	/** The folder the owner opened for the conversation, if any. Its instruction files are guarded like the workspace's. */
+	folder?: string;
 	/** Read access is refused here even when a broader rule would allow it. */
 	secrets: string[];
 	/** Workspaces of the other agents. Agents exchange information through delegation, not through each other's files. */
@@ -56,6 +63,7 @@ export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
 	const ownedWrite = [...new Set([workspace, realish(sandboxHome), ...agent.sandbox.write.map(realish)])];
 	return {
 		workspace,
+		cwd: workspace,
 		sandboxHome: realish(sandboxHome),
 		home,
 		read: [...ownedRead, ...tmp],
@@ -96,7 +104,9 @@ export function checkPath(roots: Roots, kind: "read" | "write", target: string, 
 	const inHome = isInside(roots.home, p);
 	const allowed = kind === "read" ? (inHome ? roots.ownedRead : roots.read) : inHome ? roots.ownedWrite : roots.write;
 	if (!allowed.some((r) => isInside(r, p))) return `${target} is outside the paths this agent may ${kind} (workspace: ${roots.workspace}). If you need it, call request_access with the path and the reason; your owner decides.`;
-	if (kind === "write" && restricted && isInstructionPath(roots.workspace, p)) return `${target} holds agent instructions and cannot be changed in a run that has handled outside content`;
+	const mine = [roots.workspace, ...(roots.folder !== undefined ? [roots.folder] : [])];
+	if (kind === "write" && restricted && mine.some((r) => isGitRunPath(r, p))) return `${target} is part of a repository's hooks or configuration, which make git run programs, and cannot be changed in a run that has handled outside content`;
+	if (kind === "write" && restricted && mine.some((r) => isInstructionPath(r, p))) return `${target} holds agent instructions and cannot be changed in a run that has handled outside content`;
 	return undefined;
 }
 
@@ -105,6 +115,21 @@ export function isInstructionPath(workspace: string, p: string): boolean {
 	const rel = path.relative(workspace, p);
 	return INSTRUCTION_FILES.includes(path.basename(p)) || INSTRUCTION_DIRS.some((d) => rel === d || rel.startsWith(d + path.sep));
 }
+
+/** Whether a path in one of the agent's folders is a repository's hooks or configuration, or the repository's own folder. */
+export function isGitRunPath(root: string, p: string): boolean {
+	return isInside(root, p) && GIT_RUNS.test(`/${path.relative(root, p)}`);
+}
+
+/**
+ * The parts of a repository that make git run programs: its hooks and its configuration (which
+ * can name a hooks folder, a pager, a file system monitor, an ssh command), also of submodules
+ * and of repositories further down. What is put there runs with the owner's rights the next
+ * time they use git, so a run that has handled outside content cannot change them, nor move
+ * the repository's folder aside to put another in its place.
+ */
+const GIT_RUNS = /\/\.git(\/(modules\/.+\/)?(hooks(\/.*)?|config))?$/;
+const GIT_RUNS_PROFILE = String.raw`(.*/)?\.git(/(modules/.+/)?(hooks(/.*)?|config))?$`;
 
 const q = (s: string) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 const rx = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
@@ -162,8 +187,9 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		`(deny file-read* file-write* ${subpaths([...roots.secrets, ...roots.others])})`,
 	];
 	if (restricted) {
-		const ws = rx(roots.workspace);
-		lines.push(`(deny file-write* (regex #"^${ws}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(roots.workspace, d)))})`);
+		for (const dir of [roots.workspace, ...(roots.folder ? [roots.folder] : [])]) {
+			lines.push(`(deny file-write* (regex #"^${rx(dir)}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") (regex #"^${rx(dir)}/${GIT_RUNS_PROFILE}") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(dir, d)))})`);
+		}
 	}
 	if (agent.sandbox.network || network) {
 		lines.push(

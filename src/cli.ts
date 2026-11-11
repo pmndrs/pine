@@ -9,6 +9,8 @@ const HELP = `pine - PI neural engine
 
 Start here
   pine                            open the terminal UI (same as "pine tui")
+  pine . | pine <folder>          the same, with a tab on that folder: a conversation of the main agent that
+                                  works there (the one from last time, if there is one)
   pine tui                        chat with your agents; starts a daemon inside if none is running
   pine login <provider>           sign in to a model provider (OpenCode, Claude, ChatGPT, ...)
   pine logout <provider>
@@ -201,9 +203,32 @@ async function installBrowser(): Promise<number> {
 	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
 }
 
+const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "mcp", "mode", "reset", "send", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
+
+/** Whether a first argument means a folder to open: something written as a path, or the name of a folder here that is not a command. */
+function folderArgument(word: string | undefined, cwd = process.cwd()): string | undefined {
+	if (!word || COMMANDS.has(word)) return undefined;
+	const full = path.resolve(cwd, expandHome(word));
+	const isDir = (() => {
+		try {
+			return fs.statSync(full).isDirectory();
+		} catch {
+			return false;
+		}
+	})();
+	if (isDir) return full;
+	// Written as a path but not there: an error about the folder says more than "unknown command".
+	if (/^(\.{1,2}|~)($|\/)|\//.test(word)) throw new Error(`${word} is not a folder`);
+	return undefined;
+}
+
 async function main(): Promise<void> {
 	const { flags, rest } = parseArgs(process.argv.slice(2));
-	const cmd = rest.shift();
+	let cmd = rest.shift();
+	// "pine ." and "pine ~/dev/project" open the terminal UI with a tab on that folder.
+	let folder = folderArgument(cmd);
+	if (folder) cmd = "tui";
+	else if (cmd === "tui") folder = folderArgument(rest[0]);
 	const home = path.resolve(expandHome(typeof flags.home === "string" ? flags.home : defaultHome()));
 	const out = (v: unknown) => console.log(typeof v === "string" ? v : JSON.stringify(v, null, 2));
 
@@ -252,12 +277,12 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	if (!cmd && !fs.existsSync(path.join(home, "pine.json"))) return out(`No pine home at ${home} yet. Create one with:\n\n  pine init\n\n${HELP}`);
+	if ((!cmd || cmd === "tui") && !fs.existsSync(path.join(home, "pine.json"))) return out(`No pine home at ${home} yet. Create one with:\n\n  pine init\n\n${HELP}`);
 	const cfg = loadConfig(home);
 
 	if (!cmd || cmd === "tui") {
 		const { runTui } = await import("./tui/run.ts");
-		return runTui(cfg);
+		return runTui(cfg, { folder });
 	}
 
 	if (cmd === "login" || cmd === "logout") {
