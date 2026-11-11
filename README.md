@@ -89,7 +89,7 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
    Telegram · MQTT · FTP │           │ ◄───────── skills
    webhooks · folders    │   agent   │
    web addresses         │           │
-   commands · etc        │           │
+   commands · etc *      │           │
  schedules ────────────► │           │
    repeating · once      └─────┬─────┘
                                │  delegate ──► other agents
@@ -100,6 +100,8 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
  Events, schedules, MCPs and skills can be set up by asking:
  for the current conversation, agent scope, or globally
  (main agent only) for all agents.
+
+ * New event types that agents can subscribe to can be created easily.
 ```
 
 ## Quick start
