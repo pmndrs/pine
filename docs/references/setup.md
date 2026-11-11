@@ -80,8 +80,10 @@ are asked anything. After your yes:
 ```
 agents/books/
   agent.json     { "description": "...", "tools": [...] }  and "model" if one was named
-  AGENTS.md      the instructions
-  workspace/     empty
+  workspace/
+    AGENTS.md    the instructions; the new agent can change them itself from then on
+    SOUL.md      a stub
+    MEMORY.md    a stub
 ```
 
 Nothing else is written into `agent.json`; every other setting is pine's default. The agent

@@ -13,8 +13,10 @@ Three things to know before anything else:
 
 1. **Configuration lives in a home directory**, by default `~/.pine`: `pine.json` (global),
    `models.json` (pi's model file), `.env` (secrets), and one folder per agent under `agents/`.
-2. **An agent is a folder**: `agents/<id>/agent.json` plus `AGENTS.md` (who it is). Its workspace
-   is wherever `workspace` points, for example an existing repository.
+2. **An agent is a folder**: `agents/<id>/agent.json` and a workspace. In the workspace lie the
+   files the agent keeps itself and that are read into its prompt: `AGENTS.md` (its purpose),
+   `SOUL.md` (who it is), `MEMORY.md` (its memory). `USER.md` in the home is what all agents
+   know about you. The workspace is wherever `workspace` points, for example a repository.
 3. **Where content came from decides what it may do.** Your own messages get the agent's full
    tool set. Anything else is data. An event from outside runs with a reduced tool set in a
    separate session; an event from a source a conversation subscribed to arrives in that
@@ -121,8 +123,8 @@ below is added on top of that when you need it.
 ```
 
 `~/.pine/agents/gonzo/agent.json`, a second agent, a specialist the main agent can hand work to
-(create the folder; an `AGENTS.md` next to it says who the agent is; the workspace folder must
-exist). Or ask the main agent to create one: it calls `create_agent`, and no restart is needed.
+(create the folder and a `workspace` folder in it; an `AGENTS.md` in the workspace says what
+the agent is for). Or ask the main agent to create one: it calls `create_agent`, and no restart is needed.
 
 ```json
 {

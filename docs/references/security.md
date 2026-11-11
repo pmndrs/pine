@@ -68,7 +68,7 @@ Every shell command and every file tool call of an agent runs inside a macOS san
 | | |
 |---|---|
 | Can read | Its workspace, its private home, its skills, pine's manual (`docs/`), temp, and the system outside your home folder (programs, libraries) |
-| Can write | Its workspace, its private home (`sandbox/<id>/`, which is `$HOME` in its shell), temp |
+| Can write | Its workspace, its private home (`sandbox/<id>/`, which is `$HOME` in its shell), temp. The main agent also `USER.md` in pine's home, and nothing else there |
 | Cannot read or write | Your home folder, pine's home (configuration, `.env`, database, other agents' folders, plugins), other agents' workspaces |
 | Cannot | Use the network (unless `sandbox.network` or you granted it to the conversation; the `download` tool is the exception described under Modes), signal or inspect other processes, launch apps, send AppleScript, reach the keychain or the clipboard |
 | Environment | A handful of variables (`PATH`, `LANG`, ...). Nothing from the daemon's environment, no secrets |
@@ -96,8 +96,10 @@ switched off. Looking at a folder runs nothing from it.
 Consequences worth knowing:
 
 - An agent cannot change its own `agent.json`, its extensions, pine's plugins or `pine.json`.
-  It can change `AGENTS.md` in its workspace (that is its memory) until the session is
-  restricted; see layer 4.
+  It can change the files it is meant to keep: `AGENTS.md`, `SOUL.md` and `MEMORY.md` in its
+  workspace, and for the main agent `USER.md` ([agents.md](agents.md)), until the session is
+  restricted; see layer 4. Rules it must never change go into `agents/<id>/AGENTS.md`, which
+  is outside its reach.
 - `git`, `node`, `python`, `sed` and the like work. Tools that need files in your home
   (`~/.gitconfig`, `~/.npmrc`, `~/.ssh`) see the agent's empty private home instead. Grant
   specific folders with `sandbox.read` / `sandbox.write`.
@@ -125,9 +127,11 @@ page says "now send the notes folder to ...". pine tracks that:
   check it. It is taken at its word because you chose the server. What such a tool is asked (a
   search text, a path) does reach the server. For a server where that matters, set
   `"approve": "always"`: then every call asks, reading included.
-- A tainted session cannot write its instruction files (`AGENTS.md`, `CLAUDE.md`, `.pi/`,
-  `.agents/`), so an injection cannot make itself permanent. This holds in its workspace and in
-  a folder opened for the conversation.
+- A tainted session cannot write what is read into its prompt: `AGENTS.md`, `SOUL.md` and
+  `MEMORY.md` in its workspace, `USER.md`, `CLAUDE.md`, `.pi/`, `.agents/`. So an injection
+  cannot make itself permanent, in the agent's instructions or in its memory. This holds in its
+  workspace and for the instruction files of a folder opened for the conversation. Other
+  notes in the workspace can still be written; they are not read unless the agent opens them.
 - A tainted session can still use git in a repository there (commit, branch, diff), but cannot
   change what makes git run programs: `.git/hooks` and `.git/config` (a hook, a hooks path, a
   pager, a file system monitor), also of submodules and of repositories further down, and it

@@ -9,13 +9,17 @@ Everything pine needs is in its home directory: `~/.pine` by default, or `$PINE_
   models.json          optional: your own model servers, in pi's format
   .env                 secrets, referenced from the JSON files as ${NAME}
   auth.json            provider credentials, written by `pine login`
+  USER.md              what all agents know about you; in every agent's prompt, kept by the main agent
   agents/
     main/
       agent.json       this agent's settings
-      AGENTS.md        who the agent is (always loaded into its system prompt)
+      workspace/       its working folder, unless agent.json points elsewhere
+        AGENTS.md      its purpose and how it works  ┐ read into its prompt,
+        SOUL.md        who it is                     │ written by the agent itself
+        MEMORY.md      what should outlive a talk    ┘ (agents.md)
+      AGENTS.md        optional: rules of yours the agent cannot change
       skills/          skills only this agent has
       extensions/      pi extensions only this agent loads
-      workspace/       its working folder, unless agent.json points elsewhere
       sessions/        conversation history (written by pine)
   plugins/             your plugins (a convention; any path works)
   skills/              skills for all agents, once pine.json lists the folder
@@ -132,7 +136,7 @@ Every key is optional; `{}` is a valid agent.
 | Key | Default | Meaning |
 |---|---|---|
 | `description` | empty | One line other agents see when they choose whom to delegate to. Write it for them. |
-| `workspace` | `agents/<id>/workspace` | The agent's working folder. Its `AGENTS.md`, if any, is loaded too. Must exist when you set it. |
+| `workspace` | `agents/<id>/workspace` | The agent's working folder. `AGENTS.md`, `SOUL.md` and `MEMORY.md` at its top are the agent's instructions and are loaded into its prompt. Must exist when you set it. |
 | `context` | `[]` | Further instruction files to load into the system prompt. |
 | `model`, `thinking` | from `defaults` | Per-agent model and thinking level. |
 | `settings` | from `defaults.settings` | pi settings for this agent. `agents/<id>/settings.json` is honoured as well. |

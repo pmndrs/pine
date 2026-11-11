@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { type AgentConfig, loadConfig, type PineConfig } from "./config.ts";
+import { type AgentConfig, loadConfig, PINE_ROOT, type PineConfig, WORKSPACE_FILES } from "./config.ts";
 import { errText } from "./util.ts";
 
 /** The built-in tools an agent can be given. */
@@ -10,15 +10,15 @@ export interface NewAgent {
 	id: string;
 	/** One line: what it is for. Other agents see it when they decide whom to hand work to. */
 	description: string;
-	/** Who it is and how it works: its AGENTS.md. */
+	/** How it works: its AGENTS.md, in its workspace, which it can change itself from then on. */
 	instructions: string;
 	model?: string;
 	tools?: string[];
 }
 
 /**
- * Create an agent while the daemon runs: its folder with agent.json, its instructions and an empty
- * workspace. The files are written first and then read back through the normal loader, so a new
+ * Create an agent while the daemon runs: its folder with agent.json, and a workspace with its
+ * instructions (AGENTS.md) and the other files it keeps itself, as they come with a new home. The files are written first and then read back through the normal loader, so a new
  * agent is checked exactly like one that was there at start; if it does not pass, the folder is
  * taken away again. Nothing but these few lines goes into its agent.json.
  */
@@ -42,7 +42,12 @@ export function createAgent(cfg: PineConfig, spec: NewAgent): AgentConfig {
 	fs.mkdirSync(path.join(dir, "workspace"), { recursive: true, mode: 0o700 });
 	try {
 		fs.writeFileSync(path.join(dir, "agent.json"), `${JSON.stringify({ description, ...(spec.model ? { model: spec.model } : {}), tools }, null, 2)}\n`, { mode: 0o600 });
-		fs.writeFileSync(path.join(dir, "AGENTS.md"), `${spec.instructions.trim()}\n`, { mode: 0o600 });
+		fs.writeFileSync(path.join(dir, "workspace", "AGENTS.md"), `${spec.instructions.trim()}\n`, { mode: 0o600 });
+		// The rest starts as the stubs a new home has.
+		for (const name of WORKSPACE_FILES.slice(1)) {
+			const stub = path.join(PINE_ROOT, "examples", "home", "agents", "main", "workspace", name);
+			if (fs.existsSync(stub)) fs.copyFileSync(stub, path.join(dir, "workspace", name)), fs.chmodSync(path.join(dir, "workspace", name), 0o600);
+		}
 		const made = loadConfig(cfg.home).agents[spec.id];
 		if (!made) throw new Error("the new agent was not found after writing it");
 		cfg.agents[spec.id] = made;

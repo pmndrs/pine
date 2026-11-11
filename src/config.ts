@@ -566,6 +566,16 @@ export function loadConfig(home = defaultHome()): PineConfig {
 
 /** MCP servers an agent ends up with: its own, plus the global ones that include it. Own entries win. */
 /** The main agent: the one pine.json names; without that entry the one called "main", else the first one. */
+/**
+ * The files in an agent's workspace that are part of its prompt, in the order they enter it. They
+ * are the agent's own: it reads them as its instructions and keeps them up to date itself.
+ * AGENTS.md is how it works, SOUL.md who it is, MEMORY.md what should outlive a conversation.
+ */
+export const WORKSPACE_FILES = ["AGENTS.md", "SOUL.md", "MEMORY.md"];
+
+/** What all agents know about the owner: one file in pine's home, in every agent's prompt, kept by the main agent. */
+export const userFile = (cfg: PineConfig): string => path.join(cfg.home, "USER.md");
+
 export function mainAgentId(cfg: PineConfig): string {
 	return cfg.main ?? (cfg.agents.main ? "main" : Object.keys(cfg.agents)[0]);
 }

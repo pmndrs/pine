@@ -244,12 +244,14 @@ test("the main agent creates an agent by tool call: the owner confirms, it exist
 	assert.equal(asked.length, 1, "what cannot work is not put to the owner");
 	assert.deepEqual(fs.readdirSync(path.join(h.home, "agents")).sort(), ["main"]);
 
-	// Confirmed: the folder, the two files, and an agent that answers and that main can hand work to.
+	// Confirmed: the folder, its files, and an agent that answers and that main can hand work to.
 	r = await run("main", [{ tools: [make] }]);
 	assert.match(r.text, /The agent research exists now.*\/agent research.*delegate from your next message on/);
 	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "agent.json"), "utf8")), { description: "Looks things up and reports with sources", tools: ["read", "grep", "find", "ls"] });
-	assert.match(fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8"), /^You are RESEARCH-PERSONA\./);
-	assert.ok(fs.statSync(path.join(dir, "workspace")).isDirectory());
+	// Its instructions are in its workspace, where it can change them, with the stubs of the files it keeps itself.
+	assert.match(fs.readFileSync(path.join(dir, "workspace", "AGENTS.md"), "utf8"), /^You are RESEARCH-PERSONA\./);
+	assert.deepEqual(fs.readdirSync(path.join(dir, "workspace")).sort(), ["AGENTS.md", "MEMORY.md", "SOUL.md"]);
+	assert.deepEqual(fs.readdirSync(dir).sort(), ["agent.json", "workspace"]);
 	const answer = await run("research", [{ text: "here" }]);
 	assert.equal(answer.text, "here");
 	const research = h.requestsFor("RESEARCH-PERSONA")[0];

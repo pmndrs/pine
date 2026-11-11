@@ -76,6 +76,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    asks the owner where `docs/references/setup.md` says so. A server is a remote URL, never a
    command. Global scope and agent creation are refused to every agent but the main one.
    Removing something must leave the file as it was before it was added.
+   What an agent writes and pine reads back is text for its own prompt, never code or
+   configuration: `AGENTS.md`, `SOUL.md` and `MEMORY.md` at the top of its workspace, and for
+   the main agent `USER.md` in pine's home, the one file there an agent may write. A run that
+   has handled outside content cannot write any of them (`isOwnFile` in `src/security.ts`).
 2. **File access is enforced by the OS, not by a path check.** (What the OS enforces depends on
    the mode: `live.variant()` picks the normal, restricted or open profile for each call, and
    access the owner granted with `request_access` is written into that session's profiles.)
@@ -133,6 +137,7 @@ upgrade pi (`npm run baseline`, then `npm test`).
 | Sessions default to the global agent dir | explicit `sessionDir` under `agents/<id>/sessions/` |
 | bash has no default timeout | the gate caps `input.timeout` at `bashTimeoutSec` |
 | `AGENTS.md` is read once | `refresh()` reloads when a file's mtime changed |
+| pi looks for instruction files in the working folder and the folders above it | `agentsFilesOverride` ignores what pi found and hands it `instructionFiles()`: the owner's `agents/<id>/AGENTS.md`, the agent's own `AGENTS.md`, `SOUL.md`, `MEMORY.md` (`WORKSPACE_FILES` in `src/config.ts`) and the home's `USER.md` |
 | `prompt()` resolves on model failure | `execute()` inspects the last assistant message |
 | Skills and `AGENTS.md` are discovered in the user's home and above the workspace | `skillsOverride` / `agentsFilesOverride` keep only configured locations |
 | `tools: [...]` is a strict allow-list that hides extension tools | `excludeTools` for built-ins instead |

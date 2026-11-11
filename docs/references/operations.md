@@ -229,7 +229,9 @@ are JSON with `Content-Type: application/json`.
 - **Why did it answer that?** `pine task <id>` shows the prompt as the agent received it, the
   tools it called and the result. The full transcript is the newest `.jsonl` under
   `~/.pine/agents/<id>/sessions/<session>/`.
-- **Change instructions:** edit the agent's `AGENTS.md`. It applies to the next task.
+- **Change instructions:** tell the agent ("from now on ..."); it writes that into `AGENTS.md` in
+  its workspace. Or edit the file yourself. Either applies to the next message. What all agents
+  should know about you goes into `USER.md` in pine's home, which the main agent keeps.
 - **Change configuration:** edit `pine.json` or `agent.json`, run `pine check`, restart the
   daemon. Queued tasks survive the restart. MCP servers, event sources, subscriptions and new
   agents need neither an edit nor a restart: ask an agent ([setup.md](setup.md)), or use
@@ -264,8 +266,9 @@ are JSON with `Content-Type: application/json`.
 |---|---|
 | Agents in `openclaw.json` with `workspace-*` folders | One folder per agent under `agents/`; `workspace` points at the repository |
 | Telegram `bindings` | `"agent"` on a Telegram account |
-| `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `TOOLS.md` | One `AGENTS.md` in the agent's folder (who it is) and one in the workspace (how the project works) |
-| `MEMORY.md`, daily memory files | Files in the workspace that `AGENTS.md` tells the agent to keep; shared facts in state |
+| `SOUL.md`, `AGENTS.md`, `MEMORY.md` | The same three names in the agent's workspace, read into its prompt and written by the agent |
+| `USER.md` | One `USER.md` in pine's home for all agents, kept by the main agent |
+| `IDENTITY.md`, `TOOLS.md`, daily memory files | Not read by pine. Fold what matters into `SOUL.md`, `AGENTS.md` or `MEMORY.md`; other notes are ordinary files in the workspace |
 | Cron jobs | A `timer` source the agent subscribes to, or `schedules` plus a route |
 | Heartbeat | A `timer` source with `every`, subscribed with a note that ends in "reply NO_REPLY if nothing needs attention" |
 | `/hooks/*` mappings | A `webhook` source the agent subscribes to, or `http.hooks` plus a route |

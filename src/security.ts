@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type AgentConfig, PINE_ROOT, type PineConfig } from "./config.ts";
+import { type AgentConfig, mainAgentId, PINE_ROOT, type PineConfig, userFile, WORKSPACE_FILES } from "./config.ts";
 import type { Bus } from "./store.ts";
 import { type Logger, truncate } from "./util.ts";
 
@@ -46,6 +46,8 @@ export interface Roots {
 	cwd: string;
 	/** The folder the owner opened for the conversation, if any. Its instruction files are guarded like the workspace's. */
 	folder?: string;
+	/** USER.md in pine's home: what all agents know about the owner. Only the main agent may write it. */
+	userFile: string;
 	/** Read access is refused here even when a broader rule would allow it. */
 	secrets: string[];
 	/** Workspaces of the other agents. Agents exchange information through delegation, not through each other's files. */
@@ -59,8 +61,11 @@ export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
 	const home = realish(cfg.home);
 	const tmp = agent.sandbox.sharedTmp ? [...new Set([realish(os.tmpdir()), "/private/tmp"])] : [];
 	// pine's manual is readable by every agent, so it can explain how its owner changes the setup.
-	const ownedRead = [...new Set([workspace, realish(sandboxHome), realish(path.join(agent.dir, "skills")), realish(path.join(PINE_ROOT, "docs")), ...cfg.skills.map(realish), ...agent.skills.map(realish), ...agent.sandbox.read.map(realish)])];
-	const ownedWrite = [...new Set([workspace, realish(sandboxHome), ...agent.sandbox.write.map(realish)])];
+	// The one file of pine's home that an agent may touch: what is known about the owner, and only for the main agent.
+	const user = path.join(home, path.basename(userFile(cfg)));
+	const keepsUser = agent.id === mainAgentId(cfg) ? [user] : [];
+	const ownedRead = [...new Set([workspace, realish(sandboxHome), realish(path.join(agent.dir, "skills")), realish(path.join(PINE_ROOT, "docs")), ...cfg.skills.map(realish), ...agent.skills.map(realish), ...agent.sandbox.read.map(realish), ...keepsUser])];
+	const ownedWrite = [...new Set([workspace, realish(sandboxHome), ...agent.sandbox.write.map(realish), ...keepsUser])];
 	return {
 		workspace,
 		cwd: workspace,
@@ -70,6 +75,7 @@ export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
 		write: [...ownedWrite, ...tmp],
 		ownedRead,
 		ownedWrite,
+		userFile: user,
 		secrets: [path.join(home, ".env"), path.join(home, "auth.json"), path.join(home, "models.json"), path.join(home, "pine.json"), realish(cfg.dataDir)],
 		others: Object.values(cfg.agents)
 			.filter((a) => a.id !== agent.id)
@@ -106,7 +112,7 @@ export function checkPath(roots: Roots, kind: "read" | "write", target: string, 
 	if (!allowed.some((r) => isInside(r, p))) return `${target} is outside the paths this agent may ${kind} (workspace: ${roots.workspace}). If you need it, call request_access with the path and the reason; your owner decides.`;
 	const mine = [roots.workspace, ...(roots.folder !== undefined ? [roots.folder] : [])];
 	if (kind === "write" && restricted && mine.some((r) => isGitRunPath(r, p))) return `${target} is part of a repository's hooks or configuration, which make git run programs, and cannot be changed in a run that has handled outside content`;
-	if (kind === "write" && restricted && mine.some((r) => isInstructionPath(r, p))) return `${target} holds agent instructions and cannot be changed in a run that has handled outside content`;
+	if (kind === "write" && restricted && (mine.some((r) => isInstructionPath(r, p)) || isOwnFile(roots, p))) return `${target} holds agent instructions and cannot be changed in a run that has handled outside content`;
 	return undefined;
 }
 
@@ -114,6 +120,11 @@ export function isInstructionPath(workspace: string, p: string): boolean {
 	if (!isInside(workspace, p)) return false;
 	const rel = path.relative(workspace, p);
 	return INSTRUCTION_FILES.includes(path.basename(p)) || INSTRUCTION_DIRS.some((d) => rel === d || rel.startsWith(d + path.sep));
+}
+
+/** Whether a path is one of the files that are read into the agent's prompt from its workspace, or the owner's file in pine's home. */
+export function isOwnFile(roots: Roots, p: string): boolean {
+	return p === roots.userFile || (path.dirname(p) === roots.workspace && WORKSPACE_FILES.includes(path.basename(p)));
 }
 
 /** Whether a path in one of the agent's folders is a repository's hooks or configuration, or the repository's own folder. */
@@ -187,6 +198,8 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		`(deny file-read* file-write* ${subpaths([...roots.secrets, ...roots.others])})`,
 	];
 	if (restricted) {
+		// What is read into the prompt cannot be rewritten by a run that outside content may steer.
+		lines.push(`(deny file-write* ${[roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))].map((f) => `(literal ${q(f)})`).join(" ")})`);
 		for (const dir of [roots.workspace, ...(roots.folder ? [roots.folder] : [])]) {
 			lines.push(`(deny file-write* (regex #"^${rx(dir)}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") (regex #"^${rx(dir)}/${GIT_RUNS_PROFILE}") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(dir, d)))})`);
 		}

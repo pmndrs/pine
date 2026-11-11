@@ -27,12 +27,19 @@ test("pine init creates a private home that passes pine check", async (t) => {
 	const init = await run(process.execPath, [CLI, "init", dir]);
 	assert.match(init.stdout, /pine\.json/);
 	assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
-	for (const f of ["pine.json", "models.json", ".env"]) assert.equal(fs.statSync(path.join(dir, f)).mode & 0o777, 0o600, f);
+	for (const f of ["pine.json", "models.json", ".env", "USER.md", "agents/main/workspace/AGENTS.md", "agents/main/workspace/SOUL.md", "agents/main/workspace/MEMORY.md"]) assert.equal(fs.statSync(path.join(dir, f)).mode & 0o777, 0o600, f);
+	assert.ok(!fs.existsSync(path.join(dir, "agents", "main", "AGENTS.md")), "an agent's instructions are in its workspace, where it can change them");
 	const check = await run(process.execPath, [CLI, "check", "--home", dir]);
 	for (const part of ["agent main (main)", "mcp        web, browser", "model      dev/claude-haiku", "No security notes."]) assert.ok(check.stdout.includes(part), `${part}\n${check.stdout}`);
 	assert.equal(fs.readdirSync(path.join(dir, "agents")).join(), "main", "the example starts with one agent");
 	const again = await run(process.execPath, [CLI, "init", dir]);
 	assert.match(again.stdout, /nothing changed/);
+	// A home from before that: its instructions stay where the owner has them, and no second copy is made.
+	fs.renameSync(path.join(dir, "agents", "main", "workspace", "AGENTS.md"), path.join(dir, "agents", "main", "AGENTS.md"));
+	fs.rmSync(path.join(dir, "agents", "main", "workspace", "SOUL.md"));
+	const older = await run(process.execPath, [CLI, "init", dir]);
+	assert.ok(older.stdout.includes("agents/main/workspace/SOUL.md") && /agents\/main\/AGENTS\.md stays where it is.*move it to agents\/main\/workspace\/AGENTS\.md/s.test(older.stdout), older.stdout);
+	assert.ok(!fs.existsSync(path.join(dir, "agents", "main", "workspace", "AGENTS.md")));
 });
 
 test("the command line drives a running daemon", async (t) => {

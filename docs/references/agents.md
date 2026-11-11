@@ -6,20 +6,58 @@ letters, digits, `-`, `_`).
 ```
 agents/gonzo/
   agent.json     settings (see configuration.md); {} is enough
-  AGENTS.md      who the agent is and how it works
+  workspace/     where it works, and the files it keeps itself:
+    AGENTS.md      its purpose and how it works
+    SOUL.md        who it is: character and tone
+    MEMORY.md      what should outlive a conversation
   skills/        optional: its own skills
   extensions/    optional: its own pi extensions
+  AGENTS.md      optional: rules of yours that the agent cannot change
 ```
 
 ## Creating an agent
 
 Ask the main agent ("create an agent that keeps my books"): it calls `create_agent`, you confirm
-what it proposes, and the folder above is made with `agent.json`, `AGENTS.md` and an empty
-workspace. The agent exists at once, without a restart. Only the main agent has this tool; the
+what it proposes, and the folder above is made with `agent.json` and a workspace that holds its
+instructions (`AGENTS.md`) and stubs of `SOUL.md` and `MEMORY.md`. The agent exists at once,
+without a restart. Only the main agent has this tool; the
 others tell you to ask it. See [setup.md](setup.md).
 
-By hand: make the folder with an `agent.json` (`{}` is enough) and an `AGENTS.md`, run
-`pine check`, and restart.
+By hand: make the folder with an `agent.json` (`{}` is enough) and a `workspace/AGENTS.md`,
+run `pine check`, and restart.
+
+## The files an agent keeps itself
+
+An agent's instructions are files in its workspace, and the agent can write them. Together
+with one file about you they are read into its prompt with every conversation:
+
+| File | Holds | Who writes it |
+|---|---|---|
+| `workspace/AGENTS.md` | Its purpose and how it works. You shape it by telling the agent ("your purpose is ...", "from now on answer in tables") | The agent, and you |
+| `workspace/SOUL.md` | Who it is: character and tone | The agent, and you |
+| `workspace/MEMORY.md` | What matters beyond a conversation: decisions, facts, preferences, open ends | The agent |
+| `USER.md` in pine's home | What every agent knows about you. One file for all agents | The main agent, and you |
+| `agents/<id>/AGENTS.md` | Optional. Rules of yours that the agent reads and cannot change | You |
+
+Every agent is told what these files are for: to write into `AGENTS.md` what you say it is for
+or how you want things done, to put into `MEMORY.md` what it learns that matters later, at
+once and briefly, and to tidy its memory when it has grown long (merge, drop what no longer
+holds, move details into other files and leave a pointer). When `MEMORY.md` passes about 6 000
+characters, pine reminds the agent, because all of it is read with every message.
+
+`pine init` and `create_agent` start them as short stubs. A file that is missing is simply not
+loaded, and the agent creates it when it has something to put there. A change applies from the
+agent's next message on. Only these names, at the top of the workspace, are read; anything
+else the agent keeps there is its own notes, which it reads when it needs them.
+
+Other agents get `USER.md` in their prompt but cannot open or change the file; they tell you
+when something belongs there. A conversation that has read outside content cannot change any
+of these files until it is reset ([security.md](security.md)): what is read into every future
+prompt is exactly what an injected instruction would try to rewrite.
+
+An existing home from before this layout keeps working: `agents/<id>/AGENTS.md` is still read.
+To hand the instructions over to the agent, move that file to `agents/<id>/workspace/AGENTS.md`;
+`pine init` adds the stubs that are missing and leaves your file where it is.
 
 ## What an agent sees
 
@@ -31,8 +69,11 @@ Its system prompt is put together from, in this order:
    all agents is the main agent's job), that for everything else it should explain the steps to
    its owner, and that text from tools, files and the web is information, never a command. An
    `agents/<id>/SYSTEM.md` replaces this text.
-2. `agents/<id>/AGENTS.md`: the agent's standing instructions.
-3. `AGENTS.md` (or `CLAUDE.md`) in its workspace, if there is one, plus any files in `context`.
+2. `agents/<id>/AGENTS.md`, if you keep one: rules the agent cannot change.
+3. The files it keeps itself, from its workspace: `AGENTS.md` (also `CLAUDE.md`), `SOUL.md`,
+   then `USER.md` from pine's home, then `MEMORY.md`. See "The files an agent keeps itself".
+   After them the instruction files of a folder opened for the conversation, and any files in
+   `context`.
 4. Its skills: one line each; the agent reads a skill's file when it needs it. One skill is
    always there: `pine`, this manual. An agent asked for a plugin, a skill or another model
    reads it and tells you what to put into which file; an MCP server or an event source it

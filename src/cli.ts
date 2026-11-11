@@ -79,15 +79,15 @@ function parseArgs(argv: string[]) {
 	return { flags, rest };
 }
 
-function copyDir(from: string, to: string): string[] {
+function copyDir(from: string, to: string, skip: (dst: string) => boolean = () => false): string[] {
 	const created: string[] = [];
 	for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
 		const src = path.join(from, entry.name);
 		const dst = path.join(to, entry.name === ".env.example" ? ".env" : entry.name);
 		if (entry.isDirectory()) {
 			fs.mkdirSync(dst, { recursive: true });
-			created.push(...copyDir(src, dst));
-		} else if (!fs.existsSync(dst)) {
+			created.push(...copyDir(src, dst, skip));
+		} else if (!fs.existsSync(dst) && !skip(dst)) {
 			fs.copyFileSync(src, dst);
 			fs.chmodSync(dst, 0o600);
 			created.push(dst);
@@ -238,8 +238,17 @@ async function main(): Promise<void> {
 		const target = path.resolve(expandHome(rest[0] ?? home));
 		fs.mkdirSync(target, { recursive: true, mode: 0o700 });
 		fs.chmodSync(target, 0o700);
-		const created = copyDir(path.join(PINE_ROOT, "examples", "home"), target);
+		// A home from before instructions moved into the workspace keeps them where they are: with
+		// a second AGENTS.md in the workspace the agent would have both.
+		const kept: string[] = [];
+		const created = copyDir(path.join(PINE_ROOT, "examples", "home"), target, (dst) => {
+			const old = path.join(path.dirname(path.dirname(dst)), "AGENTS.md");
+			const twice = path.basename(dst) === "AGENTS.md" && path.basename(path.dirname(dst)) === "workspace" && fs.existsSync(old);
+			if (twice) kept.push(old);
+			return twice;
+		});
 		out(created.length ? `Created in ${target}:\n${created.map((f) => `  ${path.relative(target, f)}`).join("\n")}` : `${target} already has every example file; nothing changed.`);
+		for (const old of kept) out(`\n${path.relative(target, old)} stays where it is: there the agent reads it but cannot change it. To let the agent keep its own instructions, move it to ${path.relative(target, path.join(path.dirname(old), "workspace", "AGENTS.md"))}.`);
 		// Everything the built-in tools need comes with it, so that what is set up also works. The
 		// browser is the one large piece; a second run finds it there and takes a moment.
 		// (PINE_SKIP_DOWNLOADS is for pine's own tests, which must not fetch 600 MB.)
