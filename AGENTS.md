@@ -9,6 +9,8 @@ to change the code.
 | Command | What it does |
 |---|---|
 | `npm test` | All tests against the scripted model server. About ten seconds. Run it after every change. |
+| `npm run build` | Makes the npm package in `build/`: the sources compiled to JavaScript at the same paths, plus docs and examples. Node runs TypeScript directly in a checkout but not inside `node_modules`, so only the package is compiled. Code that names one of pine's own module files at run time uses `EXT` from `src/config.ts` (".ts" or ".js"). |
+| `npm run release` | Tests, build, `npm publish ./build`. The checkout's `package.json` is marked private so that the sources are never published uncompiled. |
 | `npm run check` | Type check (`tsc --noEmit`). |
 | `npm run test:live` | End-to-end through `claude -p`, plus the real browser. Slow, uses a Claude plan and the network. Run it when you change prompts, tool descriptions, `src/dev/claude-model.ts` or `mcp/browser.ts`. |
 | `npm run baseline` | The 59 pi SDK checks in `baseline/`. Run it after upgrading pi. |

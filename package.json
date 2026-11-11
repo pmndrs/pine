@@ -1,5 +1,5 @@
 {
-  "name": "pine",
+  "name": "@pmndrs/pine",
   "version": "0.1.0",
   "description": "PI neural engine: an event-driven multi-agent daemon built on the pi coding agent SDK",
   "private": true,
@@ -24,7 +24,9 @@
     "check": "tsc --noEmit",
     "test": "node --test --test-force-exit 'test/*.test.ts'",
     "test:live": "PINE_LIVE=1 node --test --test-force-exit test/live.test.ts test/browser.test.ts",
-    "baseline": "sh baseline/run-all.sh"
+    "baseline": "sh baseline/run-all.sh",
+    "build": "node scripts/build.mjs",
+    "release": "npm test && node scripts/build.mjs && npm publish ./build"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^1.5.1",

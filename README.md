@@ -15,13 +15,17 @@ Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [
 
 <p align="center">
   <img src="docs/images/meme.png" width="49%" alt="pine searches the web, downloads a picture and shows it in the terminal">
-  <img src="docs/images/flipper.png" width="49%" alt="pine drives a Flipper Zero through an MCP server">
+  <img src="docs/images/drop.png" width="49%" alt="A picture dropped into the terminal, shown as a thumbnail, and the agent's answer about it">
 </p>
 <p align="center">
   <img src="docs/images/subscribe.png" width="49%" alt="Asked to watch a folder, the agent sets up an event source and subscribes to it">
   <img src="docs/images/wake.png" width="49%" alt="A file changes, the agent wakes up and shows the git diff">
 </p>
-<p align="center"><sub>Pictures in the terminal · MCP tools · subscribing to a folder by asking · waking on a change with the diff</sub></p>
+<p align="center">
+  <img src="docs/images/tabs.png" width="49%" alt="Tabs for several agents and conversations, with the list of conversations: pinned ones stay, the others clean themselves up">
+  <img src="docs/images/flipper.png" width="49%" alt="pine drives a Flipper Zero through an MCP server">
+</p>
+<p align="center"><sub>Pictures from the web · drag and drop · subscribing to a folder by asking · waking on a change with the diff · tabs, agents and conversations · MCP tools</sub></p>
 
 ```
  Telegram ─┐                                   ┌─ rule: set state, publish
@@ -37,14 +41,18 @@ Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [
 
 Requires Node 24 or newer and macOS (for the sandbox).
 
-Sets everything up: dependencies, the browser the web tools drive, and your user folder (`~/.pine`).
+```bash
+npm install -g @pmndrs/pine
+```
+
+Sets everything up: the browser the web tools drive, and your user folder (`~/.pine`).
 
 ```bash
-bin/pine init
+pine init
 ```
 
 ```bash
-bin/pine
+pine
 ```
 
 That is a home in `~/.pine` with one agent, `main`, and the terminal UI talking to it. Out of
@@ -52,12 +60,12 @@ the box the model is Claude through `claude -p`, so Claude Code has to be instal
 in. To use something else, sign in and switch with `/model` in the UI:
 
 ```bash
-bin/pine login opencode-go
+pine login opencode-go
 ```
 
 `pine login anthropic` and `pine login openai-codex` use a Claude or ChatGPT subscription; a
 local llama-server goes into `~/.pine/models.json`. To run pine without the UI, as a service:
-`bin/pine start`. See [operations.md](docs/references/operations.md) and
+`pine start`. See [operations.md](docs/references/operations.md) and
 [tui.md](docs/references/tui.md).
 
 ## Documentation

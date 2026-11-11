@@ -10,20 +10,22 @@
 ## Install
 
 ```bash
-git clone <your pine repository> ~/dev/pine
+npm install -g @pmndrs/pine
+```
+
+That puts the `pine` command on your PATH. The package holds pine compiled to JavaScript,
+because Node does not run TypeScript from inside `node_modules`.
+
+To work on pine itself, use a checkout instead. `bin/pine` runs the sources as they are and
+installs the dependencies the first time; `npm link` puts that copy on your PATH:
+
+```bash
+git clone https://github.com/pmndrs/pine ~/dev/pine
 ```
 
 ```bash
-cd ~/dev/pine && npm install
+~/dev/pine/bin/pine init
 ```
-
-To have `pine` on your PATH:
-
-```bash
-npm link
-```
-
-Otherwise use `bin/pine` from the checkout.
 
 ## First start
 

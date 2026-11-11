@@ -282,6 +282,12 @@ export class ConfigError extends Error {
 
 /** The pine checkout: bundled MCP servers and plugins live here. */
 export const PINE_ROOT = path.resolve(import.meta.dirname, "..");
+/**
+ * How pine's own module files end: ".ts" in a checkout, where Node runs the sources as they are,
+ * ".js" in the published package, which holds them compiled (Node does not run TypeScript from
+ * inside node_modules). Used wherever pine names one of its own files at run time.
+ */
+export const EXT = import.meta.filename.endsWith(".ts") ? ".ts" : ".js";
 
 export const defaultHome = () => path.resolve(expandHome(process.env.PINE_HOME ?? "~/.pine"));
 
@@ -581,9 +587,9 @@ export function effectiveMcp(cfg: PineConfig, agent: AgentConfig, session?: stri
 }
 
 const BUNDLED: Record<string, { file: string; taints: boolean }> = {
-	web: { file: "mcp/web.ts", taints: true },
-	browser: { file: "mcp/browser.ts", taints: true },
-	commands: { file: "mcp/commands.ts", taints: false },
+	web: { file: `mcp/web${EXT}`, taints: true },
+	browser: { file: `mcp/browser${EXT}`, taints: true },
+	commands: { file: `mcp/commands${EXT}`, taints: false },
 };
 
 /** Turn a pine MCP entry into what pi's registerMcpServer() accepts. */

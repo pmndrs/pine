@@ -1,15 +1,10 @@
 #!/bin/sh
-# Resolves symlinks so "npm link" and a symlink in ~/bin both work.
+# For a checkout: bin/pine works without installing anything. Resolves symlinks so that a link in
+# ~/bin works too. (An installed package starts bin/pine.js directly.)
 SELF="$0"
 while [ -L "$SELF" ]; do
   LINK="$(readlink "$SELF")"
   case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
 done
-ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 command -v node >/dev/null 2>&1 || { echo "pine needs Node 24 or newer: https://nodejs.org" >&2; exit 1; }
-# A fresh checkout: fetch what pine is built on, once, so that the first command just works.
-if [ ! -d "$ROOT/node_modules/@earendil-works/pi-coding-agent" ]; then
-  echo "pine: installing its dependencies (once) ..." >&2
-  (cd "$ROOT" && npm install --no-audit --no-fund) >&2 || { echo "pine: npm install failed; run it in $ROOT to see why" >&2; exit 1; }
-fi
-exec node "$ROOT/src/cli.ts" "$@"
+exec node "$(cd "$(dirname "$SELF")" && pwd)/pine.js" "$@"

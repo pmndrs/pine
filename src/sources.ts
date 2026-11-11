@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { loadConfig, type PineConfig, rawSubscriptions, type RouteConfig, type SourceConfig, sourceFor, SOURCE_TYPES, type SubscriptionConfig, subscriptionFrom } from "./config.ts";
+import { EXT, loadConfig, type PineConfig, rawSubscriptions, type RouteConfig, type SourceConfig, sourceFor, SOURCE_TYPES, type SubscriptionConfig, subscriptionFrom } from "./config.ts";
 import crypto from "node:crypto";
 import os from "node:os";
 import { Value } from "typebox/value";
@@ -147,7 +147,7 @@ export class SourceHost {
 
 	/** Read what each source type says about itself. A type whose module does not load is left out, with a line in the log. */
 	private async loadTypes(): Promise<void> {
-		const files: Record<string, string> = { ...Object.fromEntries(SOURCE_TYPES.map((t) => [t, path.join(import.meta.dirname, "sources", `${t}.ts`)])), ...this.cfg.sourceTypes };
+		const files: Record<string, string> = { ...Object.fromEntries(SOURCE_TYPES.map((t) => [t, path.join(import.meta.dirname, "sources", `${t}${EXT}`)])), ...this.cfg.sourceTypes };
 		for (const [name, file] of Object.entries(files)) {
 			try {
 				const mod: any = await import(pathToFileURL(file).href);
@@ -285,7 +285,7 @@ export class SourceHost {
 	}
 
 	private async launch(key: string, name: string, source: SourceConfig): Promise<void> {
-		const known = source.type ? (this.types.get(source.type)?.file ?? (SOURCE_TYPES.includes(source.type) ? path.join(import.meta.dirname, "sources", `${source.type}.ts`) : this.cfg.sourceTypes[source.type])) : undefined;
+		const known = source.type ? (this.types.get(source.type)?.file ?? (SOURCE_TYPES.includes(source.type) ? path.join(import.meta.dirname, "sources", `${source.type}${EXT}`) : this.cfg.sourceTypes[source.type])) : undefined;
 		if (source.type && !known) throw new Error(`there is no source type "${source.type}"`);
 		const file = known ?? resolvePath(String(source.use), source.base);
 		const mod: any = await import(pathToFileURL(file).href);

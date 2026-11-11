@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build",
+    "rootDir": ".",
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "sourceMap": false,
+    "allowJs": false
+  },
+  "include": ["src", "mcp"]
+}

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentManager, PluginTool, SessionContributions, SubmitOptions } from "./agents.ts";
-import type { AgentConfig, PineConfig, PluginRef } from "./config.ts";
+import { type AgentConfig, EXT, type PineConfig, type PluginRef } from "./config.ts";
 import { type Approvals, realish, type Redactor } from "./security.ts";
 import type { Bus, Kv, State } from "./store.ts";
 import type { PineEvent, PublishOptions, Task, TaskResult } from "./types.ts";
@@ -94,7 +94,7 @@ export class PluginHost implements SessionContributions {
 		for (const { ref, scope } of refs) {
 			const builtin = ref.use.startsWith("pine:") ? ref.use.slice(5) : undefined;
 			if (builtin && !BUILTIN.includes(builtin)) throw new Error(`unknown built-in plugin "${ref.use}" (have: ${BUILTIN.map((b) => `pine:${b}`).join(", ")})`);
-			const file = builtin ? path.join(import.meta.dirname, "plugins", `${builtin}.ts`) : resolvePath(ref.use, ref.base);
+			const file = builtin ? path.join(import.meta.dirname, "plugins", `${builtin}${EXT}`) : resolvePath(ref.use, ref.base);
 			const name = builtin ?? path.basename(file).replace(/\.[cm]?[jt]s$/, "");
 			let mod: any;
 			try {

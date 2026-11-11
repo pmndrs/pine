@@ -93,11 +93,15 @@ hand work to the agents listed in your prompt, and write shared state under your
 ## The shortest working setup
 
 ```bash
-bin/pine init
+npm install -g @pmndrs/pine
 ```
 
 ```bash
-bin/pine
+pine init
+```
+
+```bash
+pine
 ```
 
 One agent, `main`, with web search and a browser, and the terminal UI to talk to it. Everything
@@ -127,11 +131,11 @@ exist). Or ask the main agent to create one: it calls `create_agent`, and no res
 ```
 
 ```bash
-bin/pine check
+pine check
 ```
 
 ```bash
-bin/pine start
+pine start
 ```
 
 Now a Telegram message to the bot reaches `main`; `main` sees `gonzo` in its list of agents and
