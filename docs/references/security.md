@@ -25,6 +25,8 @@ refusing; it limits what a run can do, by where its input came from.
   that wrote to it, and that code has to be typed into pine, which names the account. So a
   stranger cannot pair (they do not see your screen), you cannot pair a stranger by a slip of
   the finger (you do not have their code), and an account you deny is not asked about again.
+  Once your account is paired, anybody else who writes to the bot gets no answer at all and
+  causes no question.
 - **Control API:** loopback by default; every request needs a bearer token (generated into
   `data/http-token`, mode 600, which the CLI reads). Requests carrying an `Origin` header or an
   unexpected `Host` are refused, so a web page in your browser cannot use it, with or without

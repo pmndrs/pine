@@ -75,10 +75,11 @@ Its system prompt is put together from, in this order:
    then `USER.md` from pine's home, then `MEMORY.md`. See "The files an agent keeps itself".
    After them the instruction files of a folder opened for the conversation, and any files in
    `context`.
-4. Its skills: one line each; the agent reads a skill's file when it needs it. One skill is
-   always there: `pine`, this manual. An agent asked for another model or a route reads it
-   and tells you what to put into which file; an event source, a schedule, an MCP server or a
-   skill it sets up itself by tool call ([setup.md](setup.md)).
+4. Its skills: one line each; the agent reads a skill's file when it needs it. This manual is
+   not among them: the agent searches it with its `manual` tool (see below). An agent asked
+   for another model or a route looks it up and tells you what to put into which file; an
+   event source, a schedule, an MCP server or a skill it sets up itself by tool call
+   ([setup.md](setup.md)).
 5. A `<pine>` block: who the agent is, which agents it can delegate to, which MCP servers it
    has. It only changes when the configuration does.
 
@@ -100,8 +101,29 @@ rewritten on the way in.
 The bottom bar of the terminal UI shows `cache N%` after an answer: the share of the input the
 model server took from its cache. In a running conversation it should be above 90%.
 
-The details of how pine works are not in the prompt; they are in the manual, which the agent
-reads when a question calls for it. That keeps the prompt short for small models.
+The details of how pine works are not in the prompt; they are in this manual, which the agent
+searches when a question calls for it. That keeps the prompt short for small models.
+
+### The manual tool
+
+Every agent has a `manual` tool. It holds the whole of this manual, cut into small parts: one
+for each heading, and one for each row of a table that describes a named thing (a
+configuration key, a tool, a command, an option).
+
+| Call | Answers with |
+|---|---|
+| `manual` `search: "<a few words>"` | The parts that fit best, each with its id and the sentence that matched. Several queries can be given at once, one thing each. |
+| `manual` `read: "<id of a part>"` | That part in full; several ids at once. A long part comes in pages (the id with `@2`, `@3`). |
+| `manual` with neither | The list of the manual's parts. |
+
+A search is by words, not by exact wording. Words an agent or you would use and the manual
+does not ("cron job", "reminder", "permission", "watcher") find the manual's own words through
+a list of synonyms. A source type that was registered in this installation is found as well,
+with its options. When nothing matches, the answer says so and suggests other words; it never
+says that pine cannot do something.
+
+`pine manual <words>` is the same search in a shell, and `pine manual --read <id>` reads a
+part: a quick way to see what an agent would find.
 
 Nothing from your own home folder leaks in: pi would normally also pick up `~/.agents/skills`
 and instruction files in the folders above the workspace; pine filters those out. Edits to the
@@ -189,7 +211,8 @@ agent. "Contract law; knows the case files in its workspace" works;
 
 ## Sub-agents
 
-`subagent(tasks: string[])` runs up to `subagents.maxParallel` copies of the same agent at once.
+`subagent(tasks: string[])` runs up to `subagents.maxParallel` copies of the same agent at once
+(4 unless the agent's `agent.json` says otherwise).
 Each copy has the agent's workspace, instructions and tools but an empty conversation, cannot
 delegate or spawn further, and returns only its final answer. Use it for searches and checks
 that would otherwise fill the context:

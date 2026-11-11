@@ -9,6 +9,7 @@ import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { addServer, removeServer, validateServer } from "./mcp-config.ts";
 import { isInside, realish } from "./security.ts";
+import { type Part, pineManual, showRead, showSearch } from "./manual.ts";
 import { checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions } from "./sources.ts";
 import { localTime } from "./timers.ts";
@@ -704,6 +705,30 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 		}
 	}
 
+	// pine's own manual, searched instead of carried in every prompt. Not in a run that outside
+	// content started: such a run gets only what its profile registers, and has no setup to look up.
+	if (live.trust === "owner") tools.push(
+		defineTool({
+			name: "manual",
+			label: "Manual",
+			description: `Look something up in pine's own manual: how pine works and how it is set up. It covers your tools and what each takes, event sources and the options of every type, schedules, MCP servers, skills, agents and sub-agents, the configuration files and every key in them, modes, approvals and what is asked when, the sandbox and what an agent can reach, the terminal UI and its commands, and the pine command. Use it before you answer a question about pine, before you tell your owner what to change or say that something is not possible, and when one of your tools refuses and you want to know why. "search": one or several short queries in plain words, one thing each ("telegram pairing", "who may add a source for all agents", "bashTimeoutSec"); the answer names the best parts with the line that matched. "read": the ids of parts to get in full. Search first, then read the one or two parts that fit. With neither, the list of the manual's parts.`,
+			parameters: Type.Object({
+				search: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())], { description: "What to look for: one query, or several (one thing each)" })),
+				read: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())], { description: 'Ids of parts to read in full, as a search lists them, e.g. "sources#telegram"' })),
+			}),
+			execute: async (_id, p) => {
+				const list = (v: unknown) => (Array.isArray(v) ? v : v === undefined || v === "" ? [] : [v]).map(String).map((x) => x.trim()).filter(Boolean);
+				// Beyond the files: the source types this installation registered itself.
+				const own = new Set(manager.sources?.ownTypes().map((t) => t.name));
+				const extra: Part[] = (manager.sources?.typeList() ?? []).filter((t) => own.has(t.name)).map((t) => ({ id: `source-type#${t.name}`, kind: "row", file: "this pine", path: ["Source types registered here", t.name], title: t.name, text: `\`${t.name}\`: ${t.summary}\nOptions: ${describeOptions(t.options)}\nSet one up with add_source (type: "${t.name}").`, children: [], boost: 2, note: "registered in this pine" }));
+				const manual = pineManual(path.join(PINE_ROOT, "docs"), extra);
+				const search = list(p.search).slice(0, 6);
+				const read = list(p.read);
+				if (!search.length && !read.length) return ok(`The parts of pine's manual. Search it, or read a part by its id.\n${manual.contents()}`);
+				return ok([...(search.length ? [showSearch(manual, search)] : []), ...(read.length ? [showRead(manual, read)] : [])].join("\n\n"));
+			},
+		}),
+	);
 	tools.push(
 		defineTool({
 			name: "state_get",

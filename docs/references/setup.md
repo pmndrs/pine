@@ -33,8 +33,8 @@ is about what agents can do.
 | A new type of event source (a program) | | | **only the main agent** (`add_source_type`), you confirm every time |
 
 The main agent is the one `pine.json` names with `"main"`; without that entry it is the agent
-called `main`, or else the first one. The other agents do not have `create_agent`, and they
-or `add_source_type`, and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
+called `main`, or else the first one. The other agents do not have `create_agent` or
+`add_source_type`, and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
 an agent you ask for something that is not its to do sends you to the main agent instead of
 trying.
 
@@ -45,6 +45,11 @@ trying.
 | **conversation** (`local`, the default) | The conversation it was asked for in, and the sub-agents that conversation starts. Other conversations of the same agent do not see it. | Until that conversation is removed (by you, or by itself when unused; see [tui.md](tui.md)). Subscriptions also end when its tab is closed or it is reset. |
 | **agent** | Every conversation of that agent. A subscription wakes its main conversation. | Until it is removed. |
 | **global** | Every agent. | Until the main agent or you remove it. |
+
+When a conversation is removed, everything that was set up for it alone is removed with it:
+its event sources and subscriptions, its schedules, its MCP servers and its skills. When it is
+renamed, all of that follows it to the new name. What was set up for the agent or for all
+agents is not touched by either.
 
 "Connect this server", "watch that folder", "subscribe to it", "remind me at five", "make a
 skill for this", said in any conversation, means that conversation. An agent passes a wider scope only when you say so in so many words ("for

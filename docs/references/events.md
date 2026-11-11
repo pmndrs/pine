@@ -157,8 +157,10 @@ and it has the same three scopes ([setup.md](setup.md)).
 
 > In twenty minutes, look whether the build is through.
 
-The agent calls `add_schedule` with a name, the time and the task in its own words. When it is
-time, it is woken with that task, also when you are not there, and does it. What it starts
+The agent calls its `add_schedule` tool with a name, the time and the task in its own words:
+`cron` for set times ("every weekday at six in the evening" is `"0 18 * * 1-5"`), `every` for an
+interval, `at` or `in` for a reminder that happens once. When it is time, it is woken with that
+task, also when you are not there, and does it. What it starts
 counts as your wish: the agent has its usual tools, and nothing is marked as outside content.
 
 | Said | Who is woken | You are asked |
@@ -199,11 +201,11 @@ agent; one without a task only publishes an event.
 | `name` | Required. Lowercase letters, digits, `-` and `_`. The event is published on `timer/<name>` (`timer/<name>@<agent>` for an agent's own) unless `topic` says otherwise. |
 | `cron` | Five fields, local time: minute, hour, day of month, month, day of week (0 or 7 is Sunday). Lists, ranges and steps work: `*/15 8-18 * * 1-5`. |
 | `every` | A fixed interval instead. |
-| `at` | Once, at this local time. The entry is removed when it has fired. |
+| `at` | Once, at this local time. The entry is removed when it has fired. If pine was not running at that time, it fires when pine starts again, and the agent is told that it comes late. |
 | `task` | What the agent is to do. Required in an `agent.json`. |
 | `session` | In an `agent.json`: the conversation that is woken. Default: the main one. |
 | `payload` | Fields added to the event's payload (`name`, `scheduled` are always there). |
-| `catchUp` | Fire once at startup if a cron time passed while the daemon was down. Default: `true` with a task, `false` without. |
+| `catchUp` | For `cron`: fire once at startup if a time passed while the daemon was down, marked as late. Default: `true` with a task, `false` without. (`at` always catches up; `every` never does.) |
 
 ### Schedules and routes
 

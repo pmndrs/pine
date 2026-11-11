@@ -25,16 +25,19 @@ Three things to know before anything else:
 
 ## If you are an agent running inside pine
 
-You can read this manual. pine's configuration lives in its home folder (`~/.pine` unless your
-owner chose another), which is closed to you on purpose: you never write those files. Some things
-you set up by calling a tool, described below and in [references/setup.md](references/setup.md):
-remote MCP servers, event sources and subscriptions, for the conversation you are in or for
-yourself as an agent. Creating agents and anything for all agents is the main agent's job; if
-you are not the main agent, send your owner to it. For everything else your owner asks about (a
-skill, a schedule, a route, your built-in tools or model):
+You search this manual with your `manual` tool: a search names the parts that fit with the
+line that matched, and you then read the one or two parts you need. Search before you answer a
+question about pine or say that something is not possible.
 
-1. Read the reference for it from the table below. The files are in `references/` next to this
-   one; use their absolute paths.
+pine's configuration lives in its home folder (`~/.pine` unless your owner chose another),
+which is closed to you on purpose: you never write those files. Four things you set up by
+calling a tool, for the conversation you are in or for yourself as an agent
+([references/setup.md](references/setup.md)): event sources and subscriptions, schedules,
+remote MCP servers, and skills. Creating agents, anything for all agents and new types of
+event source are the main agent's job; if you are not the main agent, send your owner to it.
+For everything else your owner asks about (a route, your built-in tools or model, the sandbox):
+
+1. Search the manual for it and read the part.
 2. Tell your owner what to put where: usually a few lines of JSON in `pine.json` (for everyone)
    or `agents/<your id>/agent.json` (for you), then `pine check`, then a restart of the daemon
    (quitting and reopening the terminal UI restarts an embedded one).

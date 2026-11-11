@@ -37,6 +37,7 @@ src/
   security.ts       sandbox profile, path checks, approvals, redaction, configuration audit
   sandbox-fs.ts     read/write/edit/grep/find/ls executed through sandbox-exec
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
+  manual.ts         pine's manual made searchable: docs/ cut into parts, BM25 over them, synonyms; the `manual` tool and `pine manual`
   skills.ts         skills by tool call: where one lies says whom it is for (all agents, an agent, a conversation)
   source-types.ts   what a source type module declares: summary, options schema, plan()
   sources/          the built-in source types: folder, mqtt, webhook, ftp, telegram, http, command
@@ -62,6 +63,20 @@ test/               node:test files; support/harness.ts builds a temp home and a
 baseline/           pi SDK behaviour checks and their results; the mock model server lives here
 docs/               SKILL.md index and references/
 ```
+
+## What agents know about pine
+
+An agent is told little about pine in its prompt and looks the rest up: its `manual` tool
+searches `docs/` (`src/manual.ts`), cut into a part per heading and a part per table row that
+describes a named thing. For a change this means:
+
+- What an agent has to know to use a feature goes into `docs/references/`. What is not there,
+  agents do not know. Do not put it into the base prompt instead.
+- A thing with a name (a key, a tool, a command, an option) gets a row in a table whose first
+  cell is that name in backticks. Such a row is found by the name alone.
+- Words people use for it that the manual does not use go into `SYNONYMS` in `src/manual.ts`.
+- `test/manual.test.ts` holds questions and the part that has to answer each. Add one for a new
+  feature, in the words of somebody who does not know what it is called.
 
 ## Rules that keep it safe
 
@@ -168,7 +183,7 @@ upgrade pi (`npm run baseline`, then `npm test`).
 | `prompt()` resolves on model failure | `execute()` inspects the last assistant message |
 | Skills and `AGENTS.md` are discovered in the user's home and above the workspace | `skillsOverride` / `agentsFilesOverride` keep only configured locations |
 | `tools: [...]` is a strict allow-list that hides extension tools | `excludeTools` for built-ins instead |
-| The default system prompt describes a coding assistant inside pi and points at pi's manuals | `systemPromptOverride` supplies `BASE_PROMPT`; `docs/` is offered to every agent as the `pine` skill |
+| The default system prompt describes a coding assistant inside pi and points at pi's manuals | `systemPromptOverride` supplies `BASE_PROMPT`; `docs/` is searched by every agent with the `manual` tool |
 
 ## Releases
 

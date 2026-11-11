@@ -42,12 +42,9 @@ const contextOf = (session: any): ContextUse | undefined => {
 
 /** Tools that only look. In manual mode everything else waits for approval. */
 // The last ones change pine's setup and ask the owner themselves, each where it matters.
-const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "schedules", "add_schedule", "remove_schedule", "create_agent"];
+const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "schedules", "add_schedule", "remove_schedule", "manual", "create_agent"];
 /** From this many characters on, an agent is reminded to tidy its MEMORY.md. */
 const MEMORY_LONG = 6000;
-
-/** pine's manual. It is a skill (docs/SKILL.md), so every agent can look up how pine is set up. */
-const PINE_DOCS = path.join(PINE_ROOT, "docs");
 
 /** What every agent is told first. Short and concrete: it has to work for a small local model. */
 /** The fixed part of every agent's instructions. It says who may change what, which depends on whether this is the main agent. */
@@ -78,7 +75,8 @@ const BASE_PROMPT = `You are an agent in pine, a system that runs several AI age
 
 <limits>
 - Your shell and file tools work inside your workspace and a private home folder. The rest of the computer, including pine's own configuration, is closed to you. When a tool call is refused, do not look for a way around it: say what you could not do.
-- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove remote MCP servers (add_mcp_server, remove_mcp_server), write down how something is done as a skill (add_skill, remove_skill), and do things at set times (add_schedule, remove_schedule); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. {{ROLE}} Everything else (your built-in tools, your model) your owner changes in pine's home folder, followed by a restart: read the "pine" skill and explain the steps for them to take.
+- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove remote MCP servers (add_mcp_server, remove_mcp_server), write down how something is done as a skill (add_skill, remove_skill), and do things at set times (add_schedule, remove_schedule); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. {{ROLE}} Everything else (your built-in tools, your model) your owner changes in pine's home folder, followed by a restart: look it up in pine's manual and explain the steps for them to take.
+- How pine itself works is in its manual, which you search with the manual tool: your tools and what they take, event sources and their options, schedules, the configuration files and every key in them, modes and approvals, the sandbox, the terminal UI, the pine command. Search it before you answer a question about pine, before you say that pine cannot do something, and when one of your tools refuses and you want to know why. Do not answer such questions from memory.
 - Passwords, tokens and keys are not yours to handle. Never ask your owner to write one into the conversation, and do not look for one in files: a tool that needs one gets it from your owner through pine's own dialog, or by its name in pine's .env file.
 - Some actions need your owner's approval. If one is not approved, do not retry it: report what you wanted to do and why.
 </limits>
@@ -1073,7 +1071,7 @@ export class AgentManager {
 		const moreSkills = skillDirs(cfg, agent, conversation);
 		// What another conversation of this agent set up for itself lies in the agent's folder too, and is not this one's.
 		const others = realish(conversationsDir(agent));
-		const owned = [realish(agent.dir), realish(PINE_DOCS), ...cfg.skills.map(realish), ...agent.skills.map(realish), ...moreSkills.map(realish), ...(agent.trustWorkspace ? [roots.workspace] : [])];
+		const owned = [realish(agent.dir), ...cfg.skills.map(realish), ...agent.skills.map(realish), ...moreSkills.map(realish), ...(agent.trustWorkspace ? [roots.workspace] : [])];
 		const isOwned = (file: string) => owned.some((r) => isInside(r, file)) && (!isInside(others, file) || moreSkills.some((d) => isInside(realish(d), file)));
 		const createRuntime = async (o: any) => {
 			const settingsManager = SettingsManager.create(o.cwd, agent.dir, { projectTrusted: agent.trustWorkspace });
@@ -1090,7 +1088,7 @@ export class AgentManager {
 					systemPromptOverride: (base: string | undefined) => base ?? basePrompt(this.cfg, agent),
 					extensionFactories,
 					additionalExtensionPaths: [...cfg.extensions, ...agent.extensions],
-					additionalSkillPaths: [PINE_DOCS, ...cfg.skills, ...agent.skills, ...moreSkills],
+					additionalSkillPaths: [...cfg.skills, ...agent.skills, ...moreSkills],
 					// pi also discovers skills and instruction files in the user's home and in the folders
 					// above the workspace. An agent gets only what its own configuration names.
 					skillsOverride: (base: any) => ({ ...base, skills: base.skills.filter((sk: any) => isOwned(realish(sk.filePath))) }),

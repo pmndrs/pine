@@ -33,8 +33,8 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 	const invoices = { name: "invoices", description: "File an invoice: where it goes and what to note. Use when a PDF invoice arrives.", instructions: "1. Read the total.\n2. Move it to `books/2026/`." };
 	const dirs = { local: path.join(h.home, "agents", "books", "conversations", "april", "skills"), agent: path.join(h.home, "agents", "books", "skills"), global: path.join(h.home, "skills") };
 
-	// What every agent starts with: pine's manual, and what the owner configured by hand.
-	assert.deepEqual(await look("books"), ["pine", "tone"]);
+	// What every agent starts with: what the owner configured by hand. (pine's own manual is not a skill: it is searched with a tool.)
+	assert.deepEqual(await look("books"), ["tone"]);
 	assert.ok(h.toolsOffered(h.mock.state.requests.at(-1)).includes("add_skill") && h.toolsOffered(h.mock.state.requests.at(-1)).includes("remove_skill"));
 
 	// In a conversation: just that conversation, without a question, and written by pine where the agent can read but not write.
@@ -42,11 +42,11 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 	assert.match(h.toolResults().at(-1)!, new RegExp(`^Added the skill "invoices" for this conversation; it is removed when this conversation is removed\\. It is at ${dirs.local.replace(/\./g, "\\.")}/invoices/SKILL\\.md\\. From your next message on`));
 	assert.equal(asked.length, 0);
 	assert.equal(fs.readFileSync(path.join(dirs.local, "invoices", "SKILL.md"), "utf8"), `---\nname: invoices\ndescription: "File an invoice: where it goes and what to note. Use when a PDF invoice arrives."\n---\n\n1. Read the total.\n2. Move it to \`books/2026/\`.\n`);
-	assert.deepEqual(await look("books", "april"), ["invoices", "pine", "tone"]);
+	assert.deepEqual(await look("books", "april"), ["invoices", "tone"]);
 	assert.match(h.system(h.mock.state.requests.at(-1)), /<description>File an invoice: where it goes and what to note\. Use when a PDF invoice arrives\.<\/description>\s*<location>[^<]*conversations\/april\/skills\/invoices\/SKILL\.md<\/location>/);
-	assert.deepEqual(await look("books", "may"), ["pine", "tone"], "another conversation of the same agent does not have it");
-	assert.deepEqual(await look("books"), ["pine", "tone"]);
-	assert.deepEqual(await look("main"), ["pine", "tone"]);
+	assert.deepEqual(await look("books", "may"), ["tone"], "another conversation of the same agent does not have it");
+	assert.deepEqual(await look("books"), ["tone"]);
+	assert.deepEqual(await look("main"), ["tone"]);
 
 	// What is said before anything is asked or written.
 	await run("books", "april", [
@@ -74,8 +74,8 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 	await run("books", undefined, [call("add_skill", { ...invoices, name: "ledger" })]);
 	assert.match(h.toolResults().at(-1)!, /^Added the skill "ledger" for you, in all your conversations\./);
 	assert.equal(asked.length, before, "no question in the agent's own main conversation");
-	assert.deepEqual(await look("books", "may"), ["ledger", "pine", "tone"]);
-	assert.deepEqual(await look("main"), ["pine", "tone"], "an agent's skill is that agent's");
+	assert.deepEqual(await look("books", "may"), ["ledger", "tone"]);
+	assert.deepEqual(await look("main"), ["tone"], "an agent's skill is that agent's");
 	// The same name again in the same place replaces it; the same name somewhere else is refused.
 	await run("books", undefined, [call("add_skill", { ...invoices, name: "ledger", instructions: "Version two." }), call("add_skill", { ...invoices, name: "invoices" })]);
 	assert.match(h.toolResults().at(-2)!, /^Replaced the skill "ledger"/);
@@ -94,9 +94,9 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 	assert.match(asked.at(-1).summary, /^add the skill "letter" for ALL agents\nTypeset a letter as the owner likes it\.\nWith 2 files from kit\nInstructions:\nRun/);
 	assert.deepEqual(fs.readdirSync(path.join(dirs.global, "letter")).sort(), ["SKILL.md", "notes", "render.sh"]);
 	assert.ok(fs.readFileSync(path.join(dirs.global, "letter", "SKILL.md"), "utf8").startsWith("---\nname: letter\n"), "the SKILL.md is the one pine wrote, not a file of that name in the folder");
-	assert.deepEqual(await look("books", "may"), ["ledger", "letter", "pine", "tone"]);
-	assert.deepEqual(await look("books", "april"), ["invoices", "ledger", "letter", "pine", "tone"]);
-	assert.deepEqual(await look("main", "side"), ["letter", "pine", "tone"]);
+	assert.deepEqual(await look("books", "may"), ["ledger", "letter", "tone"]);
+	assert.deepEqual(await look("books", "april"), ["invoices", "ledger", "letter", "tone"]);
+	assert.deepEqual(await look("main", "side"), ["letter", "tone"]);
 	assert.equal(JSON.parse(fs.readFileSync(path.join(h.home, "pine.json"), "utf8")).skills.length, 1, "no configuration file is touched: the folder is the entry");
 	// What "pine skills" prints: every skill, whom it is for, and whether it is the owner's own.
 	assert.deepEqual(allSkills(h.pine.cfg).map((x) => [x.name, x.scope, x.agent ?? "", x.session ?? "", x.managed]), [["letter", "global", "", "", true], ["tone", "global", "", "", false], ["ledger", "agent", "books", "", true], ["invoices", "local", "books", "april", true]]);
@@ -117,7 +117,7 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 	assert.match(h.toolResults().at(-1)!, /Removed the skill "letter"/);
 	assert.equal(asked.at(-1).tool, "remove_skill");
 	assert.ok(!fs.existsSync(dirs.global), "what pine made for it is gone with it");
-	assert.deepEqual(await look("main", "side"), ["pine", "tone"]);
+	assert.deepEqual(await look("main", "side"), ["tone"]);
 
 	// A conversation's skills follow it when it is renamed and go when it is removed.
 	const quiet = asked.length;
@@ -127,8 +127,8 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 	assert.ok(!fs.existsSync(path.join(h.home, "agents", "books", "conversations")), "and leaves no empty folders behind");
 	await run("books", "june", [call("add_skill", { ...invoices, name: "receipts" })]);
 	await h.pine.agents.renameSession("books", "june", "july");
-	assert.deepEqual(await look("books", "july"), ["ledger", "pine", "receipts", "tone"]);
-	assert.deepEqual(await look("books", "june"), ["ledger", "pine", "tone"]);
+	assert.deepEqual(await look("books", "july"), ["ledger", "receipts", "tone"]);
+	assert.deepEqual(await look("books", "june"), ["ledger", "tone"]);
 	await h.pine.agents.removeSession("books", "july");
 	assert.ok(!fs.existsSync(path.join(h.home, "agents", "books", "conversations", "july")));
 	assert.ok(fs.existsSync(path.join(dirs.agent, "ledger", "SKILL.md")), "what is the agent's stays");

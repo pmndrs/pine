@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig } from "./config.ts";
 import { audit } from "./security.ts";
+import { pineManual, showRead, showSearch } from "./manual.ts";
 import { allSkills, listSkills } from "./skills.ts";
 import { whenText } from "./timers.ts";
 import { expandHome } from "./util.ts";
@@ -60,6 +61,7 @@ MCP servers
   pine mcp list                   configured servers, who gets them, and whether they connect
   pine skills                     every skill: whom it is for and where it lies
   pine schedules                  what is scheduled: for whom, when, and the task
+  pine manual <words>             search pine's manual, as the agents do; --read <id> shows a part in full
   pine mcp add <name> <https-url> [--agent id] [--taints] [--approve always|tainted] [--timeout seconds]
   pine mcp add <name> [--agent id] -- <command> [args...]
   pine mcp remove <name> [--agent id]
@@ -207,7 +209,7 @@ async function installBrowser(): Promise<number> {
 	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
 }
 
-const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "mcp", "mode", "reset", "schedules", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
+const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "manual", "mcp", "mode", "reset", "schedules", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
 
 /** Whether a first argument means a folder to open: something written as a path, or the name of a folder here that is not a command. */
 function folderArgument(word: string | undefined, cwd = process.cwd()): string | undefined {
@@ -237,6 +239,15 @@ async function main(): Promise<void> {
 	const out = (v: unknown) => console.log(typeof v === "string" ? v : JSON.stringify(v, null, 2));
 
 	if (cmd === "help" || flags.help || (!cmd && !process.stdout.isTTY)) return out(HELP);
+
+	if (cmd === "manual") {
+		// The same search the agents use, for you and for trying out what they would find.
+		const manual = pineManual(path.join(PINE_ROOT, "docs"));
+		if (typeof flags.read === "string") return out(showRead(manual, flags.read.split(",")));
+		if (!rest.length) return out(`The parts of pine's manual. Search it (pine manual telegram pairing), or read a part (pine manual --read sources#telegram).\n${manual.contents()}`);
+		return out(showSearch(manual, [rest.join(" ")]));
+	}
+
 
 	if (cmd === "init") {
 		const target = path.resolve(expandHome(rest[0] ?? home));
