@@ -135,7 +135,7 @@ open. `pine` then attaches to it. To have it start at login, see
 pine start
 ```
 
-Connect your subscriptions, orlocal llm servers. Switch with `/model` in the UI:
+Connect your subscriptions, or local llm servers. Switch with `/model` in the UI:
 
 ```bash
 pine login opencode-go
