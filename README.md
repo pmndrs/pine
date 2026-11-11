@@ -31,7 +31,7 @@ This is a small daemon that runs AI agents _reactively_. Some things it does ver
 - **Orchestrating agents**, sub-agents, ... well, yes it does that. In an intuitive way. A pinned tab is a persistent agent. Create an agent, open a tab, rename it, tell it its basic instructions (these go into AGENTS.md), connect it to event sources, for instance Telegram if you want to chat abroad, pin it, close the tab if you want (you find it back in the running sessions), you're done.
 
 > [!IMPORTANT]
-> Until now this is macos, linux and docker only, due to some TUI specifics and sandboxing. Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
+> Until now this is macos (linux and docker in testing) only, due to some TUI specifics and sandboxing. Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
 
 <br/>
 
