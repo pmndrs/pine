@@ -2,15 +2,26 @@
 
 This is a small daemon that runs several AI agents. A "harness". Yes, you've heard that before.
 
-I needed something that ...
+We needed something different:
 
-- Orchestrates agents, well, boring
-- That lets agents react to any external event: chat messages, FTP, webhooks, MQTT, a timer, etc, in a simple modular way. NO CONFIGS. Agents can subscribe to any installed event source and react accordingly. List available sources and unsubscribe.
-- That has no configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling agents what you want. MAIN has special administrative tool calls. No agent will touch or bypass into user config (your tokens), etc.
-- Has a CLI that does not suck. That feels like a desktop UI, with interactive tabs, buttons, scroll regions, etc. That is able to show images, videos, formats markdown, etc. That can drag and drop files and images (with thumbnails) - and yes in a shell.
-- Computer use, tool calls, internet, browsing and operating live website inbuilt.
+- Orchestrating agents, ... well, boring. Yes it does that.
+- Letting agents react to any external event: chat, FTP, webhooks, MQTT, timers, etc, in a simple modular way. Without configs. Agents can subscribe to any installed event source and react accordingly. List available sources and unsubscribe. Let Claude create event sources for you (it's a simple \*.ts service with a schema).
+- No configs that agents can mess up (OC, Hermes, looking at you). Only MAIN agent can create other agents. MAIN can create global MCPs, global event sources, etc. Other agents can only create these either for their local conversation or scope. You configure by telling agents what you want. MAIN has special administrative tool calls. No agent will touch or bypass into user config (your tokens), etc.
+- A CLI that doesn't suck. That feels like a desktop UI, with interactive tabs, buttons, scroll regions, etc. That is able to show images, videos, formats markdown, etc. That can drag and drop files and images (with thumbnails) - and yes in a shell.
+- Basics inbuilt: computer use, tool calls, internet, browsing and operating live websites
+- Doesn't do unintuitive. If it's running it's on. If it isn't it isn't.
 
 Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [pi coding agent](https://pi.dev) for basic turns, auto compact and hosted model providers.
+
+<p align="center">
+  <img src="docs/images/meme.png" width="49%" alt="pine searches the web, downloads a picture and shows it in the terminal">
+  <img src="docs/images/flipper.png" width="49%" alt="pine drives a Flipper Zero through an MCP server">
+</p>
+<p align="center">
+  <img src="docs/images/subscribe.png" width="49%" alt="Asked to watch a folder, the agent sets up an event source and subscribes to it">
+  <img src="docs/images/wake.png" width="49%" alt="A file changes, the agent wakes up and shows the git diff">
+</p>
+<p align="center"><sub>Pictures in the terminal · MCP tools · subscribing to a folder by asking · waking on a change with the diff</sub></p>
 
 ```
  Telegram ─┐                                   ┌─ rule: set state, publish
@@ -18,7 +29,7 @@ Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [
  files ────┼─► event log ─► routes ────────────┼─ one model call
  webhooks ─┤   (SQLite)     filter, debounce   │
  schedules ┘       ▲                           └─ agent turn (pi session)
-                   │                                │  delegate ─► other agents
+       ...         │                                │  delegate ─► other agents
                    └──── answers, agent events ◄────┘  subagent ─► parallel copies
 ```
 
@@ -30,9 +41,13 @@ Requires Node 24 or newer and macOS (for the sandbox).
 npm install
 ```
 
+Installs playwright.
+
 ```bash
 bin/pine browser-install
 ```
+
+Initializes your user folder (`~/.pine`)
 
 ```bash
 bin/pine init
