@@ -8,13 +8,13 @@
 This is a small daemon that runs several AI agents. Yes, you've heard that before.
 
 <div align="center">
-```
+<code>
 + OpenCode, with a fresh GUI
 + OpenClaw automation, without configs or the weight
 + PI coding agent for basic turns, auto compact and model providers
 -------------------------------------------------------------------
 = PINE
-```
+</code>
 </div>
 
 Some things it does very different:
