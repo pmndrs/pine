@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-This is a small daemon that runs several AI agents. A "harness". Yes, you've heard that before.
+This is a small daemon that runs several AI agents. Yes, you've heard that before.
 
 We needed something different:
 
