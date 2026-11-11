@@ -1,28 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3480 800" width="3480" height="800" fill="none" role="img" aria-label="PINE">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2880 800" width="2880" height="800" fill="none" role="img" aria-label="PINE">
 <rect x="280" y="560" width="240" height="240" fill="black"/>
 <rect x="280" y="280" width="240" height="240" fill="black"/>
 <rect x="0" y="280" width="240" height="240" fill="black"/>
 <path fill-rule="evenodd" clip-rule="evenodd" transform="translate(0 0)" d="M560 0H280V240H560V520H800V0H560Z" fill="black"/>
-<rect x="1080" y="0" width="240" height="240" fill="black"/>
-<rect x="1080" y="280" width="240" height="240" fill="black"/>
-<rect x="1080" y="560" width="240" height="240" fill="black"/>
-<rect x="1600" y="0" width="240" height="240" fill="black"/>
-<rect x="1600" y="280" width="240" height="240" fill="black"/>
-<rect x="1600" y="560" width="240" height="240" fill="black"/>
-<rect x="2160" y="560" width="240" height="240" fill="black"/>
-<rect x="1880" y="0" width="240" height="240" fill="black"/>
-<rect x="2120" y="0" width="40" height="240" fill="black"/>
-<rect x="2160" y="0" width="240" height="240" fill="black"/>
-<rect x="2160" y="240" width="240" height="40" fill="black"/>
-<rect x="2160" y="280" width="240" height="240" fill="black"/>
-<rect x="3240" y="0" width="240" height="240" fill="black"/>
-<rect x="2960" y="280" width="240" height="240" fill="black"/>
-<rect x="2680" y="560" width="240" height="240" fill="black"/>
-<rect x="2960" y="560" width="240" height="240" fill="black"/>
-<rect x="3240" y="560" width="240" height="240" fill="black"/>
-<rect x="2680" y="0" width="240" height="240" fill="black"/>
-<rect x="2920" y="0" width="40" height="240" fill="black"/>
-<rect x="2680" y="240" width="240" height="40" fill="black"/>
-<rect x="2960" y="0" width="240" height="240" fill="black"/>
-<rect x="2680" y="280" width="240" height="240" fill="black"/>
+<rect x="880" y="0" width="240" height="240" fill="black"/>
+<rect x="880" y="280" width="240" height="240" fill="black"/>
+<rect x="880" y="560" width="240" height="240" fill="black"/>
+<rect x="1200" y="0" width="240" height="240" fill="black"/>
+<rect x="1200" y="280" width="240" height="240" fill="black"/>
+<rect x="1200" y="560" width="240" height="240" fill="black"/>
+<rect x="1760" y="560" width="240" height="240" fill="black"/>
+<rect x="1480" y="0" width="240" height="240" fill="black"/>
+<rect x="1720" y="0" width="40" height="240" fill="black"/>
+<rect x="1760" y="0" width="240" height="240" fill="black"/>
+<rect x="1760" y="240" width="240" height="40" fill="black"/>
+<rect x="1760" y="280" width="240" height="240" fill="black"/>
+<rect x="2640" y="0" width="240" height="240" fill="black"/>
+<rect x="2360" y="280" width="240" height="240" fill="black"/>
+<rect x="2080" y="560" width="240" height="240" fill="black"/>
+<rect x="2360" y="560" width="240" height="240" fill="black"/>
+<rect x="2640" y="560" width="240" height="240" fill="black"/>
+<rect x="2080" y="0" width="240" height="240" fill="black"/>
+<rect x="2320" y="0" width="40" height="240" fill="black"/>
+<rect x="2080" y="240" width="240" height="40" fill="black"/>
+<rect x="2360" y="0" width="240" height="240" fill="black"/>
+<rect x="2080" y="280" width="240" height="240" fill="black"/>
 </svg>
