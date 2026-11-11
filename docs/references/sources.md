@@ -200,11 +200,22 @@ there. It is how you reach your agents when you are away, and how they reach you
 
 The agent calls `add_source`. The dialog you confirm has a field for the bot's token: you type
 or paste it there, where it is not shown and does not pass through the agent or its model (see
-"Secrets" below). Then the agent tells you the one remaining step: open the bot in Telegram and
-write anything to it. pine then asks you, in the terminal UI
-and not in Telegram, whether that account may speak as you, naming it. After your yes it is the
-only account the bot listens to. Nobody else gets an answer, and nothing is ever sent to anyone
-else.
+"Secrets" below). Then the agent tells you the one remaining step, which ties the bot to your account:
+
+1. Open the bot in Telegram and write anything to it.
+2. The bot answers that account with a six-digit code.
+3. pine shows a question on your computer that names the account and has a field for the code.
+   Type the code from your phone and press enter.
+
+From then on that account is the only one the bot listens to. The code is the point: it shows
+that the person at pine's keyboard holds that Telegram account. A stranger who finds the bot
+can make the question appear, but does not see your screen, and you do not have their code; a
+key pressed by accident cannot say yes. An account you deny is not put to you again, and only
+one question is open at a time.
+
+Anyone can write to a bot; that is how Telegram works. What they write reaches no agent. Before
+you have paired, an unknown account gets the code message and nothing else. After you have,
+unknown accounts get no answer at all and cause no question.
 
 ```json
 "telegram": { "type": "telegram", "token": "${PINE_SOURCE_TELEGRAM_MAIN_TOKEN}", "trust": "owner", "description": "my Telegram" }
@@ -225,12 +236,18 @@ What makes it different from the other types:
 - **It is a conversation.** Your message reaches the agent as your message, not as a report
   about one, in the conversation that subscribed. The answer is sent back to the chat and is
   also in that conversation in the terminal UI, so both show the same thread.
-- **It speaks for you.** Telegram vouches for the account and you confirmed it, so what it
-  writes counts as your own words: full tools, no "outside content" mark. That is why the
-  pairing question is asked in pine and why the set-up is always put to you.
+- **It speaks for you.** Telegram vouches for the account and you proved it is yours, so what
+  it writes counts as your own words: full tools, no "outside content" mark. That is why
+  pairing takes a code and why the set-up is always put to you.
 - **It can send.** The agent writes to you on its own with the `send` tool; see below.
 - **Messages are not held back.** The ten-second pause between events that protects a model from
   a chatty device does not apply unless the subscription sets a `throttle` itself.
+
+Who the bot listens to is said wherever sources are listed: `pine sources`, `/sources` in the
+terminal UI, and the agent's `sources` tool show "listens to nobody yet", or the account you
+paired with its name and Telegram id. A bot never learns a phone number; the account's id is
+what Telegram vouches for. To pair with another account, remove the source and set it up
+again: the pairing goes with the source.
 
 Messages are fetched by long polling: one request that Telegram answers the moment something
 arrives. Nothing listens on a port, so it works behind any router. Only one program can poll a
@@ -558,6 +575,7 @@ The start function gets a `source` object:
 |---|---|
 | `name`, `options`, `base` | Its name, the keys of its entry that are not pine's own, the folder relative paths are meant from. |
 | `emit(event, payload?, opts?)` | Report something. `event` is a short lowercase word. With `opts.reply` (any fields, a chat to answer in for example) the answer of an agent that is woken by it comes back to `onSend`. |
+| `status(line)` | Say in one line how things stand (who it is connected to, what it waits for). Shown wherever sources are listed. |
 | `onSend(handler)` | For a source that can also send: called with an agent's answer (`text`, and the fields given as `reply`) and with what an agent sends on its own. Return a line on what was done; throw to refuse. |
 | `on(pattern, handler)` | Look at events of the system, read only: `agent/+/started`, `approval/requested`. |
 | `approvals` | `ask(summary, why)` puts a question of the source's own to you in pine's UI; `pending()` and `decide(id, allow, by)` let it pass on your answer to open requests. |

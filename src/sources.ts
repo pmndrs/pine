@@ -55,12 +55,22 @@ export interface SourceApi {
 	 * refuse. The source decides where things may go: it never sends anywhere it was not set up for.
 	 */
 	onSend(handler: (message: Record<string, any>) => void | string | Promise<void | string>): void;
+	/**
+	 * Say in one line how things stand, for whoever lists the sources: who it is connected to,
+	 * what it is waiting for. Call it again when that changes.
+	 */
+	status(line: string): void;
 	/** Look at events of the system (read only): "agent/+/started", "approval/requested", ... */
 	on(pattern: string | string[], handler: (e: PineEvent) => void | Promise<void>): void;
 	/** Approval requests: put a question of its own to the owner, see the open ones, pass on the owner's answer. */
 	approvals: {
 		/** Ask the owner in pine's UI. Resolves with their answer; no answer in time counts as no. */
 		ask(summary: string, why: string): Promise<boolean>;
+		/**
+		 * The same, with fields the owner has to fill in (`secret: false` for one that may be shown
+		 * while it is typed). `by` says who answered: "timeout" when nobody did.
+		 */
+		request(summary: string, why: string, inputs: Array<{ name: string; label: string; secret?: boolean }>): Promise<{ allow: boolean; by: string; values?: Record<string, string> }>;
 		pending(): Array<{ id: string; agent: string; tool: string; summary: string; why: string; remember?: string; task: number }>;
 		decide(id: string, allow: boolean, by: string, always?: boolean): boolean;
 	};
@@ -100,6 +110,8 @@ export interface SourceInfo {
 	trust: string;
 	running: boolean;
 	error?: string;
+	/** What the source says about itself while it runs: who it is connected to, what it waits for. */
+	status?: string;
 	/** Who listens: "agent" for its main conversation, "agent/conversation" for another. */
 	subscribers: string[];
 	/** Topic prefix of its events. */
@@ -128,6 +140,7 @@ export class SourceHost {
 	private running = new Map<string, Running>();
 	private starting = new Map<string, Promise<void>>();
 	private errors = new Map<string, string>();
+	private statuses = new Map<string, string>();
 	private seen = new Map<string, { ts: number; topic: string; count: number }>();
 	private off?: () => void;
 	private offOut?: () => void;
@@ -391,6 +404,7 @@ export class SourceHost {
 				return this.bus.publish(`source/${key}/${event}`, payload ?? {}, { source: `source:${key}`, trust: source.trust, persist: opts?.persist, reply: opts?.reply ? { topic: outTopic(key), payload: opts.reply } : undefined });
 			},
 			onSend: (handler) => void (run.send = handler),
+			status: (line) => void this.statuses.set(key, String(line).slice(0, 300)),
 			on: (pattern, handler) => void run.stops.push(this.bus.subscribe(pattern, async (e) => {
 				try {
 					await handler(e);
@@ -400,6 +414,7 @@ export class SourceHost {
 			}, `source:${key}`)),
 			approvals: {
 				ask: async (summary, why) => (this.approvals ? (await this.approvals.request({ agent: `${name} (event source)`, task: 0, tool: source.type ?? name, summary, why })).allow : false),
+				request: async (summary, why, inputs) => (this.approvals ? this.approvals.request({ agent: `${name} (event source)`, task: 0, tool: source.type ?? name, summary, why, inputs }) : { allow: false, by: "nobody" }),
 				pending: () => this.approvals?.pending() ?? [],
 				decide: (id, allow, by, always) => this.approvals?.decide(id, allow, by, always) ?? false,
 			},
@@ -426,6 +441,7 @@ export class SourceHost {
 		const run = this.running.get(key);
 		if (!run) return;
 		this.running.delete(key);
+		this.statuses.delete(key);
 		for (const fn of run.stops.reverse()) {
 			try {
 				await fn();
@@ -473,6 +489,7 @@ export class SourceHost {
 				trust: source.trust,
 				running: this.running.has(key),
 				error: this.errors.get(key) ?? (source.enabled ? undefined : "disabled"),
+				status: this.running.has(key) ? this.statuses.get(key) : undefined,
 				subscribers: this.subscribersOf(key),
 				topic: `source/${key}`,
 				last: seen ? { ts: seen.ts, topic: seen.topic } : undefined,
@@ -578,6 +595,8 @@ export class SourceHost {
 			for (const a of Object.values(this.cfg.agents)) if (sourceFor(this.cfg, a.id, name)?.key === key) await this.unsubscribe(a.id, name);
 		}
 		await this.halt(key);
+		// What it kept for itself goes with it: a source of the same name set up later starts from nothing (nobody paired, no place in a queue).
+		this.kv.forget(`source:${key}:`);
 		const dir = source.type === "folder" && typeof source.options.dir === "string" ? resolvePath(source.options.dir, source.base) : undefined;
 		const stillWatched = (a: typeof agent) => Object.entries(a?.sources ?? {}).some(([n, x]) => n !== name && x.type === "folder" && typeof x.options.dir === "string" && resolvePath(x.options.dir, x.base) === dir);
 		const names = new Set<string>();

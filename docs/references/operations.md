@@ -256,7 +256,7 @@ are JSON with `Content-Type: application/json`.
 | The agent says a file is "not permitted" | It is outside the workspace. In `auto` mode it can ask you with `request_access`; to open a folder for good, use `sandbox.read` / `sandbox.write`. |
 | `git` complains about identity | The agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
 | A command needs the network | `sandbox.network: true` for that agent, or better a `commands` tool for that one command. |
-| Telegram bot does not react | `pine sources`: is the `telegram` source running, and is a conversation subscribed? A new bot waits for you to confirm your account in pine (an approval request in the terminal UI, or `pine approvals`). Otherwise another program polls the same bot token. |
+| Telegram bot does not react | `pine sources`: is the `telegram` source running, and is a conversation subscribed? A new bot waits to be paired: write to it, and type the code it sends you into the question in the terminal UI (`pine sources` says whom it listens to). Otherwise another program polls the same bot token. |
 | An event arrives but no task starts | See "When nothing happens" in [events.md](events.md) for routes and in [sources.md](sources.md) for subscriptions. |
 | The first answer after a pause is slow | The session was closed after `idleMs` and is being resumed; MCP servers start again. |
 

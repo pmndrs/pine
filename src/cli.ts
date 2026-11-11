@@ -397,6 +397,7 @@ async function main(): Promise<void> {
 			for (const s of list) {
 				out(`${s.name}${s.scope === "global" ? "" : ` (of ${s.scope})`}  ${s.type}  ${s.error ? `not running: ${s.error}` : s.running ? "running" : "idle, nobody is subscribed"}${s.trust === "owner" ? "  [yours]" : ""}`);
 				if (s.description) out(`    ${s.description}`);
+				if (s.status) out(`    ${s.status}`);
 				out(`    subscribers: ${s.subscribers.join(", ") || "none"} · ${s.last ? `last event ${when(s.last.ts)} (${s.last.topic}), ${s.events} since start` : "no events since start"}`);
 			}
 			return;

@@ -594,13 +594,13 @@ class ApprovalDialog implements Component {
 	 * Values the request needs from the owner and that no model may see: a password, a token. They
 	 * are typed here without being shown, and go from this dialog straight to the daemon.
 	 */
-	private fields: Array<{ name: string; label: string; value: string }>;
+	private fields: Array<{ name: string; label: string; value: string; secret: boolean }>;
 	private field = 0;
 
 	constructor(req: any, done: (answer: ApprovalAnswer, values?: Record<string, string>) => void) {
 		this.req = req;
 		this.done = done;
-		this.fields = (Array.isArray(req.inputs) ? req.inputs : []).map((i: any) => ({ name: String(i.name), label: String(i.label ?? i.name), value: "" }));
+		this.fields = (Array.isArray(req.inputs) ? req.inputs : []).map((i: any) => ({ name: String(i.name), label: String(i.label ?? i.name), value: "", secret: i.secret !== false }));
 		this.options = this.fields.length
 			? [
 					{ answer: "allow", label: "Save and allow (enter)" },
@@ -662,8 +662,8 @@ class ApprovalDialog implements Component {
 		const inner = Math.max(20, width - 4);
 		const inputs = this.fields.flatMap((f, i) => [
 			...wrapTextWithAnsi(c.bold(f.label), inner),
-			// Never shown: a dot for each character, so that you see it arrive.
-			`${i === this.field ? c.accent(">") : " "} ${c.yellow("•".repeat(Math.min(f.value.length, inner - 6)))}${i === this.field ? c.inverse(" ") : ""}`,
+			// A secret is never shown: a dot for each character, so that you see it arrive.
+			`${i === this.field ? c.accent(">") : " "} ${c.yellow(f.secret ? "•".repeat(Math.min(f.value.length, inner - 6)) : f.value.slice(-(inner - 6)))}${i === this.field ? c.inverse(" ") : ""}`,
 		]);
 		const body = [
 			c.bold(c.yellow(this.fields.length ? "Approval needed, and something only you have" : "Approval needed")),
@@ -674,7 +674,7 @@ class ApprovalDialog implements Component {
 			"",
 			...wrapTextWithAnsi(c.gray(`Why you are asked: ${this.req.why}`), inner),
 			...(this.req.remember ? wrapTextWithAnsi(c.gray(`"Always here" stops asking about ${this.req.remember} in this conversation.`), inner) : []),
-			...(inputs.length ? ["", ...inputs, ...wrapTextWithAnsi(c.gray("Type or paste it here. It is not shown, goes into pine's .env file, and never reaches the agent or its model."), inner)] : []),
+			...(inputs.length ? ["", ...inputs, ...wrapTextWithAnsi(c.gray(this.fields.some((f) => f.secret) ? "Type or paste it here. It is not shown, goes into pine's .env file, and never reaches the agent or its model." : "Type it here and press enter. Without it, this cannot be allowed."), inner)] : []),
 			"",
 		];
 		// The buttons, wrapped onto a second line in a narrow window. Their places are kept for clicks:
@@ -1699,7 +1699,7 @@ export class PineTui {
 					const list = await this.client.sources();
 					const t = this.active;
 					if (!list.length) return void this.say(t, c.gray(`no event sources configured. They go into "sources" in pine.json (for every agent) or an agent.json; docs/references/sources.md has the types.`));
-					this.say(t, list.map((x) => `${c.bold(x.name)}${x.scope === "global" ? "" : c.gray(` (of ${x.scope})`)} ${c.gray(x.type)} ${x.error ? c.red(`not running: ${x.error}`) : x.running ? c.green("running") : c.gray("idle")}${x.description ? c.gray(` · ${x.description}`) : ""}\n${c.gray(`  subscribers: ${x.subscribers.join(", ") || "none"} · ${x.last ? `last event ${new Date(x.last.ts).toLocaleTimeString("sv-SE")}, ${x.events} since start` : "no events since start"}`)}`).join("\n"));
+					this.say(t, list.map((x) => `${c.bold(x.name)}${x.scope === "global" ? "" : c.gray(` (of ${x.scope})`)} ${c.gray(x.type)} ${x.error ? c.red(`not running: ${x.error}`) : x.running ? c.green("running") : c.gray("idle")}${x.description ? c.gray(` · ${x.description}`) : ""}${x.status ? `\n  ${x.status}` : ""}\n${c.gray(`  subscribers: ${x.subscribers.join(", ") || "none"} · ${x.last ? `last event ${new Date(x.last.ts).toLocaleTimeString("sv-SE")}, ${x.events} since start` : "no events since start"}`)}`).join("\n"));
 					this.say(t, c.gray("/subscribe <source> [what to do] wakes this tab's agent on its events · /unsubscribe <source> stops that"), false);
 				},
 			},
@@ -1948,6 +1948,8 @@ export class PineTui {
 			else if (!tab.roots.has(p.task)) {
 				if (p.kind === "event" && p.label) this.eventLine(tab, String(p.label), String(p.prompt ?? ""));
 				else this.user(tab, String(p.prompt ?? ""), p.kind === "prompt" ? "elsewhere" : p.kind);
+				// What came with it and was not typed here: a photo sent on Telegram, a picture a camera saved.
+				for (let n = 0; n < Number(p.images ?? 0); n++) this.picture(tab, `picture ${n + 1}`, () => this.client.taskImage(p.task, n));
 			}
 			tab.roots.add(p.task);
 			tab.running.add(p.task);

@@ -248,7 +248,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const senders = host.senders(agent.id, session);
 					const lines = mine.map((s) => {
 						const info = all.find((x) => x.name === s.name && (x.scope === agent.id || x.scope === "global"));
-						const state = info?.error ? `not running: ${info.error}` : info?.running ? `running${info.last ? `, last event ${new Date(info.last.ts).toLocaleString("sv-SE")}` : ", no events yet"}` : "idle";
+						const state = `${info?.error ? `not running: ${info.error}` : info?.running ? `running${info.last ? `, last event ${new Date(info.last.ts).toLocaleString("sv-SE")}` : ", no events yet"}` : "idle"}${info?.status ? `. ${info.status}` : ""}`;
 						const subs = [
 							...(s.local ? [`    local: THIS conversation is subscribed and is woken here${s.local.note ? `. Note: ${s.local.note}` : ""}`] : []),
 							...(s.agent ? [`    agent: ${session === "main" ? "you are subscribed as an agent and are woken here, in your main conversation" : "your MAIN conversation is subscribed, NOT this one: its events arrive there and do not wake you here"}${s.agent.note ? `. Note: ${s.agent.note}` : ""}`] : []),

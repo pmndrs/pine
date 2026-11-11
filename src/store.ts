@@ -189,6 +189,10 @@ export class Kv {
 	set(key: string, value: unknown): void {
 		this.db.prepare("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, JSON.stringify(value));
 	}
+	/** Remove every entry whose key starts with a prefix. */
+	forget(prefix: string): void {
+		this.db.prepare("DELETE FROM kv WHERE substr(key, 1, ?) = ?").run(prefix.length, prefix);
+	}
 	/** The keys that start with a prefix. */
 	keys(prefix: string): string[] {
 		return (this.db.prepare("SELECT key FROM kv WHERE substr(key, 1, ?) = ? ORDER BY key").all(prefix.length, prefix) as any[]).map((r) => r.key);

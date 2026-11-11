@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Type } from "typebox";
@@ -10,8 +11,8 @@ import { errText, sleep, truncate } from "../util.ts";
  *
  * options: { token, allow?, approvals?, apiBase? }
  *   token      the bot's token from @BotFather
- *   allow      Telegram user ids that may talk to it. Without it the bot is paired: the first
- *              account that writes to it is put to the owner in pine, who confirms it there
+ *   allow      Telegram user ids that may talk to it. Without it the bot is paired: it sends a
+ *              code to the account that writes to it, and the owner types that code into pine
  *   approvals  also send approval requests to that chat, with buttons (default true)
  *   apiBase    a Bot API server of your own instead of api.telegram.org
  *
@@ -20,8 +21,8 @@ import { errText, sleep, truncate } from "../util.ts";
  *
  * Messages are fetched by long polling: one request that Telegram answers the moment something
  * arrives. Nothing listens on a port, so it works behind any router. Only accounts on `allow`, or
- * the one that was paired, are heard; everyone else gets no answer at all. Nothing is ever sent
- * to anyone else.
+ * the one that was paired, are heard. What anyone else writes reaches no agent; once an account
+ * is paired they get no answer at all, and nothing is ever sent to them.
  */
 export const type: SourceType = {
 	summary: "a Telegram bot: your owner writes to it from anywhere and you answer there; you can also message them through it. Needs the bot's token from @BotFather",
@@ -30,7 +31,7 @@ export const type: SourceType = {
 	options: Type.Object(
 		{
 			token: Type.String({ description: "the bot's token, which @BotFather gives when a bot is made with /newbot (123456789:AA...)", secret: true }),
-			allow: Type.Optional(Type.Array(Type.Number(), { description: "Telegram user ids that may talk to the bot. Leave out unless your owner gave you their id: the bot is then paired, which means the first account that writes to it is shown to your owner in pine to confirm" })),
+			allow: Type.Optional(Type.Array(Type.Number(), { description: "Telegram user ids that may talk to the bot. Leave out unless your owner gave you their id: the bot is then paired, which means it sends a code to the account that writes to it and your owner types that code into pine" })),
 			approvals: Type.Optional(Type.Boolean({ description: "also send approval requests to the owner there, with buttons to answer them. Default true" })),
 			apiBase: Type.Optional(Type.String({ description: "address of a Bot API server of your own, instead of https://api.telegram.org" })),
 		},
@@ -55,12 +56,12 @@ export const type: SourceType = {
 			owner: true,
 			does: [
 				"connect to Telegram as your bot and wait for messages",
-				ids.length ? `listen only to the Telegram user${ids.length === 1 ? "" : "s"} ${ids.join(", ")}` : "ask you here, in pine, before it listens to anyone: the first account that writes to the bot is shown to you to confirm",
+				ids.length ? `listen only to the Telegram user${ids.length === 1 ? "" : "s"} ${ids.join(", ")}` : "listen to nobody until you have paired your own account: the bot sends a code to the account that writes to it, and you type that code into pine",
 				"take what that account writes as coming from you, with everything your agents may do for you",
 				"send answers back to that chat, and nowhere else",
 				...(o.approvals === false ? [] : ["send approval requests there too, with buttons"]),
 			],
-			tell: ids.length ? "Your owner can write to the bot now." : "Tell your owner to open the bot in Telegram and write anything to it. pine then asks them, here and not in Telegram, to confirm that account; after that it is the only one the bot listens to.",
+			tell: ids.length ? "Your owner can write to the bot now." : "Tell your owner to open the bot in Telegram and write anything to it. The bot answers with a six-digit code, and pine asks for that code here. Once they have typed it, that account is the only one the bot listens to.",
 		};
 	},
 };
@@ -94,6 +95,16 @@ export default async function telegram(source: SourceApi): Promise<void> {
 	const heard = (userId: number) => fixed.includes(userId) || paired()?.id === userId;
 	/** The chat everything unasked goes to. A private chat has the id of its user. */
 	const ownerChat = () => fixed[0] ?? paired()?.id;
+	/** Who may talk to the bot, said where the sources are listed. */
+	const say = () =>
+		source.status(
+			fixed.length
+				? `@${me.username} listens only to the Telegram user${fixed.length === 1 ? "" : "s"} ${fixed.join(", ")}`
+				: paired()
+					? `@${me.username} listens only to ${paired()!.name || "the paired account"} (Telegram id ${paired()!.id}), which you confirmed`
+					: `@${me.username} listens to nobody yet: write to it from your Telegram account, then type the code it sends you into pine`,
+		);
+	say();
 
 	const send = async (chatId: number, text: string, extra: Record<string, unknown> = {}) => {
 		if (!heard(chatId)) throw new Error("that chat is not your owner's");
@@ -164,21 +175,41 @@ export default async function telegram(source: SourceApi): Promise<void> {
 		return { path: target, mimeType: "image/jpeg" };
 	};
 
-	/** An account nobody knows yet writes to a bot that has no owner: the owner is asked in pine, once per account at a time. */
-	const asking = new Set<number>();
+	/**
+	 * An account nobody knows yet writes to a bot that has no owner. Whoever sits at pine has to
+	 * show that this account is theirs: the bot sends the account a code, and pine asks for it.
+	 * A press of a key cannot say yes to a stranger, and a stranger does not know what to type.
+	 * One question at a time; an account the owner turned down is not asked about again.
+	 */
+	let pairing = false;
 	const pair = async (m: any, userId: number, name: string): Promise<boolean> => {
-		if (fixed.length || paired() || asking.has(userId)) return false;
-		asking.add(userId);
+		const denied = source.kv.get<number[]>("denied") ?? [];
+		if (fixed.length || paired() || pairing || denied.includes(userId)) return false;
+		pairing = true;
 		try {
+			const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+			const shown = `${code.slice(0, 3)} ${code.slice(3)}`;
+			await api("sendMessage", { chat_id: userId, text: `To connect this Telegram account to pine, type this code into the question pine is showing on your computer:\n\n${shown}\n\nIf you did not expect this message, ignore it.` });
 			const who = `${name || "somebody"} (${m.from?.username ? `@${m.from.username}, ` : ""}Telegram id ${userId})`;
-			const yes = await source.approvals.ask(
-				`let the Telegram account of ${who} talk to your agents as you through the bot @${me.username}\nIt just wrote: "${truncate(String(m.text ?? m.caption ?? "(a picture)"), 200)}"`,
-				"what this account writes will count as your own words, with everything your agents may do for you. Allow it only if this is your account",
+			const answer = await source.approvals.request(
+				`let the Telegram account of ${who} talk to your agents as you through the bot @${me.username}\nIt just wrote: "${truncate(String(m.text ?? m.caption ?? "(a picture)"), 200)}"\nThe bot sent that account a code. If the account is yours, the code is on your phone now.`,
+				"what this account writes will count as your own words, with everything your agents may do for you. Only the code proves that the account is yours; deny it if you did not just write to the bot",
+				[{ name: "code", label: "code: the six digits the bot just sent to that account in Telegram", secret: false }],
 			);
-			if (yes && !paired()) source.kv.set("owner", { id: userId, name });
-			return yes && paired()?.id === userId;
+			if (!answer.allow) {
+				// Turned down by the owner (not merely unanswered): that account is not put to them again.
+				if (answer.by !== "timeout" && answer.by !== "aborted") source.kv.set("denied", [...denied, userId].slice(-200));
+				return false;
+			}
+			if (String(answer.values?.code ?? "").replace(/\D/g, "") !== code) {
+				await api("sendMessage", { chat_id: userId, text: "That was not the code. Write again to get a new one." }).catch(() => {});
+				return false;
+			}
+			if (!paired()) source.kv.set("owner", { id: userId, name: `${name}${m.from?.username ? ` (@${m.from.username})` : ""}` });
+			say();
+			return paired()?.id === userId;
 		} finally {
-			asking.delete(userId);
+			pairing = false;
 		}
 	};
 

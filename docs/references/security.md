@@ -20,10 +20,11 @@ refusing; it limits what a run can do, by where its input came from.
 
 ### 1. Who may speak
 
-- **Telegram:** only the account you paired, or the user ids in `allow`, are heard. Others get
-  no reply. Pairing is confirmed by you in pine, never in Telegram: the first account that
-  writes to a new bot is shown to you by name and id, and nothing it wrote reaches an agent
-  unless you say yes.
+- **Telegram:** only the account you paired, or the user ids in `allow`, are heard. What anyone
+  else writes reaches no agent. Pairing needs both ends: the bot sends a code to the account
+  that wrote to it, and that code has to be typed into pine, which names the account. So a
+  stranger cannot pair (they do not see your screen), you cannot pair a stranger by a slip of
+  the finger (you do not have their code), and an account you deny is not asked about again.
 - **Control API:** loopback by default; every request needs a bearer token (generated into
   `data/http-token`, mode 600, which the CLI reads). Requests carrying an `Origin` header or an
   unexpected `Host` are refused, so a web page in your browser cannot use it, with or without

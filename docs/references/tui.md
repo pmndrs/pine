@@ -225,7 +225,8 @@ dialog opens over the conversation with the agent, the tool and its arguments, a
 | `esc` | Decide later; the status line keeps reminding you, and `/approve` or `/deny` answer it |
 
 When the action needs something only you have (a bot's token, a device's password), the dialog
-has a field for it. Type or paste it: it is shown as dots, goes into pine's `.env` and is
+has a field for it. (Pairing a Telegram account works the same way, with the code the bot sent
+to your phone; that one is shown as you type.) Type or paste it: it is shown as dots, goes into pine's `.env` and is
 never seen by the agent or its model. `enter` saves and allows, `tab` moves between fields,
 `ctrl+u` empties one, `esc` leaves it for later, and `/approve` opens the dialog again. The
 letter keys are part of what you type there, so `a` and `d` are not shortcuts in this dialog.
@@ -255,6 +256,8 @@ character per column is shown as written too. Colours are the terminal's own six
 Pictures are drawn in the conversation:
 
 - pictures you attach to a message (drag a file onto the terminal, or `/attach`),
+- pictures that arrive with an event: a photo you send on Telegram, an image a camera saved
+  into a watched folder,
 - pictures a tool returns: a browser screenshot, an image file the agent reads, an image from an
   MCP server,
 - pictures the agent points at in its answer with `![caption](path)`, where the path is a file

@@ -267,7 +267,7 @@ export interface ApprovalRequest {
 	 * Values only the owner has and that must not pass through a model: a password, a token. The
 	 * owner types them where the question is shown. A yes without them is not a yes.
 	 */
-	inputs?: Array<{ name: string; label: string }>;
+	inputs?: Array<{ name: string; label: string; secret?: boolean }>;
 }
 
 export interface ApprovalDecision {

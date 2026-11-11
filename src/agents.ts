@@ -832,7 +832,7 @@ export class AgentManager {
 		const source = `agent:${agent.id}`;
 		// Fields every activity event carries, so a viewer can attach it to the conversation that caused it.
 		const ids = { task: task.id, agent: agent.id, session: task.session, root: task.meta.root ?? task.id, parent: task.parent, depth: task.depth };
-		this.bus.publish(`agent/${agent.id}/started`, { ...ids, kind: task.kind, reply: task.reply, label: task.meta.label, prompt: truncate(task.prompt, 2000) }, { source, cause: this.causeOf(task) });
+		this.bus.publish(`agent/${agent.id}/started`, { ...ids, kind: task.kind, reply: task.reply, label: task.meta.label, prompt: truncate(task.prompt, 2000), images: task.meta.images?.length || undefined }, { source, cause: this.causeOf(task) });
 
 		const stats: NonNullable<Task["meta"]["stats"]> = { input: 0, output: 0, turns: 0, tools: [], ms: 0 };
 		let status: TaskStatus = "done";
