@@ -380,7 +380,9 @@ export function audit(cfg: PineConfig): string[] {
 		const m = mode(path.join(cfg.home, f));
 		if (m !== undefined && m & 0o077) out.push(`${f} is readable by other users (mode ${m.toString(8)}); run: chmod 600 ${path.join(cfg.home, f)}`);
 	}
-	if (!sandboxAvailable()) out.push("no OS sandbox on this platform: agent shell commands run with the daemon's full permissions");
+	if (!sandboxAvailable()) out.push("no OS sandbox on this platform: agents with the sandbox on get no shell, and command sources do not run; an agent with \"sandbox\": false runs its shell with the daemon's full permissions");
+	const homeMode = mode(cfg.home);
+	if (homeMode !== undefined && homeMode & 0o077) out.push(`pine's home is open to other users (mode ${homeMode.toString(8)}); run: chmod 700 ${cfg.home}`);
 	for (const a of Object.values(cfg.agents)) {
 		const tools = a.tools ?? ["read", "bash", "edit", "write"];
 		if (!a.sandbox.enabled && tools.includes("bash")) out.push(`agent ${a.id}: sandbox is off and bash is enabled; its commands can read and change anything the daemon user can`);
@@ -396,8 +398,14 @@ export function audit(cfg: PineConfig): string[] {
 	for (const [where, sources] of [["pine.json", cfg.sources] as const, ...Object.values(cfg.agents).map((a) => [`agent ${a.id}`, a.sources] as const)]) {
 		for (const [name, s] of Object.entries(sources)) if (s.trust === "owner" && s.type !== "telegram") out.push(`${where}: what the source "${name}" (${s.type ?? "custom"}) reports is treated as coming from you; whoever can feed it gets an agent's full tool set`);
 	}
-	// A source type is a program inside the daemon, whoever wrote it.
+	// A source type is a program inside the daemon, whoever wrote it. So is a module a single source names with "use".
 	for (const [name, file] of Object.entries(cfg.sourceTypes)) out.push(`source type "${name}": ${file} runs inside pine with your rights, outside any sandbox`);
+	for (const [where, sources] of [["pine.json", cfg.sources] as const, ...Object.values(cfg.agents).map((a) => [`agent ${a.id}`, a.sources] as const)]) {
+		for (const [name, s] of Object.entries(sources)) {
+			if (s.use) out.push(`${where}: the source "${name}" runs the module ${s.use} inside pine with your rights, outside any sandbox`);
+			if (s.type === "webhook" && s.options.open === true) out.push(`${where}: the webhook source "${name}" has no secret; anyone who can reach the port can make it report`);
+		}
+	}
 	for (const r of cfg.routes) if (r.trust === "owner") out.push(`route "${r.name}" treats events on ${r.on.join(", ")} as coming from you; whoever can publish there gets the agent's full tool set`);
 	return out;
 }

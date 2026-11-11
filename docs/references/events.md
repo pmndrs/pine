@@ -21,7 +21,7 @@ Where events come from:
 | Source | Topics | Trust |
 |---|---|---|
 | Webhook `POST /hook/<name>` | `hook/<name>` (or the hook's `topic`) | untrusted |
-| Event sources ([sources.md](sources.md)) | `source/<name>/<event>`, or `source/<name>@<agent>/<event>` for an agent's own | untrusted; owner for a paired `telegram` account, and for a source marked `"trust": "owner"` |
+| Event sources ([sources.md](sources.md)) | `source/<name>/<event>`, or `source/<name>@<agent>/<event>` for an agent's own | untrusted; owner for a source whose entry says `"trust": "owner"` (`add_source` writes that for `telegram`, whose account you pair) |
 | `pine emit`, `POST /events` | whatever you name | owner |
 | Schedules | `timer/<name>`, or `timer/<name>@<agent>` for an agent's own | owner |
 | Agents (`publish_event`) | topics in the agent's `publish` list | owner, or untrusted if the run was restricted |
@@ -30,11 +30,11 @@ Where events come from:
 Watch them:
 
 ```bash
-bin/pine events -f
+pine events -f
 ```
 
 ```bash
-bin/pine events --topic "source/#" --limit 50
+pine events --topic "source/#" --limit 50
 ```
 
 ## Routes
@@ -54,7 +54,9 @@ A route is an entry in `routes` in `pine.json`.
 }
 ```
 
-Here `house` is an `mqtt` source and `telegram` a `telegram` source ([sources.md](sources.md)).
+Here `house` is an `mqtt` source and `telegram` a `telegram` source, both in `pine.json`
+([sources.md](sources.md)). For a source an agent set up for itself the topic carries the
+agent's name: `out/source/telegram@main`.
 A route does not subscribe to anything, so a source it relies on needs `"start": "always"`
 unless a conversation is subscribed to it anyway.
 
@@ -66,7 +68,7 @@ unless a conversation is subscribed to it anyway.
 | `debounceMs` | Wait until no matching event has arrived for this long, then handle the last one. For bursts (a camera uploading five images). |
 | `throttleMs` | Handle one event, then ignore matching ones for this long. For repeating alarms. |
 | `key` | Template for what counts as "the same" for debounce and throttle. Default `{{topic}}`. |
-| `set` | Write shared state: `{ "house/mode": "{{payload.value}}" }`. An empty value deletes the key. |
+| `set` | Write shared state: `{ "house/mode": "{{payload.value}}" }`. `null`, or a value that is exactly one `{{path}}` that finds nothing, deletes the key. |
 | `publish` | Publish another event: `{ "topic": "...", "payload": {...} }`. Without `payload` the original payload is passed on; after a `call` it is `{ "text": <the answer>, "of": <the original payload> }`. |
 | `call` | One model call: `{ "prompt": "...", "system": "...", "model": "provider/id" }`. Its answer is `{{result}}`. |
 | `agent` | Give an agent a task. |
@@ -178,9 +180,14 @@ shows the task: what a web page says must not become something that is done ever
 | `add_schedule` `name` `task` + one of `cron`, `every`, `at`, `in` [`scope`] | Schedules it. `cron`: set times; `every`: an interval, at least a minute; `at`: once, at a local time (`2026-12-24 17:00`); `in`: once, after this long (`20m`). |
 | `remove_schedule` `name` | Ends one. This conversation's own goes without a question. |
 
-A schedule that happens once removes itself when it has fired. One that was due while pine was
-not running is done when pine starts again, and the agent is told that it comes late. `pine
+A schedule that happens once removes itself when it has fired. A one-off, or a `cron` schedule
+with a task, that was due while pine was not running is done once when pine starts again, and
+the agent is told that it comes late. An `every` schedule simply starts counting again. `pine
 schedules` lists everything that is scheduled.
+
+A name is unique among all schedules; a task has at most 4000 characters; an interval an agent
+sets is at least a minute; a time in the past is refused. In manual mode you are asked for
+every `add_schedule` and `remove_schedule`.
 
 ### In the files
 
@@ -198,13 +205,13 @@ agent; one without a task only publishes an event.
 
 | Key | Meaning |
 |---|---|
-| `name` | Required. Lowercase letters, digits, `-` and `_`. The event is published on `timer/<name>` (`timer/<name>@<agent>` for an agent's own) unless `topic` says otherwise. |
+| `name` | Required. Starts with a lowercase letter, then lowercase letters, digits, `-` and `_`; 40 characters at most. The event is published on `timer/<name>` (`timer/<name>@<agent>` for an agent's own) unless `topic` says otherwise. |
 | `cron` | Five fields, local time: minute, hour, day of month, month, day of week (0 or 7 is Sunday). Lists, ranges and steps work: `*/15 8-18 * * 1-5`. |
 | `every` | A fixed interval instead. |
 | `at` | Once, at this local time. The entry is removed when it has fired. If pine was not running at that time, it fires when pine starts again, and the agent is told that it comes late. |
 | `task` | What the agent is to do. Required in an `agent.json`. |
 | `session` | In an `agent.json`: the conversation that is woken. Default: the main one. |
-| `payload` | Fields added to the event's payload (`name`, `scheduled` are always there). |
+| `payload` | Fields added to the event's payload (`name` and `scheduled` are always there; `late` when it comes late, `task` when it has one). |
 | `catchUp` | For `cron`: fire once at startup if a time passed while the daemon was down, marked as late. Default: `true` with a task, `false` without. (`at` always catches up; `every` never does.) |
 
 ### Schedules and routes

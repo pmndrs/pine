@@ -314,3 +314,32 @@ test("source types: the main agent brings in a new kind of source, with the owne
 	assert.deepEqual([types(), kept()], [undefined, []]);
 	await h.close();
 });
+
+test("sources: a folder for all agents gives its read access to the main agent, and a module of the owner's own is never deleted", async (t) => {
+	const os = await import("node:os");
+	const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), ".pine-test-shared-")));
+	t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+	const BELL = `export const type = { summary: "a bell", options: { type: "object", properties: {} } };\nexport default function () {}\n`;
+	const h = await harness({ pine: { main: "main", sourceTypes: { bell: "./sources/bell.ts" } }, files: { "sources/bell.ts": BELL }, agents: { main: {}, helper: {} } });
+	h.pine.bus.subscribe("approval/requested", (e) => void h.pine.approvals.decide((e.payload as any).id, true, "test"));
+	const run = (tools: any[]) => h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools }]), ...owner });
+	const json = (rel: string) => JSON.parse(fs.readFileSync(path.join(h.home, rel), "utf8"));
+
+	// The dialog says "let main read the files in that folder", and that is what is written: into main's own file, where it counts.
+	await run([call("add_source", { name: "shared", type: "folder", description: "the shared folder", options: { dir: outside }, scope: "global" })]);
+	assert.match(h.toolResults().at(-1)!, /Added the event source "shared" \(folder\)/);
+	assert.deepEqual(json("agents/main/agent.json").sandbox, { read: [outside] });
+	assert.equal(json("pine.json").sandbox, undefined, "pine.json has no access of its own to give");
+	assert.deepEqual(h.pine.cfg.agents.main.sandbox.read, [outside]);
+	assert.deepEqual(h.pine.cfg.agents.helper.sandbox.read, []);
+	await run([call("remove_source", { name: "shared" })]);
+	assert.equal(json("agents/main/agent.json").sandbox, undefined, "and it goes with the source");
+	assert.equal(json("pine.json").sources, undefined);
+
+	// A type the owner registered by hand, in the same folder pine keeps its copies in: taken out of the list, the file stays.
+	await run([call("remove_source_type", { name: "bell" })]);
+	assert.match(h.toolResults().at(-1)!, /Removed the source type "bell"/);
+	assert.equal(json("pine.json").sourceTypes, undefined);
+	assert.equal(fs.readFileSync(path.join(h.home, "sources", "bell.ts"), "utf8"), BELL);
+	await h.close();
+});

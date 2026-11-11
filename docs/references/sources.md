@@ -1,8 +1,8 @@
 # Event sources and subscriptions
 
 A **source** reports what happens somewhere else: a file arrives in a folder, a device says
-something over MQTT, a web service calls, a camera uploads a picture, a clock strikes, you write
-on Telegram.
+something over MQTT, a web service calls, a camera uploads a picture, a web page changes, you
+write on Telegram.
 An agent **subscribes** to a source, and from then on each event the source reports arrives in
 that agent's conversation as a message and wakes it into a turn, whether or not you are there.
 
@@ -62,7 +62,8 @@ scans", or `pine unsubscribe main scans`.
 | `enabled` | `true` | `false` keeps the entry but nobody can subscribe. |
 | `session` | | In an `agent.json` only, written by `add_source`: the one conversation the source was set up for. Other conversations do not see it, and it is removed with that conversation. |
 
-Names are lowercase letters, digits, `-` and `_`. A source in an `agent.json` with the name of
+Names start with a lowercase letter, then lowercase letters, digits, `-` and `_`, 40 characters
+at most, and are unique across `pine.json` and all agents. A source in an `agent.json` with the name of
 a global one is the one that agent means by that name. Secrets go into `.env` and are written
 as `${NAME}`, as everywhere in the configuration; when an agent sets a source up, pine does that
 by itself (see "Secrets" below).
@@ -115,7 +116,7 @@ An MQTT broker: reports the messages on the topics you name.
 
 | Option | Default | |
 |---|---|---|
-| `url` | | `mqtt://` or `mqtts://` address of the broker. |
+| `url` | | `mqtt://`, `mqtts://`, `ws://` or `wss://` address of the broker. |
 | `topics` | | One MQTT topic filter or a list. |
 | `publish` | none | Topics an agent may send to, to act on a device: `["zigbee2mqtt/+/set"]`. Without it the source only listens. See "Sending through a source". |
 | `username`, `password`, `clientId` | | As the broker wants them. |
@@ -165,13 +166,14 @@ scanners and other devices whose way of sending a file is "upload to FTP server"
 |---|---|---|
 | `port`, `user`, `password` | | What you enter in the device. The password needs 8 characters or more. When an agent sets the source up, `user` is `device` unless you name one, and a password you do not give is made by pine. |
 | `host` | `"0.0.0.0"` | The address to listen on. Devices on your network have to reach it. |
-| `allow` | everyone | Only these client addresses, as prefixes: `["192.168.1.40", "192.168.2."]`. |
+| `allow` | everyone | Only these clients: a full address (`"192.168.1.40"`), or a prefix that ends in a dot (`"192.168.2."`). |
 | `pasvPorts` | any | `[from, to]`: the ports for data connections, if a firewall has to know them. |
 | `maxFileMb` | `50` | Largest file accepted. |
 | `keepDays` | `7` | Received files are deleted after this many days. |
 
 Event `upload`: `{ file, path, size, from, images? }`. `file` is the name the device gave it,
-`path` is where it lies now (`data/sources/<name>/files/`).
+`path` is where it lies now (`data/sources/<name>/files/`, or `data/sources/<name>@<agent>/files/`
+for an agent's own source).
 
 It speaks plain FTP, as these devices do, so the password crosses your network unencrypted. It
 only receives: nothing can be listed, read, changed or deleted through it, and every file lands
@@ -201,7 +203,8 @@ key pressed by accident cannot say yes. An account you deny is not put to you ag
 one question is open at a time.
 
 Anyone can write to a bot; that is how Telegram works. What they write reaches no agent. Before
-you have paired, an unknown account gets the code message and nothing else. After you have,
+you have paired, an unknown account gets the code message (and a line if the code that was
+typed was wrong) and nothing else. After you have,
 unknown accounts get no answer at all and cause no question.
 
 ```json
@@ -282,6 +285,10 @@ that says where it leads: you confirmed one address, and the token is for that o
 is read up to 1 MB. A key that is part of the address (`?apikey=...`) is not a secret to pine:
 it is stored and shown like the rest of the address.
 
+Refused when it is set up: a user name or password in the address, `path` and `match`
+together, and a header that carries a secret (`authorization`, `cookie`), which belongs into
+`token`. One look may take 20 seconds and follow five redirects.
+
 ### command
 
 A command that is run again and again. For what only a command can tell: free disk space, a
@@ -310,7 +317,9 @@ private home folder and without your environment. It reaches what the agent reac
 else: no network unless the agent has it, none of your home folder beyond what the agent may
 read, none of pine's files. A source of all agents runs as the main agent. You are shown the
 command line before it is set up, every time. A command that cannot be started or runs out of
-time is a failed look (see below), not an event.
+time is a failed look (see below), not an event. `timeout` is at least `"1s"`, and a command
+line of more than 2000 characters is refused (put it into a script). If the agent's sandbox is
+switched off, the command runs without one, as its shell does.
 
 ### Looking again and again
 
@@ -343,7 +352,7 @@ tool says which can and what each takes:
 | Type | Sending does | The agent passes |
 |---|---|---|
 | `telegram` | A message to you, in your chat with the bot | `text` |
-| `mqtt` | A message to a topic on the source's `publish` list, to act on a device | `data`: `{ "topic": "lamp/set", "message": "on" }` |
+| `mqtt` | A message to a topic on the source's `publish` list, to act on a device | `data`: `{ "topic": "lamp/set", "message": "on" }`, optionally with `retain` and `qos` |
 
 > When the print is done, tell me on Telegram and switch the enclosure light off.
 
@@ -352,9 +361,10 @@ nowhere else, MQTT only to the topics you listed. An answer to a message that ca
 Telegram is sent back by itself; `send` is for what the agent says unasked. In a conversation
 that has read outside content, `send` asks you first, like every action that reaches out.
 
-A [route](events.md) can send the same way: `"reply": { "topic": "out/source/telegram" }` puts
-an agent's answer on Telegram, and an event published on `out/source/<name>` goes out through
-that source. The source has to be running, so give it `"start": "always"` if no conversation
+A [route](events.md) can send the same way: `"reply": { "topic": "out/source/telegram@main" }`
+puts an agent's answer on Telegram, and an event published on `out/source/<name>` goes out
+through that source. The name is the one in `pine.json`; for an agent's own source, which is
+what `add_source` makes, it is `<name>@<agent>` (`pine sources` shows which). The source has to be running, so give it `"start": "always"` if no conversation
 is subscribed to it.
 
 ## Subscribing
@@ -371,8 +381,8 @@ A subscription is for the conversation it is asked for in, unless you say it is 
 
 In an agent's main conversation, local and agent are the same thing: the main conversation *is*
 the agent. Several scopes can be on at once (a side conversation and the agent, say); each then
-gets its own turn. An agent that has an entry of its own is not woken a second time by a global
-one.
+gets its own turn. An agent whose main conversation has an entry of its own is not woken a
+second time by a global one.
 
 "Closed" means: its tab is closed in the terminal UI, it is reset (`/reset`, `pine reset`), or
 it is removed from the agent's list of conversations. Quitting the UI closes nothing: the same
@@ -387,12 +397,12 @@ Every agent has these tools for it:
 |---|---|
 | `sources` | Lists the sources it can use and what is subscribed: this conversation, the agent, all agents, its other conversations. "What are you subscribed to?" always has an answer. |
 | `subscribe`, `unsubscribe` | For a source that exists. |
-| `add_source` | Sets up a new source and subscribes to it in one step: "watch my project folder", "tell me when the price drops", "listen to the printer". The source runs at once, without a restart. |
+| `add_source` | Sets up a new source and, when it is given a note on what to do, subscribes to it in the same step: "watch my project folder", "tell me when the price drops", "listen to the printer". It then runs at once, without a restart. Without a note the source is only set up. |
 | `remove_source` | Deletes a source for good, with its subscriptions. |
 | `add_source_type`, `remove_source_type` | Only the main agent: brings a new kind of source into pine, or takes it out. See "A source type of your own". |
 
 "Subscribe to X", said in any conversation, means that conversation: it is woken, and nothing
-is asked. The two wider scopes are only for when you say so ("as an agent", "always, in your
+is asked (except in manual mode, or in a conversation that has read outside content). The two wider scopes are only for when you say so ("as an agent", "always, in your
 main conversation"; "all agents"), and pine asks you to confirm each of them, because they reach
 beyond the conversation you are looking at and stay when it is gone. If the dialog says "the
 agent as such" and you meant this conversation, deny it. In an agent's main conversation there
@@ -404,7 +414,7 @@ is nothing to ask: there, "here" and "the agent" are the same.
 | End anything its own agent is subscribed to: the main conversation's, another conversation's (`unsubscribe` with scope `agent` or `all`) | Any of its conversations |
 | Subscribe the agent as such | Any of its conversations, after you confirm |
 | Set up, subscribe to, or end anything for **all agents** | Only the main agent (`main` in `pine.json`). Setting up a source, subscribing and removing a source ask you first; ending a subscription does not. Another agent is told to send you to the main agent |
-| Bring a new source type into pine, or take one out (`add_source_type`, `remove_source_type`) | Only the main agent, in a conversation that has read no outside content. You are asked every time |
+| Bring a new source type into pine, or take one out (`add_source_type`, `remove_source_type`) | Only the main agent. You are asked every time, and adding one is refused in a conversation that has read outside content |
 
 When a conversation subscribes to a source its agent's main conversation already listens to,
 both are woken by each event, and the agent tells you so.
@@ -416,6 +426,11 @@ same ones the tables above list:
 { "name": "papers", "type": "folder", "description": "what the scanner saves",
   "options": { "dir": "~/Scans", "mask": "*.pdf" }, "note": "File it and tell me what it was." }
 ```
+
+Besides those it takes `scope` (who is woken, see above), `note` (what to do when it reports;
+with a note the subscription is made in the same step), `throttle`, `own` (`true` only when
+you said it is your own device or folder: its events are then trusted like your messages, and
+you are always asked) and `ask` (secret options you are to type into the dialog).
 
 The type checks them. An option it does not have, a missing one or a wrong kind of value is
 answered with what the type takes, before anything is written or you are asked anything. The
@@ -430,7 +445,9 @@ type also says what the source would do, and whether that is something new:
 
 The entry goes into the agent's own `agent.json`, or into `pine.json` for the global scope. For
 a folder outside its workspace the agent also gets read access to that folder (`sandbox.read`
-in its `agent.json`), since being told "a file changed" is of little use otherwise.
+in its `agent.json`), since being told "a file changed" is of little use otherwise. For a
+folder source of all agents that is the main agent, which set it up; another agent that
+subscribes asks for access when it needs it (`request_access`).
 
 `remove_source` undoes all of it: the source stops, everyone subscribed to it is unsubscribed,
 its entry is deleted, and the read access and the secrets that came with it go too. The file is
@@ -490,7 +507,7 @@ pine subscribe main door --session side
 ```
 
 ```bash
-pine subscribe --global morning --note "Say good morning."
+pine subscribe --global door --note "Say who is at the door."
 ```
 
 ```bash
@@ -533,7 +550,7 @@ The same key in `pine.json` is the global scope.
 | `when` | | Only events that match. Same filter as in [routes](events.md): keys are paths such as `payload.file`, values are compared, or `{ "regex": ... }`, `{ "gt": ... }`, `{ "in": [...] }`. |
 | `throttle` | `"10s"` | After one event, ignore the source for this long. Protects the model from a chatty device; `"0s"` turns it off. |
 | `debounce` | | Wait for this long without a new event, then handle only the last one. |
-| `session` | `main` | The conversation that listens. Leaving it out is the agent scope. |
+| `session` | `main` (`on-<source>` with `separate`) | The conversation that listens. Leaving it out is the agent scope. |
 | `separate` | `false` | `true`: do not deliver into a conversation of yours, but into one of its own (`on-<source>`), with the reduced tool set for sources that are not yours. See "Trust". |
 | `prompt` | | Replaces the standard text for the event. Templates as in routes: `{{payload.file}}`. |
 
@@ -573,8 +590,8 @@ page there. From then on the usual rules of [security.md](security.md) apply in 
 conversation: actions that send information out or act on the world ask you first, and bypass
 mode is paused.
 
-`"trust": "owner"` on a source says: this is my own device or schedule, and nobody else can
-make it say things. Its events then leave no mark. Use it for a
+`"trust": "owner"` on a source says: this is my own device, and nobody else can make it say
+things. Its events then leave no mark. Use it for a
 printer on your own network, a broker with a password. Do not use it for a webhook that carries
 text written by other people (issue titles, mail subjects), whatever the secret.
 
@@ -585,7 +602,8 @@ then cannot change or run anything because of what an event said. Use it for sou
 with a lot of access.
 
 A subscription can only be made from a conversation with you, from a shell, or in the
-configuration. A turn started by a separate event cannot subscribe or unsubscribe.
+configuration. A turn started by a separate event from a source that is not yours cannot
+subscribe or unsubscribe.
 
 ## A source type of your own
 
@@ -627,10 +645,13 @@ What keeps this safe:
   agent to register it, and it reads the file again there before it does. A main conversation
   that outside events arrive in is such a conversation: open a new tab for this.
 - **A name is taken once.** To replace a type, remove it first: `remove_source_type`, which
-  refuses while a source of that type exists and deletes pine's copy with the entry.
+  refuses while a source of that type exists and deletes pine's copy with the entry. (A module
+  you registered by hand is only taken out of the list; its file stays.)
 
 A module an agent wrote can use Node's own modules (`node:net`, `node:crypto`, `fetch`) and
-what the `source` object offers, nothing that would have to be installed.
+what the `source` object offers, nothing that would have to be installed. It has to be a `.ts`
+file in the main agent's workspace, 200 KB at most, and its name cannot be that of a built-in
+type.
 
 ### Write it yourself
 
@@ -686,9 +707,9 @@ it will do in a dialog that has a field for the token, which goes into `.env`. I
 |---|---|
 | `summary` | One line: what a source of this type reports and what it is for. Agents choose the type by it. |
 | `options` | The options as a JSON schema of an object. Give every property a `description`. `"secret": true` on a property keeps its value in `.env` and out of the configuration. With `"additionalProperties": false` an option that does not exist is refused instead of ignored. An option cannot be called like a setting every source has (`type`, `use`, `description`, `agents`, `trust`, `start`, `enabled`, `session`). |
-| `talks` | Optional, `true`: its `message` events are somebody writing to the agent. The event's `text` reaches the agent as a message, the answer goes back through the source, and the default throttle does not apply. |
+| `talks` | Optional, `true`: what it reports is somebody writing to the agent, so report only `message` events. The event's `text` reaches the agent as a message, the answer goes back through the source, and the default throttle does not apply. |
 | `sends` | Optional. One line for the agent on what sending through it does and what to pass. With it the agent's `send` tool offers the source. |
-| `plan(options, setup)` | Optional. Returns `{ options, does, opens, read?, tell?, owner? }` (`owner: true`: the source itself makes sure who is on the other end, so what it reports counts as your own words; you are told before you confirm): the options as they are to be stored, what the source will do in plain words (shown in your dialog), whether it reaches something new (then you are asked), a folder the agent should be able to read, and what the agent should pass on to you afterwards. Throw for what cannot work. Without `plan`, a set-up is always put to you. `setup` has the source's `name`, the `agent` and its `workspace`, pine's `home`, `resolve(path)`, `random(bytes)` and `envName(option)`. |
+| `plan(options, setup)` | Optional. Returns `{ options, does, opens, read?, tell?, owner? }` (`owner: true`: the source itself makes sure who is on the other end, so what it reports counts as your own words; you are told before you confirm): the options as they are to be stored, what the source will do in plain words (shown in your dialog), whether it reaches something new (then you are asked), a folder the agent should be able to read, and what the agent should pass on to you afterwards. Throw for what cannot work. Without `plan`, a set-up is always put to you. `setup` has the source's `name` and `key` (`name`, or `name@agent` for an agent's own), the `agent` and its `workspace`, pine's `home`, `resolve(path)`, `random(bytes)` and `envName(option)`. |
 
 A type without a `type` export still works in the configuration, but agents cannot set one up
 by tool call, and pine's log says so at start. For a single source that needs no type, `"use":
@@ -703,7 +724,7 @@ The start function gets a `source` object:
 | `status(line)` | Say in one line how things stand (who it is connected to, what it waits for). Shown wherever sources are listed. |
 | `onSend(handler)` | For a source that can also send: called with an agent's answer (`text`, and the fields given as `reply`) and with what an agent sends on its own. Return a line on what was done; throw to refuse. |
 | `on(pattern, handler)` | Look at events of the system, read only: `agent/+/started`, `approval/requested`. |
-| `approvals` | `ask(summary, why)` puts a question of the source's own to you in pine's UI; `pending()` and `decide(id, allow, by)` let it pass on your answer to open requests. |
+| `approvals` | `ask(summary, why)` puts a question of the source's own to you in pine's UI; `request(summary, why, inputs)` asks with fields you fill in and returns `{ allow, by, values }`; `pending()` and `decide(id, allow, by, always?)` let it pass on your answer to open requests. |
 | `key` | What it is called in events: its name, or `name@agent` for an agent's own. |
 | `poll(every, look)` | Look at something again and again: `look(signal)` runs once at the start and then every `every` (`"30s"`, `"5m"`), never twice at once. Throw from it for a failed look; pine backs off and shows it in the status. See "Looking again and again". |
 | `changed(value, slot?)` | Compare a value with the one of the last look and remember it. Returns `{ previous }` when it differs, nothing when it is the same or the first look. |
@@ -737,7 +758,8 @@ both are sources now, so an agent can set them up and see them.
 1. `pine sources`: is it running, is the agent listed as subscriber, when was the last event?
    "not running: ..." gives the reason (a missing option, a port in use). For `http` and
    `command` it also says when the source last looked and what it found, or since when looks
-   fail and why. "found nothing with the pattern" means `match` or `path` fits nothing.
+   fail and why. "found nothing with the pattern" (`match`) or "found nothing at data.price" (`path`) means
+   it fits nothing.
 2. `pine events --topic 'source/<name>/#'`: did the source report anything?
 3. `pine tasks --agent <id>`: was the agent woken? If events arrive but no task starts, look at
    `when` and `throttle` of the subscription.

@@ -11,7 +11,7 @@ running it attaches to it; otherwise it starts one inside the same process, logs
 `pine` works without further setup, given Claude Code is installed and signed in.
 
 ```
- pine  1 main   2 main·notes ⠹  3 events                           ▤ code  ← tabs, and the code pane's button
+ pine  1 main ×  2 main·notes × ⠹  3 events ×  +                   ▤ code  ← tabs, and the code pane's button
 ──────────────────────────────────────────────────────────────────────────
  what is on the front page of example.com?                                 ← you
 
@@ -93,7 +93,8 @@ and go out with your next message. `/attach <path>` does the same from the keybo
 
 What the agent gets: the files are saved into `inbox/` in its workspace, the message says which
 files arrived, and images are also shown to the model directly if the model accepts images. Up
-to 10 files of at most 20 MB each per message.
+to 10 files of at most 20 MB each, about 48 MB together per message. An image over 10 MB is
+saved but not shown to the model.
 
 A folder dropped on the terminal is not attached: it is opened for the conversation, as with
 `/folder` ([coding.md](coding.md)).
@@ -117,15 +118,17 @@ the agent is working, `!` that it waits for your approval.
 | Watch everything that happens | `/events` |
 
 **Tabs and conversations.** A tab shows one conversation. When you quit and start again, the
-same tabs are open, in the same order, with the same one in front. Closing a tab does not end
-its conversation: it stays in the agent's list (`/sessions`, or a click on the conversation's
-name in the bottom bar) and opens again from there.
+same conversation tabs are open, in the same order, with the same one in front (the events tab
+and task tabs are not reopened). Closing a tab does not end its conversation: it stays in the
+agent's list (`/sessions`, or a click on the conversation's name in the bottom bar) and opens
+again from there. A conversation in which nothing has been said yet is not in the list.
 
 The list does not grow without end. A conversation is removed by itself, with everything said
 in it, once nothing has been said in it for 7 days (`limits.conversationDays`; `0` keeps
 everything). These stay however old they are: each agent's main conversation, a pinned one,
-one that is open in a tab, and one that is subscribed to an event source. The list says for
-each which it is: `pinned`, `open in a tab`, or `goes in 5 days`.
+one that is open in a tab, and one that is subscribed to an event source or has a schedule of
+its own. The list says for each which it is: `the agent's own, always kept`, `pinned`, `open in
+a tab`, `kept`, or when it goes (`goes in 5 days`, `goes in 20 h`, `goes soon`).
 
 | In the list | Does |
 |---|---|
@@ -133,8 +136,9 @@ each which it is: `pinned`, `open in a tab`, or `goes in 5 days`.
 | `pin` / `unpin` at the end of a row, or `ctrl+p` | Pins it, or takes the pin off. A pinned one has a `★` in front and comes first |
 | `×` at the end, or `ctrl+x` | Removes it for good. It asks once more (`remove? ×`); the second click or key does it. A conversation that is working is not removed |
 
-Removing cannot be undone: the history, what the conversation may do without asking and what
-it listens to all go. A new conversation of the same name starts empty.
+Removing cannot be undone: the history, what the conversation may do without asking, what it
+listens to and whatever was set up for it alone (event sources, schedules, MCP servers, skills,
+its folder) all go. A new conversation of the same name starts empty.
 
 Opening a conversation shows its recent history. Messages that reach the same session from
 somewhere else (Telegram, `pine send`, a route) appear in the tab as well.
@@ -163,7 +167,7 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/mcp`, `/mcp login [name]` | List the MCP servers with their state; sign in to a remote one through the browser. Without a name: the only remote server, or a list to choose from |
 | `/status` | Model slots, running tasks, live sessions |
 | `/sources` | Event sources: what can wake an agent, whether it runs, who is subscribed |
-| `/subscribe [local\|agent\|global] <source> [what to do]`, `/unsubscribe [local\|agent\|global] <source>` | Wake on a source's events, or stop that. Without a scope it means this tab's conversation, and that subscription ends when the tab is closed. See [sources.md](sources.md) |
+| `/subscribe [local\|agent\|global] <source> [what to do]`, `/unsubscribe [local\|agent\|global] <source>` | Wake on a source's events, or stop that. Without a scope it means this tab's conversation, and that subscription ends when the tab is closed; in an agent's main conversation it is the agent's own and stays. See [sources.md](sources.md) |
 | `/tasks` | Recent tasks of this tab's agent |
 | `/task <id>` | Open a tab on one task and see what it did, step by step. Meant for sub-agents and delegated tasks |
 | `/events` | The live event log in its own tab |
@@ -222,14 +226,16 @@ dialog opens over the conversation with the agent, the tool and its arguments, a
 | `a` or `y` | Allow this once |
 | `s` | Always here: allow, and do not ask again in this conversation about this MCP server (or this tool, such as `bash`). Not offered for actions you configured to ask every time |
 | `d` or `n` | Deny |
-| `esc` | Decide later; the status line keeps reminding you, and `/approve` or `/deny` answer it |
+| `esc` | Decide later: the request stays open until `security.approvalTimeout` (5 minutes) has passed and then counts as denied. Until then the status line keeps reminding you, and `/approve` or `/deny` answer it |
 
 When the action needs something only you have (a bot's token, a device's password), the dialog
-has a field for it. (Pairing a Telegram account works the same way, with the code the bot sent
-to your phone; that one is shown as you type.) Type or paste it: it is shown as dots, goes into pine's `.env` and is
-never seen by the agent or its model. `enter` saves and allows, `tab` moves between fields,
-`ctrl+u` empties one, `esc` leaves it for later, and `/approve` opens the dialog again. The
-letter keys are part of what you type there, so `a` and `d` are not shortcuts in this dialog.
+has a field for it. Type or paste it: a secret is shown as dots, goes into pine's `.env` and is
+never seen by the agent or its model. (Pairing a Telegram account uses the same dialog for the
+six-digit code the bot sent to your phone; the code is shown as you type and is not stored.)
+`enter` saves and allows, `tab` and `shift+tab` or the arrow keys move between fields, `ctrl+u`
+empties one, `esc` leaves it for later, and `/approve` opens the dialog again. The letter keys
+are part of what you type there, so `a` and `d` are not shortcuts in this dialog; Deny is a
+button to click.
 
 If Telegram is set up, the same request arrives there too; whichever answer comes first counts.
 A request with a field to fill in is not sent to Telegram.
@@ -248,8 +254,9 @@ An answer is markdown, and it is drawn, not shown as written:
 | Lists, task lists, quotes, rules, links, bold, italic, strikethrough, inline code | As such |
 
 Shown as written: other HTML tags and footnotes. A table too wide to fit even with one
-character per column is shown as written too. Colours are the terminal's own sixteen, and
-`NO_COLOR` turns them off.
+character per column is shown as written too. Code is coloured with the terminal's own sixteen
+colours; the accent and the background of your own messages come from the 256-colour palette.
+`NO_COLOR` turns colours off.
 
 ## Pictures
 
@@ -263,8 +270,9 @@ Pictures are drawn in the conversation:
 - pictures the agent points at in its answer with `![caption](path)`, where the path is a file
   in its workspace (png, jpg, gif or webp).
 
-How they look depends on the terminal. kitty, Ghostty and WezTerm get the real picture. Every
-other terminal (Apple's Terminal, iTerm2, anything inside tmux) gets a thumbnail made of
+How they look depends on the terminal. kitty, Ghostty, WezTerm and Warp (every terminal that
+is recognised as speaking the Kitty graphics protocol) get the real picture. Every other
+terminal (Apple's Terminal, iTerm2, anything inside tmux) gets a thumbnail made of
 coloured half blocks, two pixels per character. The half-block thumbnail and the conversion of
 jpg, gif and webp use macOS's `sips`; on another system only png files show, and only on a
 terminal with real pictures.
@@ -275,7 +283,9 @@ returns when the menu closes. The same holds while the code pane is open beside 
 conversation: a real picture can only be drawn at the left edge of a full line.
 
 A thumbnail is at most 44 characters wide and 14 lines high. Click it to enlarge it, click again
-to shrink it. Pictures are also there when you reopen a conversation and in a task's own tab.
+to shrink it. When you reopen a conversation, the pictures that came with a message and those
+an answer points at are there again; pictures a tool returned are shown again in the task's own
+tab (`/task <id>`).
 
 A picture at a web address is not fetched by itself. The answer shows
 `▸ load picture https://...` and the picture loads when you click that. The reason is the same
@@ -296,7 +306,7 @@ conversation you reopen shows a still and waits. The line under it has the contr
   in, and changing the size does not start, stop or rewind it.
 - `▸ open in player` hands the file to the system's player, for full quality and sound.
 
-Playback is ten frames a second, without sound. On kitty, Ghostty and WezTerm the frames are
+Playback is ten frames a second, without sound. On kitty, Ghostty, WezTerm and Warp the frames are
 real pictures (up to 480 pixels wide as a thumbnail, 720 enlarged); every other terminal gets
 half blocks, as for pictures. One video plays at a time. Playing in place needs
 `ffmpeg` (`brew install ffmpeg`); without it there is the still (from Quick Look) and the

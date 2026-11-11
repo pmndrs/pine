@@ -247,7 +247,7 @@ export interface PineConfig {
 		modelHeadersTimeoutMs: number;
 		modelStreamIdleMs: number;
 		eventRetentionDays: number;
-		/** A conversation that is not pinned, not open in a tab and not subscribed to anything is removed after this many days without a message. 0: never. */
+		/** A conversation that is not pinned, not open in a tab, not subscribed to anything and without a schedule of its own is removed after this many days without a message. 0: never. */
 		conversationDays: number;
 		maxQueuedPerAgent: number;
 		maxEventChars: number;

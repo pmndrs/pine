@@ -318,8 +318,9 @@ export class SourceHost {
 			delete json.sourceTypes?.[name];
 			if (json.sourceTypes && !Object.keys(json.sourceTypes).length) delete json.sourceTypes;
 		});
-		// Only what pine put there itself; a module the owner registered by hand is theirs to delete.
-		if (path.dirname(file) === this.typeDir()) fs.rmSync(file, { force: true });
+		// Only the copy pine made itself, which carries the text's hash in its name. A module the owner
+		// registered by hand is theirs to delete, also when it lies in the same folder.
+		if (path.dirname(file) === this.typeDir() && new RegExp(`^${name}\\.[0-9a-f]{10}\\.ts$`).test(path.basename(file))) fs.rmSync(file, { force: true });
 		delete this.cfg.sourceTypes[name];
 		this.types.delete(name);
 		this.log.info(`source type ${name} removed`);
@@ -591,8 +592,10 @@ export class SourceHost {
 		const agent = this.cfg.agents[key.includes("@") ? key.slice(key.lastIndexOf("@") + 1) : mainAgentId(this.cfg)];
 		if (!agent) return Promise.reject(new Error("the agent this source belongs to is gone"));
 		const roots = rootsFor(this.cfg, agent);
+		// Where the agent's own shell is withheld because nothing could confine it, a source's command is not run either.
+		if (agent.sandbox.enabled && !sandboxAvailable()) return Promise.reject(new Error("there is no sandbox on this platform to run the command in, so it is not run"));
 		// The variant of a run that has read outside content: what is read into the agent's prompt stays as it is.
-		const argv = agent.sandbox.enabled && sandboxAvailable() ? ["/usr/bin/sandbox-exec", "-p", sandboxProfile(this.cfg, agent, roots, "restricted"), "/bin/bash", "-c", command] : ["/bin/bash", "-c", command];
+		const argv = agent.sandbox.enabled ? ["/usr/bin/sandbox-exec", "-p", sandboxProfile(this.cfg, agent, roots, "restricted"), "/bin/bash", "-c", command] : ["/bin/bash", "-c", command];
 		const max = opts.maxBytes ?? 256 * 1024;
 		const timeoutMs = opts.timeoutMs ?? 30_000;
 		return new Promise((resolve, reject) => {
@@ -744,6 +747,14 @@ export class SourceHost {
 		if (this.cfg.sources[name] || Object.values(this.cfg.agents).some((a) => a.sources[name])) throw new Error(`a source named "${name}" exists already; pick another name, or subscribe to that one`);
 		const file = agent ? path.join(agent.dir, "agent.json") : path.join(this.cfg.home, "pine.json");
 		const before = fs.readFileSync(file, "utf8");
+		// Read access to a watched folder is an agent's: for a source of all agents, the main agent's, which set it up.
+		const reader = read ? (agent ?? this.cfg.agents[mainAgentId(this.cfg)]) : undefined;
+		const readerFile = reader ? path.join(reader.dir, "agent.json") : undefined;
+		const readerBefore = readerFile && readerFile !== file ? fs.readFileSync(readerFile, "utf8") : undefined;
+		const grant = (json: any) => {
+			json.sandbox = { ...(json.sandbox ?? {}) };
+			json.sandbox.read = [...new Set([...(json.sandbox.read ?? []), read])];
+		};
 		// A secret goes into .env; the configuration only refers to it by name.
 		const kept: Record<string, string> = {};
 		entry = { ...entry };
@@ -758,24 +769,22 @@ export class SourceHost {
 		setEnv(this.cfg.home, kept);
 		editJson(file, (json) => {
 			json.sources = { ...(json.sources ?? {}), [name]: entry };
-			if (read) {
-				json.sandbox = { ...(json.sandbox ?? {}) };
-				json.sandbox.read = [...new Set([...(json.sandbox.read ?? []), read])];
-			}
+			if (read && readerFile === file) grant(json);
 		});
+		if (readerFile && readerFile !== file) editJson(readerFile, grant);
 		let fresh: PineConfig;
 		try {
 			fresh = loadConfig(this.cfg.home);
 		} catch (e) {
 			fs.writeFileSync(file, before);
+			if (readerFile && readerBefore !== undefined) fs.writeFileSync(readerFile, readerBefore);
 			unsetEnv(this.cfg.home, Object.keys(kept));
 			throw new Error(errText(e).replace(/^[\s\S]*?sources/, "sources"));
 		}
 		const parsed = agent ? fresh.agents[agent.id].sources[name] : fresh.sources[name];
-		if (agent) {
-			agent.sources[name] = parsed;
-			agent.sandbox.read = fresh.agents[agent.id].sandbox.read;
-		} else this.cfg.sources[name] = parsed;
+		if (agent) agent.sources[name] = parsed;
+		else this.cfg.sources[name] = parsed;
+		if (reader) reader.sandbox.read = fresh.agents[reader.id].sandbox.read;
 		this.log.info(`source ${name} added ${agent ? `for ${agent.id}` : "for all agents"} (${parsed.type ?? "custom"})`);
 		return parsed;
 	}
@@ -801,7 +810,15 @@ export class SourceHost {
 		// What it kept for itself goes with it: a source of the same name set up later starts from nothing (nobody paired, no place in a queue).
 		this.kv.forget(`source:${key}:`);
 		const dir = source.type === "folder" && typeof source.options.dir === "string" ? resolvePath(source.options.dir, source.base) : undefined;
-		const stillWatched = (a: typeof agent) => Object.entries(a?.sources ?? {}).some(([n, x]) => n !== name && x.type === "folder" && typeof x.options.dir === "string" && resolvePath(x.options.dir, x.base) === dir);
+		// Whose read access came with it: the agent's own, or the main agent's for a source of all agents.
+		const reader = agent ?? this.cfg.agents[mainAgentId(this.cfg)];
+		const stillWatched = (a: typeof agent) => [...Object.entries(a?.sources ?? {}), ...Object.entries(this.cfg.sources)].some(([n, x]) => n !== name && x.type === "folder" && typeof x.options.dir === "string" && resolvePath(x.options.dir, x.base) === dir);
+		const revoke = (json: any) => {
+			if (!reader || !dir || stillWatched(reader) || !Array.isArray(json.sandbox?.read)) return;
+			json.sandbox.read = json.sandbox.read.filter((x: string) => resolvePath(x, reader.dir) !== dir);
+			if (!json.sandbox.read.length) delete json.sandbox.read;
+			if (!Object.keys(json.sandbox).length) delete json.sandbox;
+		};
 		const names = new Set<string>();
 		editJson(agent ? path.join(agent.dir, "agent.json") : path.join(this.cfg.home, "pine.json"), (json) => {
 			// The secrets pine put into .env for it go too.
@@ -811,17 +828,13 @@ export class SourceHost {
 			}
 			delete json.sources?.[name];
 			if (json.sources && !Object.keys(json.sources).length) delete json.sources;
-			if (agent && dir && !stillWatched(agent) && Array.isArray(json.sandbox?.read)) {
-				json.sandbox.read = json.sandbox.read.filter((x: string) => resolvePath(x, agent.dir) !== dir);
-				if (!json.sandbox.read.length) delete json.sandbox.read;
-				if (!Object.keys(json.sandbox).length) delete json.sandbox;
-			}
+			if (agent) revoke(json);
 		});
+		if (!agent && reader && dir) editJson(path.join(reader.dir, "agent.json"), revoke);
 		unsetEnv(this.cfg.home, [...names]);
-		if (agent) {
-			delete agent.sources[name];
-			if (dir && !stillWatched(agent)) agent.sandbox.read = agent.sandbox.read.filter((x) => x !== dir);
-		} else delete this.cfg.sources[name];
+		if (agent) delete agent.sources[name];
+		else delete this.cfg.sources[name];
+		if (reader && dir && !stillWatched(reader)) reader.sandbox.read = reader.sandbox.read.filter((x) => x !== dir);
 		this.log.info(`source ${name} removed ${agent ? `from ${agent.id}` : "for all agents"}`);
 		return { removed: true, unsubscribed };
 	}

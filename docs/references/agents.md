@@ -1,7 +1,8 @@
 # Agents
 
 An agent is a folder under `agents/` in pine's home. The folder name is its id (lowercase
-letters, digits, `-`, `_`).
+letters, digits, `-`, `_`, starting with a letter or digit; `create_agent` wants a letter first
+and 2 to 31 characters).
 
 ```
 agents/gonzo/
@@ -46,10 +47,11 @@ once and briefly, and to tidy its memory when it has grown long (merge, drop wha
 holds, move details into other files and leave a pointer). When `MEMORY.md` passes about 6 000
 characters, pine reminds the agent, because all of it is read with every message.
 
-`pine init` and `create_agent` start them as short stubs. A file that is missing is simply not
+`pine init` starts them as short stubs; `create_agent` writes the instructions it was given
+into `AGENTS.md` and starts the other two as stubs. A file that is missing is simply not
 loaded, and the agent creates it when it has something to put there. A change applies from the
-agent's next message on. Only these names, at the top of the workspace, are read; anything
-else the agent keeps there is its own notes, which it reads when it needs them.
+agent's next message on. Only these names (and a `CLAUDE.md`), at the top of the workspace, are
+read; anything else the agent keeps there is its own notes, which it reads when it needs them.
 
 Other agents get `USER.md` in their prompt but cannot open or change the file; they tell you
 when something belongs there. A conversation that has read outside content cannot change any
@@ -92,8 +94,9 @@ Nothing in the system prompt changes from one turn to the next. That is delibera
 server keeps what it has already read (the prompt cache) only as long as the beginning of the
 prompt is identical, and on a local model a miss means reading the whole conversation again
 before the first word of the answer. What does change, pine puts in front of your message
-instead, in a `<pine-note>`: the local time and date, the mode, whether its shell has network
-access, the shared state listed in `state.inject`, and whether the session has to be careful
+instead, in a `<pine-note>`: the local time and date, the mode, the folder opened for the
+conversation, whether its shell has network access, a reminder when `MEMORY.md` has grown
+long, the shared state listed in `state.inject`, and whether the session has to be careful
 with outside content. The note is only added when something other than the time of day has
 changed since the last one. Text that arrives from elsewhere cannot fake a note; the tag is
 rewritten on the way in.
@@ -106,7 +109,8 @@ searches when a question calls for it. That keeps the prompt short for small mod
 
 ### The manual tool
 
-Every agent has a `manual` tool. It holds the whole of this manual, cut into small parts: one
+Every agent has a `manual` tool (not in a run that an outside event started). It holds the
+whole of this manual, cut into small parts: one
 for each heading, and one for each row of a table that describes a named thing (a
 configuration key, a tool, a command, an option).
 
@@ -122,8 +126,9 @@ a list of synonyms. A source type that was registered in this installation is fo
 with its options. When nothing matches, the answer says so and suggests other words; it never
 says that pine cannot do something.
 
-`pine manual <words>` is the same search in a shell, and `pine manual --read <id>` reads a
-part: a quick way to see what an agent would find.
+`pine manual <words>` is the same search in a shell (without the source types registered in
+an installation), and `pine manual --read <id>` reads a part: a quick way to see what an agent
+would find. One call takes up to 6 queries and reads up to 8 parts.
 
 Nothing from your own home folder leaks in: pi would normally also pick up `~/.agents/skills`
 and instruction files in the folders above the workspace; pine filters those out. Edits to the
@@ -146,8 +151,8 @@ other's files.
 
 A single conversation can work somewhere else without any of this: `pine <folder>`, or the
 folder in the bottom bar of the terminal UI, opens a folder of yours for that one conversation.
-Its tools then start there and may change what is in it, and the folder's `AGENTS.md` applies
-next to the agent's own. See [coding.md](coding.md).
+Its tools then start there and may change what is in it, and the folder's `AGENTS.md` (or
+`CLAUDE.md`) applies next to the agent's own. See [coding.md](coding.md).
 
 ## Sessions
 
@@ -157,7 +162,7 @@ A session is one conversation with history.
 |---|---|
 | nothing | The agent's `main` session: one long conversation, compacted by pi when it fills up |
 | a name, for example `tg-123456` or `case-okapi` | A separate named conversation |
-| `new` | A fresh conversation that is thrown away after the task |
+| `new` | A fresh conversation for that one task; it is not continued |
 
 Routes pick the session with `"session"`, the CLI with `--session`. What you write on Telegram
 arrives in the conversation that subscribed to the Telegram source. Runs started by untrusted
@@ -173,12 +178,12 @@ over. The old history is kept on disk next to it with a `.reset-<time>` suffix f
 reset.
 
 A named conversation does not stay for ever. One that is not an agent's `main`, not pinned, not
-open in a tab of the terminal UI and not subscribed to an event source is removed with its
-history after `limits.conversationDays` (7) without a message. That holds for every named
+open in a tab of the terminal UI, not subscribed to an event source and without a schedule of
+its own is removed with its history after `limits.conversationDays` (7) without a message. That holds for every named
 conversation: one you opened in the terminal UI, a delegation thread's, one a route names. Pin the ones to keep (`/pin`, or the list of
 conversations in the terminal UI; see [tui.md](tui.md)), or set `limits.conversationDays` to
-`0` to keep them all. MCP servers and event sources that were set up for one conversation go
-with it ([setup.md](setup.md)).
+`0` to keep them all. Everything that was set up for one conversation alone goes with it: its
+event sources and subscriptions, schedules, MCP servers and skills ([setup.md](setup.md)).
 
 ## Handing work to another agent
 
@@ -261,9 +266,9 @@ Do not route untrusted text into a key that agents see.
 ## What an agent's answer does
 
 - The final text of a task is its result. If the task has a reply target, it is sent there.
-- `NO_REPLY` as the whole answer sends nothing.
-- A failed task (model error, timeout, cancelled) sends "`<agent>` could not finish: ..." to
-  the reply target, so you are not left waiting.
+- `NO_REPLY` (or `SILENT`) as the whole answer sends nothing.
+- A failed task (model error, timeout) sends "`<agent>` could not finish: ..." to the reply
+  target, so you are not left waiting. A cancelled task sends nothing.
 
 ## pi extensions
 
@@ -333,8 +338,15 @@ A folder with a `SKILL.md` in one of these places is a skill, with no entry anyw
 | `~/.pine/skills/<name>/` | all agents |
 | `~/.pine/agents/<id>/skills/<name>/` | that agent |
 
+What lies in these two folders an agent can also replace (`add_skill` under the same name) and
+remove (`remove_skill`), whoever put it there.
+
 A skill that lies somewhere else is named under `skills` in `pine.json` (for all) or in an
 `agent.json` (for that agent). Agents can use those and cannot replace or remove them.
+
+A skill's name is lowercase letters, digits and single hyphens, at most 64 characters; `pine`
+is taken. The description may have 1024 characters, the instructions 40 000. Files that go
+along: at most 200 and 4 MB together, real files only (a link is refused).
 
 `pine skills` lists every skill, whom it is for and where it lies.
 

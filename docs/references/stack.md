@@ -4,10 +4,10 @@
 
 | Piece | Role | Notes |
 |---|---|---|
-| Node 24+ | Runtime | Runs the TypeScript sources directly (type stripping). No build, no bundler. |
+| Node 24+ | Runtime | Runs the TypeScript sources directly in a checkout (type stripping); the npm package holds them compiled to JavaScript (`npm run build`). No bundler. |
 | `@earendil-works/pi-coding-agent` 1.5.1 | The agent loop | Sessions, model calls, tool execution, compaction, retries, MCP client, skills, extensions. pine embeds it through its SDK. |
-| `node:sqlite` | Storage | One file, `data/pine.db`: events, tasks, shared state, storage of sources. WAL mode. |
-| `undici` | HTTP client behind `fetch` | pine installs timeouts for the model servers' connection pools; the `web` MCP server uses it for address checks at connect time. |
+| `node:sqlite` | Storage | One file, `data/pine.db`: events, tasks, shared state, and what pine keeps for itself (what sources remember, when schedules last fired, which conversations have read outside content, their folders and pins, the open tabs). WAL mode. |
+| `undici` | HTTP client behind `fetch` | pine installs timeouts for the model servers' connection pools; the `web` MCP server, the `download` tool and the `http` source use it for address checks at connect time. |
 | `@earendil-works/pi-mcp` | MCP naming | pi's MCP package; pine uses its function that turns a server name into the prefix of its tool names. |
 | `mqtt` | MQTT client | Only loaded when an `mqtt` source starts. |
 | `@earendil-works/pi-tui` | Terminal UI toolkit | pi's own: full-screen layout, editor with completion, Markdown rendering. Used by `src/tui/`. |
@@ -17,7 +17,7 @@
 | `typebox` | Tool parameter schemas | The same library pi uses. |
 | `claude -p` | Development model | Optional; used by `pine dev-model`, by the terminal UI when the home's model is `dev/...` (the example home), and by the live test. |
 
-Development only: `typescript` (type check), `aedes` (an MQTT broker for the tests).
+Development only: `typescript` (type check, and compiling the npm package), `@types/node`, `aedes` (an MQTT broker for the tests).
 
 ## Why pi, and how it is embedded
 
@@ -27,7 +27,7 @@ pine adds what a daemon with several agents needs around it.
 
 Every agent session is a pi `AgentSessionRuntime` created in `AgentManager.createLive()`:
 
-- its own `cwd` (the workspace) and `agentDir` (`agents/<id>/`), so instructions, skills,
+- its own `cwd` (the workspace, or the folder you opened for the conversation) and `agentDir` (`agents/<id>/`), so instructions, skills,
   settings and session files are per agent, all in one process;
 - pi's MCP, code-mode and tool-search extensions when the agent has MCP servers;
 - pine's core extension (`coreExtension()`), which registers the agent's MCP servers, replaces
@@ -71,7 +71,7 @@ two consecutive user messages.
 
 | Suite | Runs | Against |
 |---|---|---|
-| `npm test` | 119 tests (two of them only run with `test:live`) in about ten seconds, files in parallel | The scripted model server in `baseline/tests/mock.mjs` |
+| `npm test` | 145 tests (two of them only run with `test:live`) in about ten seconds, files in parallel | The scripted model server in `baseline/tests/mock.mjs` |
 | `npm run test:live` | Delegation to a specialist that reads its files, then a hostile event; and an agent driving the real browser | A real model through `claude -p`; Chromium and the network |
 | `npm run baseline` | 59 checks of pi itself | The scripted model server |
 
@@ -101,5 +101,5 @@ Not verified yet, in rough order of importance:
 5. **Long uptimes.** Weeks of running: database growth, session file growth, MCP servers that
    die and reconnect.
 6. **Other platforms.** There is no sandbox outside macOS; the shell tool is withheld there.
-7. **Not built:** a Slack adapter, a web dashboard, voice. A Slack adapter would be a source
-   type like `telegram`: one that talks and can send.
+7. **Not built:** a Slack source, a web dashboard, voice. Slack would be a source type like
+   `telegram`: one that talks and can send.

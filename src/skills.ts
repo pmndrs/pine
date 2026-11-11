@@ -89,7 +89,7 @@ export interface SkillSpec {
 }
 
 /** Check what a skill is to be before anybody is asked anything. Returns it tidied, with the files that would be copied. */
-export function checkSkill(spec: SkillSpec, workspace: string): SkillSpec & { copy: Array<{ from: string; to: string }> } {
+export function checkSkill(spec: SkillSpec, workspace: string): SkillSpec & { copy: Array<{ from: string; to: string }>; workspace: string } {
 	const name = String(spec.name ?? "").trim();
 	if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name) || name.length > 64) throw new Error(`"${name}" is not a usable skill name: lowercase letters, digits and single hyphens, at most 64 characters (for example invoices, solar-yield)`);
 	if (name === "pine") throw new Error('"pine" is the name of pine\'s own manual');
@@ -124,7 +124,7 @@ export function checkSkill(spec: SkillSpec, workspace: string): SkillSpec & { co
 		};
 		walk(root);
 	}
-	return { name, description, instructions, copy };
+	return { name, description, instructions, copy, workspace: realish(workspace) };
 }
 
 /** Where a skill of a scope lies. */
@@ -140,7 +140,20 @@ export function writeSkill(dir: string, skill: ReturnType<typeof checkSkill>): v
 	fs.mkdirSync(fresh, { recursive: true, mode: 0o700 });
 	for (const f of skill.copy) {
 		fs.mkdirSync(path.dirname(path.join(fresh, f.to)), { recursive: true });
-		fs.copyFileSync(f.from, path.join(fresh, f.to));
+		// Between the check and now the owner may have been asked: what is copied is looked at again,
+		// and a file that has since become a link, or leads out of the workspace, is not followed.
+		let fd: number | undefined;
+		try {
+			if (!isInside(skill.workspace, realish(f.from))) throw new Error("it leads out of your workspace");
+			fd = fs.openSync(f.from, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+			if (!fs.fstatSync(fd).isFile()) throw new Error("it is not a file");
+			fs.writeFileSync(path.join(fresh, f.to), fs.readFileSync(fd));
+		} catch (e) {
+			fs.rmSync(fresh, { recursive: true, force: true });
+			throw new Error(`${f.from} changed while the skill was being added and is not taken: ${e instanceof Error ? e.message : e}`);
+		} finally {
+			if (fd !== undefined) fs.closeSync(fd);
+		}
 	}
 	// The description as a quoted string, which is the same in JSON and in YAML: a colon in it cannot break the header.
 	fs.writeFileSync(path.join(fresh, "SKILL.md"), `---\nname: ${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n---\n\n${skill.instructions}\n`);

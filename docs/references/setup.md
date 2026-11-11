@@ -73,6 +73,8 @@ difference between the first two: the main conversation is the agent.
 | Remove a server, a source, a schedule or a skill of the agent (from another conversation than its main one) or of all agents | Yes. |
 | Create an agent | Always. The dialog shows its id, description, model, tools and instructions. |
 | Register a new type of event source | Always, in every mode. The dialog says that it is a program, how long it is, what it imports and where the file is. |
+| Take a source type out again | Yes. |
+| End a subscription for all agents | No (the main agent only). |
 
 In manual mode, and in a conversation that has read outside content, the questions that are
 otherwise skipped are asked too (ending a subscription: in manual mode only).
@@ -104,7 +106,7 @@ reduced tool set, which outside events start through a route or a subscription m
 | `remove_mcp_server` `name` | Takes a server out again. |
 | **Skills** | |
 | `add_skill` `name` `description` `instructions` [`files`] [`scope`] | Writes a skill; the same name in the same place replaces it. `files` is a folder in the agent's workspace whose contents go along. |
-| `remove_skill` `name` | Deletes a skill that was added by tool call. One you put there yourself is yours to remove. |
+| `remove_skill` `name` | Deletes a skill in pine's own skill folders (`skills/`, `agents/<id>/skills/`, a conversation's), also one you put there by hand. A skill in a folder named under `skills` in a configuration file is yours to remove. |
 | **Agents** | |
 | `create_agent` `id` `description` `instructions` [`model`] [`tools`] | Main agent only. See below. |
 

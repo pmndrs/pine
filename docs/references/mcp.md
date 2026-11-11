@@ -30,8 +30,8 @@ Who gets what:
 | `agents` on a global server | Which agents get it. Default: all (`["*"]`). |
 | `globalMcp: true` in `agent.json` (default) | The agent gets every global server that includes it. |
 | `globalMcp: false` | No global servers. |
-| `globalMcp: ["web"]` | Exactly these global servers. |
-| A server in `agent.json` with a global server's name | Replaces the global one for this agent. |
+| `globalMcp: ["web"]` | Exactly these global servers, whether or not their `agents` list names this agent. |
+| A server in `agent.json` with a global server's name | Replaces the global one for this agent (an entry with `"enabled": false` does not: the global server stays). |
 | `"enabled": false` | Switches a server off without deleting it. |
 
 `pine check` prints the resulting list per agent.
@@ -55,7 +55,8 @@ question comes in every mode, bypass included, because it changes pine itself.
 Your yes makes it a server of yours: using it does not mark the conversation as having read
 outside content. It is written with `"approve": "tainted"`, which only matters after the
 conversation has read something from outside (a web page, say): from then on the server's tools
-that act ask once, and "Always here" in that dialog settles it for the conversation. Its
+that act ask each time, until you answer "Always here" in that dialog, which settles it for the
+conversation. Its
 read-only tools never ask. If the server itself returns other people's text (mail, tickets, a
 web search), add `"taints": true` to its entry; if you want no questions at all, remove
 `approve`.
@@ -71,7 +72,8 @@ pine mcp add library --agent gonzo -- /usr/local/bin/library-mcp --stdio
 ```
 
 Options: `--agent <id>` (only that agent), `--taints`, `--approve always|tainted`,
-`--timeout <seconds>`, `--description "..."`. A remote server needs an https URL (http only for
+`--timeout <seconds>`, `--description "..."`, `--exposure direct|codemode|deferred|hidden`.
+`pine mcp list --offline` lists without connecting. A remote server needs an https URL (http only for
 `localhost`). If a daemon is running the change applies at once; otherwise at the next start.
 `pine mcp remove <name>` takes it out again (`--agent <id>` for one in an `agent.json`), and
 `pine mcp list` shows every server, who gets it, and whether it connects:
@@ -126,14 +128,15 @@ and the keys pine adds (besides `agents` and `enabled` from the table at the top
 | `pine` | Use a server that ships with pine (`"web"`, `"browser"` or `"commands"`), configured through `options`. |
 | `session` | In an `agent.json` only, written by `add_mcp_server`: the one conversation the server was added for. Other conversations of the agent do not get it, and it is removed with that conversation. |
 | `taints` | `true` when the server returns content written by others (web pages, mail, tickets, chat). A session that calls it becomes tainted. Default `false`, `true` for the bundled `web` and `browser`. |
-| `approve` | `"always"`: every call needs your approval, each time. `"tainted"`: once the session has seen outside content, the server's tools that act need approval (its read-only tools do not), and you can answer "always in this conversation"; use it for servers that change things or send things out. Default `"never"`. |
+| `approve` | `"always"`: every call needs your approval, each time (except in bypass mode, where nothing asks). `"tainted"`: once the session has seen outside content, the server's tools that act need approval (its read-only tools do not), and you can answer "always in this conversation"; use it for servers that change things or send things out. Default `"never"`. |
 
 Each session starts its own copy of a local server and stops it when the session closes. A
 local server is a normal process of yours: it is not sandboxed, and what it can reach, agents
 can reach through it. Give it the narrowest credentials that do the job.
 
-pi's `mcp.json` files are not read. The daemon points pi at an empty configuration folder so
-that servers you set up for your own interactive pi do not appear in agents.
+pi's `mcp.json` files are not read. The daemon gives pi a folder of its own (`data/pi`) and
+agent sessions load no MCP configuration file, so servers you set up for your own interactive
+pi do not appear in agents.
 
 ## Bundled: web
 
@@ -151,7 +154,7 @@ Search and page reading without a browser.
 | Option | Default | Meaning |
 |---|---|---|
 | `braveApiKey` | none | Brave Search API key. |
-| `allowHosts` | all | Only these hosts (and their subdomains) can be fetched. |
+| `allowHosts` | all | Only these hosts (and their subdomains) can be fetched. Without `braveApiKey` the search is such a fetch too: add `duckduckgo.com`. |
 | `denyHosts` | none | These cannot. |
 | `allowPrivate` | `false` | Allow addresses on your own network. Leave it off. |
 | `maxBytes` | 2 MB | Cut-off for one response. |
@@ -190,8 +193,8 @@ need a shell for it.
 | `run` | Program and arguments. `{{name}}` inserts a parameter. |
 | `params.<name>` | `type` (`string`, `number`, `boolean`), `description`, `enum`, `pattern` (must match the whole value), `default`, `required` (default true). |
 | `timeoutSec` | Default 30. |
-| `cwd`, `env` | Working folder (default: the agent's workspace) and extra environment. |
-| `sandbox` | `true` runs the command inside the agent's sandbox. Default `false`: these are your commands, and most need the network. |
+| `cwd`, `env` | Working folder (default: where the conversation's tools start: the agent's workspace, or the folder opened for the conversation) and extra environment. |
+| `sandbox` | `true` runs the command inside the agent's sandbox (the variant in which instruction files are read-only). It has no effect for an agent with `"sandbox": false` or on a platform without `sandbox-exec`. Default `false`: these are your commands, and most need the network. |
 | `maxOutput` | Characters of output returned. Default 30000. |
 
 Arguments are passed as a list, never through a shell: a parameter value of `x; rm -rf ~` is one

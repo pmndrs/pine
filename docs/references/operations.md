@@ -3,7 +3,8 @@
 ## Requirements
 
 - macOS (the sandbox uses `sandbox-exec`). pine starts elsewhere, but withholds the shell tool.
-- Node 24 or newer. There is no build step; Node runs the TypeScript sources.
+- Node 24 or newer. From a checkout Node runs the TypeScript sources directly; the npm package
+  holds them compiled.
 - A model that supports tool calls: a hosted provider pi knows (sign in with `pine login`), or
   your own model server with an OpenAI-compatible chat completions endpoint.
 
@@ -152,15 +153,15 @@ the example home, `pine init` copies the files you do not have yet and overwrite
 | `pine task <id>` | One task in full |
 | `pine cancel <id>` | Stop a task |
 | `pine state [pattern]` | Shared state |
-| `pine sources` | Event sources: running or idle, who is subscribed, last event; for one that polls (`http`, `command`), when it last looked or since when that fails |
+| `pine sources` | Lists the event sources: running or idle, who is subscribed, last event; for one that polls (`http`, `command`), when it last looked or since when that fails |
 | `pine subscribe <agent> <source> [--session name] [--note text] [--throttle 5m] [--when json] [--separate]`, `pine unsubscribe <agent> <source> [--session name]` | Wake an agent on a source's events (with `--session`: only that conversation), or stop that |
 | `pine subscribe --global <source> [--note text] ...`, `pine unsubscribe --global <source>` | The same for every agent that can use the source |
 | `pine approvals`, `pine approve <id> [--always]`, `pine deny <id>` | Answer approval requests; `--always` stops the question for the rest of that conversation |
 | `pine reset <agent> [session]` | Start a conversation over; also clears its taint |
 | `pine mode <agent> [manual\|auto\|bypass]` | Show or change an agent's mode until the daemon restarts |
 | `pine mcp list` | MCP servers, who gets them, whether they connect |
-| `pine skills` | Every skill: whom it is for (all agents, an agent, one conversation) and where it lies |
-| `pine schedules` | What is scheduled: for whom, when, and the task |
+| `pine skills` | Lists every skill: whom it is for (all agents, an agent, one conversation) and where it lies |
+| `pine schedules` | Lists what is scheduled: for whom, when, and the task |
 | `pine manual <words>`, `pine manual --read <id>` | Search this manual the way the agents do, or read one part of it in full |
 | `pine mcp add <name> <url>`, `pine mcp add <name> -- <command...>` | Add a remote or a local server. `--agent <id>` for one agent |
 | `pine mcp remove <name> [--agent <id>]` | Remove a server from `pine.json`, or from that agent's `agent.json` |
@@ -223,7 +224,7 @@ are JSON with `Content-Type: application/json`.
 | `POST /tasks/<id>/cancel` | Cancel |
 | `POST /approvals/<id>` `{ allow, always?, values? }` | Answer an approval. A request that lists `inputs` (a token, a password) is only allowed together with `values: { <name>: "..." }`; the terminal UI has a field for them |
 | `POST /state` `{ key, value }` | Write state; `null` deletes |
-| `POST /hook/<name>` | Webhook: a hook from `http.hooks` ([events.md](events.md)) or a running `webhook` source ([sources.md](sources.md)). No token; each has its own secret |
+| `POST /hook/<name>` | Webhook: a hook from `http.hooks` ([events.md](events.md)) or a running `webhook` source ([sources.md](sources.md)). No token; each has its own secret, unless a hook is declared `"open": true` |
 
 ## Day to day
 

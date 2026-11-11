@@ -19,14 +19,17 @@ Everything pine needs is in its home directory: `~/.pine` by default, or `$PINE_
         MEMORY.md      what should outlive a talk    ┘ (agents.md)
       AGENTS.md        optional: rules of yours the agent cannot change
       skills/          skills only this agent has
+      conversations/   what was set up for one conversation alone (its skills); made when needed
       extensions/      pi extensions only this agent loads
       sessions/        conversation history (written by pine)
-  skills/              skills for all agents, once pine.json lists the folder
+  skills/              skills for all agents; no entry needed (the main agent adds them with add_skill)
+  sources/             source types the main agent registered (pine's own copies)
   sandbox/             per-agent private home and generated sandbox profiles (written by pine)
   data/                event log, task queue, media, control token, files of event sources (written by pine)
 ```
 
-`pine check` validates all of it, prints what each agent ends up with, and lists anything that
+`pine check` validates names, references, paths, models and the entries of sources and
+schedules, prints what each agent ends up with, and lists anything that
 weakens the defences. Problems are reported together, each with the file it is in.
 
 Paths in `pine.json` are relative to the home directory; paths in `agent.json` are relative to
@@ -86,18 +89,19 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `limits.maxDownloadMb` | `200` | Largest file the `download` tool fetches. |
 | `limits.maxEventHops` | `8` | Events further than this from an outside trigger are not routed. |
 | `limits.maxQueuedPerAgent` | `50` | New tasks are refused when an agent has this many waiting. |
-| `limits.maxEventChars` | `20000` | Longest prompt built from an untrusted event. |
+| `limits.maxEventChars` | `20000` | Longest text of an untrusted event in a prompt (at least 1000). Your own messages and delegated tasks are cut at ten times this. |
 | `limits.modelHeadersTimeoutMs` | `10m` | How long the model server may take to start answering. |
 | `limits.modelStreamIdleMs` | `5m` | How long a started answer may go silent before the request is dropped. |
 | `limits.eventRetentionDays` | `30` | Older events are deleted, and so are the copies kept of conversations that were reset. |
-| `limits.conversationDays` | `7` | A conversation in which nothing was said for this long is removed with its history, unless it is an agent's main conversation, pinned, open in a tab, or subscribed to an event source. `0`: never. |
+| `limits.conversationDays` | `7` | A conversation in which nothing was said for this long is removed with its history, unless it is an agent's main conversation, pinned, open in a tab, subscribed to an event source, or has a schedule of its own. `0`: never. |
 | `security.approvalTimeout` | `5m` | An unanswered approval request counts as "no" after this. |
 | `security.taint` | `session` | How long a session stays tainted: until reset (`session`), until the task ends (`run`), or never (`off`). See [security.md](security.md). |
 | `security.taintTools` | `[]` | Tool name globs whose results count as outside content, besides MCP servers marked `taints`. |
 | `security.bypassWhenTainted` | `false` | Keep bypass mode in force in a session that has read outside content. Off, such a session asks again. |
 | `http` | on, loopback, port 7463 | Control API and webhooks. `false` turns it off (the CLI's client commands then do not work). |
+| `http.host`, `http.port` | `127.0.0.1`, `7463` | Where the control API listens. Anything but loopback is reported by `pine check`. |
 | `http.token` | generated | Bearer token of the control API. When unset, pine generates one into `data/http-token`. |
-| `http.hooks.<name>` | none | A webhook at `POST /hook/<name>`: `{ "secret": "...", "topic": "hook/<name>" }`. See [events.md](events.md). For a webhook an agent subscribes to, use a `webhook` source instead. |
+| `http.hooks.<name>` | none | A webhook at `POST /hook/<name>`: `{ "secret": "...", "topic": "hook/<name>" }`, or `"open": true` instead of a secret to accept anyone who can reach the port. See [events.md](events.md). For a webhook an agent subscribes to, use a `webhook` source instead. |
 | `mcp` | `{}` | Global MCP servers. See [mcp.md](mcp.md). |
 | `sources` | `{}` | Event sources every agent can subscribe to. See [sources.md](sources.md). |
 | `sourceTypes` | `{}` | Source types of your own: a name and the module that implements it, e.g. `{ "doorbell": "./sources/doorbell.ts" }`. The module says which options it takes, and agents can then set up sources of that type by tool call. The main agent adds entries here with `add_source_type`, pointing at the copy pine keeps in `sources/` of its home. |
@@ -106,6 +110,10 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `skills` | `[]` | Further folders of skills for every agent, for skills that lie outside pine's home. Not needed for `skills/` in pine's home: what is there is for every agent without an entry, and so is what the main agent adds with `add_skill`. Agents cannot replace or remove a skill that is named here. |
 | `routes` | `[]` | See [events.md](events.md). |
 | `schedules` | `[]` | What happens at a time. One with a `task` wakes every agent with it; one without only publishes an event. The main agent adds entries with `add_schedule`. See [events.md](events.md). |
+
+Two things that older setups had are configuration errors now, each reported with what to
+write instead: a `plugins` list that is not empty, and an event source of `"type": "timer"`
+(that is a schedule).
 
 Durations are a number of milliseconds or a string such as `"90s"`, `"15m"`, `"2h"`, `"1d"`.
 
@@ -156,7 +164,7 @@ Every key is optional; `{}` is a valid agent.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `delegates` | `["*"]` for the main agent, else `[]` | Agents this one may hand tasks to. |
+| `delegates` | `["*"]` for the agent that `main` in `pine.json` names, else `[]` | Agents this one may hand tasks to. |
 | `subagents` | on, 4 in parallel | `false`, or `{ "maxParallel": 4, "tools": [...], "mcp": true }`. `tools` narrows what sub-agents get. |
 | `publish` | `[]` | Topic patterns the `publish_event` tool may publish on. Empty: the agent has no such tool. |
 | `state.read` | `["#"]` | State keys the agent may read. |
@@ -182,7 +190,9 @@ Every key is optional; `{}` is a valid agent.
 
 This is pi's own file; pine passes it through. It is only needed for model servers of your own:
 pi already knows the hosted providers (OpenCode, Anthropic, OpenAI and many more), and
-`pine login <provider>` supplies their credentials. The entry `pine init` writes for llama.cpp:
+`pine login <provider>` supplies their credentials. `pine init` writes two providers: `dev`
+(Claude through `claude -p`, served by `pine dev-model`; the example's `defaults.model` is
+`dev/claude-haiku`) and `local` for llama.cpp. The `local` entry:
 
 ```json
 {

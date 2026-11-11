@@ -1,13 +1,14 @@
 ---
 name: pine
-description: Run, configure and extend pine, the event-driven multi-agent daemon built on the pi coding agent SDK. Use when setting up agents and their workspaces, routing events (Telegram, MQTT, files, webhooks, schedules) to agents, subscribing agents to event sources (Telegram, folders, MQTT, webhooks, FTP uploads, timers), adding MCP servers, reaching agents on Telegram, delegating between agents, reviewing what is protected against prompt injection, or changing pine's code.
+description: Run, configure and extend pine, the event-driven multi-agent daemon built on the pi coding agent SDK. Use when setting up agents and their workspaces, subscribing agents to event sources (Telegram, folders, MQTT, webhooks, FTP uploads, web addresses, commands), scheduling what happens at a time, adding MCP servers and skills, routing events to agents, reaching agents on Telegram, delegating between agents, reviewing what is protected against prompt injection, or changing pine's code.
 ---
 
 # pine
 
 pine (PI neural engine) is one process that hosts several pi agent sessions and an event log.
-Adapters and event sources turn the outside world into events; routes and subscriptions turn
-events into work; agents answer, act, hand tasks to each other, and publish events of their own.
+Event sources and schedules turn the outside world and the clock into events; subscriptions,
+schedules and routes turn events into work; agents answer, act, hand tasks to each other, and
+publish events of their own.
 
 Three things to know before anything else:
 
@@ -20,8 +21,8 @@ Three things to know before anything else:
 3. **Where content came from decides what it may do.** Your own messages get the agent's full
    tool set. Anything else is data. An event from outside runs with a reduced tool set in a
    separate session; an event from a source a conversation subscribed to arrives in that
-   conversation, framed as data, and marks it as having read outside content. Either way nothing
-   is sent out without your approval.
+   conversation, framed as data, and marks it as having read outside content (unless the source
+   is marked as yours). Either way nothing is sent out without your approval.
 
 ## If you are an agent running inside pine
 
@@ -65,14 +66,33 @@ main conversation is woken instead, and it stays) or, if you are the main agent,
 agents); your owner is then asked to confirm. Do not pick a wider scope yourself; if you think
 they want one, ask. You can end anything your own agent is subscribed to from any of its
 conversations (`unsubscribe` with scope `agent` or `all`). If none fits,
-set one up with `add_source` (a folder to watch, a time, an MQTT device, a webhook, an FTP drop);
-your owner confirms it where that is needed. `remove_source` deletes one for good. Do not go
-looking in pine's home folder for what is configured: `sources` tells you.
+set one up with `add_source` (a folder to watch, a web address or a command that is looked at
+again and again, an MQTT device, a webhook, an FTP drop, Telegram); your owner confirms it where
+that is needed. A password or token is never yours to handle: leave it out, and pine asks your
+owner for it in a dialog. `remove_source` deletes one for good. Through a source that can send
+(Telegram, MQTT) you reach out with `send`. Do not go looking in pine's home folder for what is
+configured: `sources` tells you.
+
+When your owner wants something done at a time ("every morning at seven", "remind me at five",
+"in twenty minutes"), that is a schedule, not a source: call `add_schedule` with a name, the
+task in your own words, and one of `cron`, `every`, `at` or `in`. When it is time you are woken
+with the task. `schedules` lists what is scheduled, `remove_schedule` ends one.
+
+When your owner wants you to remember how something is done ("make a skill for this"), call
+`add_skill` with a name, a line on when to use it, and the steps. It is listed among your
+skills from your next message on; `remove_skill` deletes it. A fact rather than a procedure
+belongs into your `MEMORY.md` instead. `add_skill` is refused in a conversation that has read
+outside content.
+
+Schedules, skills, sources and servers follow the same rule: leave the scope out and it is for
+the conversation you are in.
 
 If you are the main agent and your owner asks for a new agent, call `create_agent` with an id,
 one line on what it is for, and its instructions written to the agent itself ("You are ..."):
 its job, what it should and should not do, how it reports. Your owner confirms it, and the agent
-exists at once.
+exists at once. For a device or service that no existing type of source can watch, the main
+agent can also write a new source type and register it with `add_source_type`
+([references/sources.md](references/sources.md)); try the existing types first.
 
 Things you can do yourself: work in your workspace, keep notes there, use the tools you have,
 hand work to the agents listed in your prompt, and write shared state under your own keys.
@@ -81,15 +101,15 @@ hand work to the agents listed in your prompt, and write shared state under your
 
 | You want to | Read |
 |---|---|
-| See how events, routes, tasks and sessions fit together | [references/overview.md](references/overview.md) |
+| See what an agent is given (events, schedules, MCP servers, skills) and how events, tasks and sessions fit together | [references/overview.md](references/overview.md) |
 | Chat with agents in the terminal: tabs, slash commands, approvals, switching models | [references/tui.md](references/tui.md) |
 | Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output | [references/coding.md](references/coding.md) |
 | Install it, start it, use the CLI, run it at login, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
 | Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types | [references/setup.md](references/setup.md) |
-| Add an agent, give it a workspace, tools and a persona; delegation, sub-agents, sessions, shared state | [references/agents.md](references/agents.md) |
-| Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras, timers; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
-| Write rules for events yourself: set state, publish, single model calls, schedules, debounce | [references/events.md](references/events.md) |
+| Add an agent, give it a workspace, tools and a persona; skills; how agents look pine up (the `manual` tool); delegation, sub-agents, sessions, shared state | [references/agents.md](references/agents.md) |
+| Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
+| Have something done at a time (schedules); write rules for events yourself: set state, publish, single model calls, debounce | [references/events.md](references/events.md) |
 | Add MCP servers globally or per agent; web search, page reading and the bundled browser; turn shell commands into tools | [references/mcp.md](references/mcp.md) |
 | Understand the defences against outside abuse and prompt injection, and their limits | [references/security.md](references/security.md) |
 | Know the technology underneath and the pi behaviours pine works around; open points | [references/stack.md](references/stack.md) |
@@ -117,16 +137,21 @@ below is added on top of that when you need it.
 ```json
 {
   "main": "main",
-  "defaults": { "model": "local/deepseek-v4.1-flash" }
+  "defaults": { "model": "dev/claude-haiku" }
 }
 ```
 
-Telegram as a second way in is set up by asking the main agent: "watch Telegram, here is the
-bot's token". See [references/sources.md](references/sources.md).
+(An excerpt. `pine init` also writes the web and browser servers and the limits; put the model
+you use where `dev/claude-haiku` stands.)
 
-`~/.pine/agents/gonzo/agent.json`, a second agent, a specialist the main agent can hand work to
-(create the folder and a `workspace` folder in it; an `AGENTS.md` in the workspace says what
-the agent is for). Or ask the main agent to create one: it calls `create_agent`, and no restart is needed.
+Telegram as a second way in is set up by asking the main agent: "watch Telegram". The dialog
+you confirm has a field for the bot's token; then you write to the bot and type the six-digit
+code it sends you into pine. See [references/sources.md](references/sources.md).
+
+`~/.pine/agents/gonzo/agent.json`, a second agent, a specialist the main agent can hand work to.
+Create the folder; the workspace here is `~/dev/gonzo`, which must exist, and an `AGENTS.md` in
+it says what the agent is for (without `workspace`, pine makes `agents/gonzo/workspace` itself).
+Or ask the main agent to create one: it calls `create_agent`, and no restart is needed.
 
 ```json
 {
@@ -152,7 +177,7 @@ pine start
 | event | One record in the log: topic, payload, source, trust, cause |
 | topic | Slash-separated name, matched with `+` (one level) and `#` (the rest) |
 | route | A rule in `pine.json` that reacts to topics |
-| source | A named thing that reports events from outside: a folder, an MQTT broker, a web address, a webhook, an FTP drop. It runs only while something is subscribed to it |
+| source | A named thing that reports events from outside: a folder, an MQTT broker, a web address, a command, a webhook, an FTP drop, a Telegram bot. It runs only while something is subscribed to it (or always, with `"start": "always"`) |
 | schedule | Something done at a time: at set times, every so often, or once. With a task it wakes an agent to do it |
 | subscription | A conversation of an agent listens to a source: each event arrives there as a message and wakes the agent |
 | task | One piece of work for one agent; has a status, a result and statistics |

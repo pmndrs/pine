@@ -57,11 +57,13 @@ Event sources
                                   wake every agent that can use the source
   pine unsubscribe <agent> <source> [--session name]   |   pine unsubscribe --global <source>
 
+Schedules, skills, the manual
+  pine schedules                  what is scheduled: for whom, when, and the task
+  pine skills                     every skill: whom it is for and where it lies
+  pine manual <words>             search pine's manual, as the agents do; --read <id> shows a part in full
+
 MCP servers
   pine mcp list                   configured servers, who gets them, and whether they connect
-  pine skills                     every skill: whom it is for and where it lies
-  pine schedules                  what is scheduled: for whom, when, and the task
-  pine manual <words>             search pine's manual, as the agents do; --read <id> shows a part in full
   pine mcp add <name> <https-url> [--agent id] [--taints] [--approve always|tainted] [--timeout seconds]
   pine mcp add <name> [--agent id] -- <command> [args...]
   pine mcp remove <name> [--agent id]
