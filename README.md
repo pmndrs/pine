@@ -25,6 +25,8 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
 - **Coding assistance**: diffs, output files, git integration, current folders ...
 - **Orchestrating agents**, sub-agents, ... well, yes it does that. In an intuitive way. A pinned tab is a persistent agent. Create an agent, open a tab, rename it, tell it its basic instructions (these go into AGENTS.md), connect it to event sources, for instance Telegram if you want to chat abroad, pin it, close the tab if you want (you find it back in the running sessions), you're done.
 
+<br/>
+
 <p align="center">
   <img src="docs/images/meme.png" width="49%" alt="pine searches the web, downloads a picture and shows it in the terminal">
   <img src="docs/images/video.gif" width="49%" alt="pine fetches a video from the web and plays it in the terminal">
@@ -41,7 +43,8 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
   <img src="docs/images/code.png" width="49%" alt="The code pane beside a conversation: the git diff of a file the agent just changed">
   <img src="docs/images/folder.png" width="49%" alt="pine started in a project folder: the agent inspects it, and the folder menu lists the folders a conversation can work in">
 </p>
-<p align="center"><sub>Pictures and video from the web · drag and drop · subscribing to a folder and waking on a change · tabs, agents and conversations · MCP tools · the code pane with git diffs · a folder per conversation</sub></p>
+
+<br/>
 
 ```
  Telegram ─┐                                   ┌─ rule: set state, publish
