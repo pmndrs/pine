@@ -63,8 +63,9 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
                                ▼
                  answers · messages · actions
 
- Each of the four is set up by asking, for one conversation,
- for the agent, or (main agent only) for all agents.
+ Events, schedules, MCPs and skills can be set up by asking:
+ for the current conversation, agent scope, or globally
+ (main agent only) for all agents.
 ```
 
 ## Quick start
