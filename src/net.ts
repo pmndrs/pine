@@ -37,7 +37,8 @@ export function publicOnlyAgent(timeoutMs: number, allowPrivate = false): Agent 
 	});
 }
 
-const isLocalName = (host: string) => host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal");
+/** Names that say by themselves that they are on this computer or the local network. */
+export const isLocalName = (host: string) => host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal");
 
 export interface Fetched {
 	/** A file with a random name in the system's temp folder. The caller moves or deletes it. */

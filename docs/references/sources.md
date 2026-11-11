@@ -45,7 +45,7 @@ scans", or `pine unsubscribe main scans`.
 ```json
 "sources": {
   "<name>": {
-    "type": "folder | mqtt | webhook | ftp | timer",
+    "type": "folder | mqtt | webhook | ftp | timer | telegram | http | command",
     "description": "one line, shown to agents and in listings",
     "...": "the options of the type, see below"
   }
@@ -253,6 +253,101 @@ Messages are fetched by long polling: one request that Telegram answers the mome
 arrives. Nothing listens on a port, so it works behind any router. Only one program can poll a
 bot at a time; a second one makes both miss messages.
 
+### http
+
+A web address that is looked at again and again. For what cannot call you: a price, a version,
+a status page, a device on your network that has a state page.
+
+> Watch https://shop.example/fridge-3000 and tell me when the price drops below 500.
+
+```json
+"price": { "type": "http", "url": "https://shop.example/fridge-3000", "match": "Price: ([0-9.,]+)", "every": "30m", "description": "the price of the fridge" }
+```
+
+| Option | Default | |
+|---|---|---|
+| `url` | | The address, `https://...` (`http://` for a device on the local network). |
+| `every` | `"5m"` | How often to look. At least `"30s"` when an agent sets it up. |
+| `path` | | For an answer in JSON: watch only this field, `"data.price"` or `"items.0.state"`. |
+| `match` | | For a page or text: watch only what this regular expression finds, its first group if it has one. It is looked for in what a reader of the page sees, then in the page's source. |
+| `headers` | | Headers to send, `{ "accept": "application/json" }`. Not for secrets. |
+| `token` | | An access token or key, sent as `Authorization: Bearer <token>`. Kept in `.env`. |
+| `tokenHeader` | | Send the token as this header instead, as it is: `"x-api-key"`, `"cookie"`. |
+| `local` | `false` | The address is on your own network under a name that does not say so (`nas.home`, `ha.lan`). Not needed for an IP address, `localhost` or a `.local` name. |
+
+| Event | | |
+|---|---|---|
+| `changed` | `{ url, value, previous }` | With `path` or `match`: the value now and before. |
+| `changed` | `{ url, added, removed, more? }` | Without: the lines that are new and the lines that are gone, up to 30 of each. |
+| `down` | `{ url, error, looks }` | After three failed looks in a row, once. |
+| `up` | `{ url }` | When it answers again. |
+
+Without `path` or `match` the whole answer counts. For a page that is its text as a reader
+sees it: scripts, styles and markup are left out, so a counter in a script does not report a
+change at every look. A page that shows the time still does; give it a `match`.
+
+An address on your own network or this computer is said to be one in the dialog you confirm.
+Any other address has to stay on the public internet: if its name one day leads into your
+network, the look fails and says so instead of fetching from there.
+
+A redirect is followed only on the same host. One that leads to another host is a failed look
+that says where it leads: you confirmed one address, and the token is for that one. An answer
+is read up to 1 MB. A key that is part of the address (`?apikey=...`) is not a secret to pine:
+it is stored and shown like the rest of the address.
+
+### command
+
+A command that is run again and again. For what only a command can tell: free disk space, a
+build, a branch that moved, the end of a log, whether a machine answers.
+
+> Tell me when the disk is more than 90% full.
+
+```json
+"disk": { "type": "command", "run": "df -h /", "match": "([0-9]+)%", "every": "10m", "description": "how full the disk is" }
+```
+
+| Option | Default | |
+|---|---|---|
+| `run` | | The command line. bash runs it from the workspace of the agent the source belongs to. |
+| `every` | `"1m"` | How often. At least `"5s"` when an agent sets it up. |
+| `match` | | Watch only what this regular expression finds in what the command prints. |
+| `timeout` | `"30s"` | How long one run may take before it is stopped. |
+
+Event `changed`: `{ command, code, previousCode?, value, previous }` with `match`, or
+`{ command, code, previousCode?, added, removed, more? }` without. `code` is the exit code;
+`previousCode` is there when it changed, so `test -f build/done` or `ping -c1 nas` report by
+how they end.
+
+The command runs **like a command in that agent's own shell**: in the agent's sandbox, with its
+private home folder and without your environment. It reaches what the agent reaches and nothing
+else: no network unless the agent has it, none of your home folder beyond what the agent may
+read, none of pine's files. A source of all agents runs as the main agent. You are shown the
+command line before it is set up, every time. A command that cannot be started or runs out of
+time is a failed look (see below), not an event.
+
+### Looking again and again
+
+`http` and `command` cannot be told when something happens; they go and look. Three things
+hold for every source that does:
+
+- **The first look is the starting point.** Setting a source up reports nothing. Only what is
+  different at a later look does.
+- **A look that finds nothing new costs nothing.** No event, nothing stored, no model woken.
+  This is the difference to waking an agent every few minutes to check: an agent's turn is
+  spent only when there is something to act on.
+- **A failed look is not an event.** The pause before the next one doubles with each failure in
+  a row, up to 15 minutes (or the source's own interval, if that is longer), and goes back to
+  normal with the first look that works.
+
+How a polling source is doing is said wherever sources are listed (`pine sources`, `/sources`,
+the agent's `sources` tool): `last looked 14:02:11`, or `failing since 14:02:11 (4 looks): it
+answered 503`, followed by what it found. What it found is repeated there only when it is a
+number or a single word; anything longer is only counted, because that line is read by agents
+without the mark that outside content gets.
+
+Two looks of one source never run at the same time, and each waits a little shorter or longer
+than its interval, so that sources set to the same interval do not all fire together.
+
 ## Sending through a source
 
 Some sources go both ways. An agent sends through one with the `send` tool, and its `sources`
@@ -299,7 +394,7 @@ listens to a source is not removed for being unused.
 
 ### Ask the agent
 
-Every agent has five tools for this:
+Every agent has these tools for it:
 
 | Tool | |
 |---|---|
@@ -307,6 +402,7 @@ Every agent has five tools for this:
 | `subscribe`, `unsubscribe` | For a source that exists. |
 | `add_source` | Sets up a new source and subscribes to it in one step: "watch my project folder", "wake up every morning at seven", "listen to the printer". The source runs at once, without a restart. |
 | `remove_source` | Deletes a source for good, with its subscriptions. |
+| `add_source_type`, `remove_source_type` | Only the main agent: brings a new kind of source into pine, or takes it out. See "A source type of your own". |
 
 "Subscribe to X", said in any conversation, means that conversation: it is woken, and nothing
 is asked. The two wider scopes are only for when you say so ("as an agent", "always, in your
@@ -321,6 +417,7 @@ is nothing to ask: there, "here" and "the agent" are the same.
 | End anything its own agent is subscribed to: the main conversation's, another conversation's (`unsubscribe` with scope `agent` or `all`) | Any of its conversations |
 | Subscribe the agent as such | Any of its conversations, after you confirm |
 | Set up, subscribe to, or end anything for **all agents** | Only the main agent (`main` in `pine.json`). Setting up a source, subscribing and removing a source ask you first; ending a subscription does not. Another agent is told to send you to the main agent |
+| Bring a new source type into pine, or take one out (`add_source_type`, `remove_source_type`) | Only the main agent, in a conversation that has read no outside content. You are asked every time |
 
 When a conversation subscribes to a source its agent's main conversation already listens to,
 both are woken by each event, and the agent tells you so.
@@ -339,8 +436,8 @@ type also says what the source would do, and whether that is something new:
 
 - A timer, or a folder inside the agent's own workspace: nothing new is opened, so no question
   (except in manual mode, or in a conversation that has read outside content).
-- A folder elsewhere, an MQTT broker, a webhook, an FTP drop, anything for all agents, or a
-  source whose events are to be trusted as yours: you get a dialog that says exactly what will
+- A folder elsewhere, an MQTT broker, a web address, a command, a webhook, an FTP drop, anything
+  for all agents, or a source whose events are to be trusted as yours: you get a dialog that says exactly what will
   happen, for example "watch the folder ~/dev/app (files named *.swift) for new and changed
   files; let main read the files in that folder".
 
@@ -481,7 +578,8 @@ or in its `AGENTS.md`.
 ## Trust
 
 What a source reports is **outside content** unless the source is yours: a file name, a web
-request, an MQTT message can contain anything, including text that reads like an instruction.
+request, an MQTT message, a web page, what a command printed can contain anything, including
+text that reads like an instruction.
 An event is therefore handed to the agent framed as data (see above), and the conversation it
 arrives in is marked as having read outside content, exactly as after the agent read a web
 page there. From then on the usual rules of [security.md](security.md) apply in that
@@ -504,10 +602,50 @@ configuration. A turn started by a separate event cannot subscribe or unsubscrib
 
 ## A source type of your own
 
+First see whether an existing type does it. `http` covers anything with an address that
+answers, `command` anything a command can tell, `mqtt`, `webhook`, `folder` and `ftp` what
+reports by itself; none of them needs new code. A type of your own is for the rest: a device
+or service with a protocol of its own.
+
 A source type is a module with two exports: a function that starts a source, and `type`, which
 says what such a source is and which options it takes. Register it under a name, and it is a
 type like the built-in ones: usable in the configuration, and offered to agents in `add_source`
 with exactly the options it declares.
+
+There are two ways to get one in: ask the main agent, or write and register it yourself.
+
+### Ask the main agent
+
+> I bought a fridge, here is its protocol. Make a source type for it and watch the door.
+
+The main agent writes the module into its workspace and calls `add_source_type` with the file.
+You get a dialog that says what it is: a program that will run inside pine itself, with your
+rights and outside any sandbox, with its length, what it imports, and where the file is. Read
+the file before you say yes; the code pane's Files view shows it (`ctrl+g`). On your yes
+
+- pine copies the file into its own home (`~/.pine/sources/<name>.<hash>.ts`), which no agent
+  can write, and registers that copy under `sourceTypes` in `pine.json`. What you confirmed is
+  what runs: changing the file in the workspace afterwards changes nothing.
+- the module is loaded and checked: a start function, a `type` with a `summary` and a schema
+  of its options. One that does not pass is not registered, and nothing of it stays.
+- the type is there at once, for every agent: `add_source` takes it like a built-in one.
+
+What keeps this safe:
+
+- **Only the main agent** has the tool, and only in a conversation with you.
+- **You are asked every time**, in every mode, bypass included. Nothing remembers a yes.
+- **Not from a conversation that has read outside content** (a web page, an event from a source
+  that is not yours). There the tool refuses without asking you, because the wish may come from
+  what was read. The module stays in the workspace; in a new conversation you ask the main
+  agent to register it, and it reads the file again there before it does. A main conversation
+  that outside events arrive in is such a conversation: open a new tab for this.
+- **A name is taken once.** To replace a type, remove it first: `remove_source_type`, which
+  refuses while a source of that type exists and deletes pine's copy with the entry.
+
+A module an agent wrote can use Node's own modules (`node:net`, `node:crypto`, `fetch`) and
+what the `source` object offers, nothing that would have to be installed.
+
+### Write it yourself
 
 ```ts
 // ~/.pine/sources/doorbell.ts
@@ -536,15 +674,15 @@ export const type: SourceType = {
 
 export default function (source: SourceApi) {
 	source.secret(source.options.token);
-	const timer = setInterval(async () => {
-		const res = await fetch(source.options.url, { headers: { authorization: `Bearer ${source.options.token}` } });
+	// Once now and then every 30 s. A look that throws is a failed look: pine backs off and says so in the status.
+	source.poll(source.options.every ?? "30s", async (signal) => {
+		const res = await fetch(source.options.url, { headers: { authorization: `Bearer ${source.options.token}` }, signal });
+		if (!res.ok) throw new Error(`it answered ${res.status}`);
 		const state = await res.text();
-		if (state !== source.kv.get("last")) {
-			source.kv.set("last", state);
-			source.emit("changed", { state });
-		}
-	}, 30_000);
-	source.onStop(() => clearInterval(timer));
+		// Nothing on the first look, and nothing while it stays the same.
+		const was = source.changed(state);
+		if (was) source.emit("changed", { state, previous: was.previous });
+	});
 }
 ```
 
@@ -553,14 +691,14 @@ export default function (source: SourceApi) {
 "sourceTypes": { "doorbell": "./sources/doorbell.ts" }
 ```
 
-Now "watch the doorbell at http://192.168.1.60/state, the token is ..." works: the agent calls
-`add_source` with `type: "doorbell"` and those options, the token goes into `.env`, and you
-confirm what `plan` said it will do. In the files it is `{ "type": "doorbell", "url": ... }`.
+Now "watch the doorbell at http://192.168.1.60/state" works: the agent calls `add_source` with
+`type: "doorbell"` and that address, names the token in `ask`, and you confirm what `plan` said
+it will do in a dialog that has a field for the token, which goes into `.env`. In the files it is `{ "type": "doorbell", "url": ... }`.
 
 | `type` | |
 |---|---|
 | `summary` | One line: what a source of this type reports and what it is for. Agents choose the type by it. |
-| `options` | The options as a JSON schema of an object. Give every property a `description`. `"secret": true` on a property keeps its value in `.env` and out of the configuration. With `"additionalProperties": false` an option that does not exist is refused instead of ignored. |
+| `options` | The options as a JSON schema of an object. Give every property a `description`. `"secret": true` on a property keeps its value in `.env` and out of the configuration. With `"additionalProperties": false` an option that does not exist is refused instead of ignored. An option cannot be called like a setting every source has (`type`, `use`, `description`, `agents`, `trust`, `start`, `enabled`, `session`). |
 | `talks` | Optional, `true`: its `message` events are somebody writing to the agent. The event's `text` reaches the agent as a message, the answer goes back through the source, and the default throttle does not apply. |
 | `sends` | Optional. One line for the agent on what sending through it does and what to pass. With it the agent's `send` tool offers the source. |
 | `plan(options, setup)` | Optional. Returns `{ options, does, opens, read?, tell?, owner? }` (`owner: true`: the source itself makes sure who is on the other end, so what it reports counts as your own words; you are told before you confirm): the options as they are to be stored, what the source will do in plain words (shown in your dialog), whether it reaches something new (then you are asked), a folder the agent should be able to read, and what the agent should pass on to you afterwards. Throw for what cannot work. Without `plan`, a set-up is always put to you. `setup` has the source's `name`, the `agent` and its `workspace`, pine's `home`, `resolve(path)`, `random(bytes)` and `envName(option)`. |
@@ -580,6 +718,9 @@ The start function gets a `source` object:
 | `on(pattern, handler)` | Look at events of the system, read only: `agent/+/started`, `approval/requested`. |
 | `approvals` | `ask(summary, why)` puts a question of the source's own to you in pine's UI; `pending()` and `decide(id, allow, by)` let it pass on your answer to open requests. |
 | `key` | What it is called in events: its name, or `name@agent` for an agent's own. |
+| `poll(every, look)` | Look at something again and again: `look(signal)` runs once at the start and then every `every` (`"30s"`, `"5m"`), never twice at once. Throw from it for a failed look; pine backs off and shows it in the status. See "Looking again and again". |
+| `changed(value, slot?)` | Compare a value with the one of the last look and remember it. Returns `{ previous }` when it differs, nothing when it is the same or the first look. |
+| `exec(command, opts?)` | Run a shell command in the sandbox of the agent the source belongs to (the main agent for a source of all agents). Returns `{ code, output, truncated }`; throws when it cannot start or takes longer than `opts.timeoutMs` (30 s). |
 | `kv.get`, `kv.set` | Private storage that survives restarts. |
 | `dataDir` | A folder of its own. |
 | `media(dir)` | Image files in this folder may be shown to a model when an event lists them in `images: [{ path, mimeType }]`. |
@@ -590,7 +731,8 @@ The start function gets a `source` object:
 
 It runs when the source starts, and may be `async`. If it throws, the source is shown as "not
 running" with the message; the daemon and the other sources carry on. A source type runs inside
-pine with pine's rights, which is why only you can register one.
+pine with pine's rights, which is why one gets in only by your hand or with your yes for that
+exact file.
 
 ## Sources and routes: which is which
 
@@ -606,7 +748,9 @@ both are sources now, so an agent can set them up and see them.
 ## When nothing happens
 
 1. `pine sources`: is it running, is the agent listed as subscriber, when was the last event?
-   "not running: ..." gives the reason (a missing option, a port in use).
+   "not running: ..." gives the reason (a missing option, a port in use). For `http` and
+   `command` it also says when the source last looked and what it found, or since when looks
+   fail and why. "found nothing with the pattern" means `match` or `path` fits nothing.
 2. `pine events --topic 'source/<name>/#'`: did the source report anything?
 3. `pine tasks --agent <id>`: was the agent woken? If events arrive but no task starts, look at
    `when` and `throttle` of the subscription.

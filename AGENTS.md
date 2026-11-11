@@ -38,7 +38,8 @@ src/
   sandbox-fs.ts     read/write/edit/grep/find/ls executed through sandbox-exec
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
   source-types.ts   what a source type module declares: summary, options schema, plan()
-  sources/          the built-in source types: folder, mqtt, webhook, ftp, timer, telegram
+  sources/          the built-in source types: folder, mqtt, webhook, ftp, timer, telegram, http, command
+  watching.ts       what the polling types share: picking a value, line differences, a page's text
   env-file.ts       sets and removes entries in .env (secrets of sources that agents set up)
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
   router.ts         routes: filter, debounce, set / publish / call / agent
@@ -111,7 +112,16 @@ These are invariants. A change that breaks one needs a test that shows why it is
    publishes only to `publish` topics. Do not move those checks into routes, prompts or the
    `send` tool. There is one way to connect pine to something outside, in or out: a source
    type in `src/sources/` with a schema. Do not add a second mechanism beside it.
-8. **Web access never reaches the local network.** `mcp/web.ts` checks addresses when it
+   A type that has to go and look uses `source.poll` and `source.changed`, never timers of its
+   own: the first look reports nothing, an unchanged look does nothing, a failed look backs off
+   and shows in the status. A status line is read by agents without the outside-content mark,
+   so it never repeats outside text (`harmless()` in `watching.ts`). A type that runs a command
+   uses `source.exec`, which is the sandbox of the agent the source belongs to.
+   A new type is a program inside the daemon: `add_source_type` is the main agent's, refuses in
+   a tainted conversation, asks the owner in every mode, and runs the copy pine took, not the
+   agent's file. Keep all four.
+8. **Web access never reaches the local network.** The `http` source does only for an address
+   the owner confirmed as local; a public one goes through `publicOnlyAgent`. `mcp/web.ts` checks addresses when it
    connects; `mcp/browser.ts` sends all browser traffic through its guard proxy and withholds the
    Playwright tools in `ALWAYS_BLOCKED`. When Playwright MCP is upgraded, list its tools again
    and add anything that runs code in the server or reads local files.

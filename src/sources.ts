@@ -1,7 +1,8 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { EXT, loadConfig, type PineConfig, rawSubscriptions, type RouteConfig, type SourceConfig, sourceFor, SOURCE_TYPES, type SubscriptionConfig, subscriptionFrom } from "./config.ts";
+import { EXT, loadConfig, mainAgentId, type PineConfig, rawSubscriptions, type RouteConfig, type SourceConfig, sourceFor, SOURCE_TYPES, type SubscriptionConfig, subscriptionFrom } from "./config.ts";
 import crypto from "node:crypto";
 import os from "node:os";
 import { Value } from "typebox/value";
@@ -10,10 +11,10 @@ import { setEnv, unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
 import type { SourcePlan, SourceType } from "./source-types.ts";
 import type { Router } from "./router.ts";
-import { type Approvals, realish, type Redactor } from "./security.ts";
+import { type Approvals, realish, type Redactor, rootsFor, sandboxAvailable, sandboxProfile, shellEnv } from "./security.ts";
 import type { Bus, Kv } from "./store.ts";
 import type { PineEvent } from "./types.ts";
-import { errText, type Logger, resolvePath } from "./util.ts";
+import { errText, type Logger, parseDuration, resolvePath } from "./util.ts";
 
 /**
  * Event sources and the subscriptions to them.
@@ -74,6 +75,30 @@ export interface SourceApi {
 		pending(): Array<{ id: string; agent: string; tool: string; summary: string; why: string; remember?: string; task: number }>;
 		decide(id: string, allow: boolean, by: string, always?: boolean): boolean;
 	};
+	/**
+	 * Look at something again and again, for what cannot report by itself: a web address, a
+	 * command, a mailbox. `look` runs once right away and then every `every` ("30s", "5m"), never
+	 * twice at the same time, a little earlier or later each round so that sources do not all fire
+	 * together. A look that throws is a failed look: the pause grows with each one in a row, and
+	 * whoever lists the sources sees since when it fails and why. One poll per source; it stops
+	 * with the source, and `signal` is aborted then.
+	 *
+	 * A look that finds nothing new does nothing at all: no event, nothing stored, nobody woken.
+	 */
+	poll(every: string | number, look: (signal: AbortSignal) => void | Promise<void>): void;
+	/**
+	 * Compare a value with what was there at the last look, and remember it. Returns what it was
+	 * before when it differs. The first look returns nothing: it is the starting point, not a
+	 * change. `slot` keeps several values apart.
+	 */
+	changed<T = unknown>(value: T, slot?: string): { previous: T } | undefined;
+	/**
+	 * Run a shell command with the rights of the agent this source belongs to (the main agent for
+	 * a source of all agents): in that agent's sandbox, from its workspace, without its owner's
+	 * environment. It can do nothing that agent's own shell could not. `output` is what it printed,
+	 * errors included. Throws when it cannot be started or takes longer than `timeoutMs` (30 s).
+	 */
+	exec(command: string, opts?: { timeoutMs?: number; maxBytes?: number; signal?: AbortSignal }): Promise<{ code: number; output: string; truncated: boolean }>;
 	/** Private storage that survives restarts. */
 	kv: { get<T = unknown>(key: string): T | undefined; set(key: string, value: unknown): void };
 	/** Keep this value out of events and messages. */
@@ -126,6 +151,22 @@ interface Running {
 	send?: (message: Record<string, any>) => void | string | Promise<void | string>;
 }
 
+/** The settings every source has, whatever its type. A type's options cannot have these names. */
+const RESERVED_OPTIONS = ["type", "use", "description", "agents", "trust", "start", "enabled", "session"];
+
+/** How a source that polls is doing: when it last looked, and since when looks fail. */
+interface Polling {
+	ok?: number;
+	fails: number;
+	since?: number;
+	error?: string;
+}
+
+/** The longest pause between two looks of a source whose looks keep failing (or its own interval, if that is longer). */
+const POLL_BACKOFF_MAX = 15 * 60_000;
+
+const clock = (ts: number) => new Date(ts).toTimeString().slice(0, 8);
+
 /** Where the answers to a source's events are published; the source host passes them to the source. */
 const outTopic = (key: string) => `out/source/${key}`;
 
@@ -141,6 +182,7 @@ export class SourceHost {
 	private starting = new Map<string, Promise<void>>();
 	private errors = new Map<string, string>();
 	private statuses = new Map<string, string>();
+	private polls = new Map<string, Polling>();
 	private seen = new Map<string, { ts: number; topic: string; count: number }>();
 	private off?: () => void;
 	private offOut?: () => void;
@@ -214,6 +256,73 @@ export class SourceHost {
 	/** The source types an agent can set up by tool call: name, what it is for, and the schema of its options. */
 	typeList(): Array<{ name: string; summary: string; options: any }> {
 		return [...this.types].flatMap(([name, t]) => (t.type ? [{ name, summary: t.type.summary, options: t.type.options }] : []));
+	}
+
+	/** Where the source types that were registered while pine ran are kept: in pine's home, which no agent can write. */
+	private typeDir = () => path.join(this.cfg.home, "sources");
+
+	/** The registered source types that are not pine's own, with what uses each. */
+	ownTypes(): Array<{ name: string; file: string; summary?: string; usedBy: string[] }> {
+		return Object.entries(this.cfg.sourceTypes).map(([name, file]) => ({ name, file, summary: this.types.get(name)?.type?.summary, usedBy: this.all().filter((s) => s.source.type === name).map((s) => s.key) }));
+	}
+
+	/**
+	 * Register a new source type from the text of its module. The text is copied into pine's home
+	 * first, and it is that copy that is loaded and runs from then on: what an agent wrote and the
+	 * owner confirmed cannot be changed afterwards. A module that does not load or does not describe
+	 * itself is not registered, and nothing of it stays.
+	 *
+	 * This runs the module inside the daemon. Whoever calls it has the owner's yes for exactly this text.
+	 */
+	async addType(name: string, code: string): Promise<{ name: string; summary: string; options: string; file: string }> {
+		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) throw new Error(`"${name}" is not a usable type name: lowercase letters, digits, - and _, starting with a letter`);
+		if (SOURCE_TYPES.includes(name)) throw new Error(`"${name}" is one of pine's own types`);
+		if (this.cfg.sourceTypes[name]) throw new Error(`a source type "${name}" is registered already. Remove it first (remove_source_type) to put another in its place`);
+		fs.mkdirSync(this.typeDir(), { recursive: true, mode: 0o700 });
+		// The name carries what is in it: Node loads a file once, so a later version must be another file.
+		const file = path.join(this.typeDir(), `${name}.${crypto.createHash("sha256").update(code).digest("hex").slice(0, 10)}.ts`);
+		fs.writeFileSync(file, code, { mode: 0o600 });
+		let type: SourceType;
+		try {
+			const mod: any = await import(pathToFileURL(file).href);
+			if (typeof mod.default !== "function") throw new Error("it has no default export function, which is what starts a source");
+			type = mod.type;
+			if (!type || typeof type !== "object" || typeof type.summary !== "string" || !type.summary.trim()) throw new Error('it exports no "type" with a "summary": one line on what such a source reports');
+			const schema: any = type.options;
+			if (!schema || schema.type !== "object" || typeof schema.properties !== "object") throw new Error('its "type.options" must be a JSON schema of an object: { type: "object", properties: { ... } }');
+			const taken = Object.keys(schema.properties).filter((k) => RESERVED_OPTIONS.includes(k));
+			if (taken.length) throw new Error(`an option cannot be called ${taken.join(", ")}: every source has a setting of that name already`);
+			if (type.plan !== undefined && typeof type.plan !== "function") throw new Error('"type.plan" must be a function');
+			describeOptions(schema);
+		} catch (e) {
+			fs.rmSync(file, { force: true });
+			throw new Error(`the module is not a source type: ${errText(e)}`);
+		}
+		editJson(path.join(this.cfg.home, "pine.json"), (json) => {
+			json.sourceTypes = { ...(json.sourceTypes ?? {}), [name]: `./sources/${path.basename(file)}` };
+		});
+		this.cfg.sourceTypes[name] = file;
+		this.types.set(name, { file, type });
+		this.log.info(`source type ${name} registered (${file})`);
+		return { name, summary: type.summary, options: describeOptions(type.options), file };
+	}
+
+	/** Take a registered source type out again. Not while a source of that type exists. */
+	removeType(name: string): void {
+		if (SOURCE_TYPES.includes(name)) throw new Error(`"${name}" is one of pine's own types and stays`);
+		const file = this.cfg.sourceTypes[name];
+		if (!file) throw new Error(`there is no registered source type "${name}". Registered: ${Object.keys(this.cfg.sourceTypes).join(", ") || "none"}`);
+		const used = this.all().filter((s) => s.source.type === name).map((s) => s.name);
+		if (used.length) throw new Error(`the source${used.length === 1 ? "" : "s"} ${used.join(", ")} ${used.length === 1 ? "is" : "are"} of that type. Remove ${used.length === 1 ? "it" : "them"} first`);
+		editJson(path.join(this.cfg.home, "pine.json"), (json) => {
+			delete json.sourceTypes?.[name];
+			if (json.sourceTypes && !Object.keys(json.sourceTypes).length) delete json.sourceTypes;
+		});
+		// Only what pine put there itself; a module the owner registered by hand is theirs to delete.
+		if (path.dirname(file) === this.typeDir()) fs.rmSync(file, { force: true });
+		delete this.cfg.sourceTypes[name];
+		this.types.delete(name);
+		this.log.info(`source type ${name} removed`);
 	}
 
 	/** The name a secret option of a source gets in .env. */
@@ -418,6 +527,46 @@ export class SourceHost {
 				pending: () => this.approvals?.pending() ?? [],
 				decide: (id, allow, by, always) => this.approvals?.decide(id, allow, by, always) ?? false,
 			},
+			poll: (every, look) => {
+				const ms = parseDuration(every);
+				if (!(ms > 0)) throw new Error(`source ${key}: "${every}" is not an interval to look at`);
+				if (this.polls.has(key)) throw new Error(`source ${key}: a source polls one thing`);
+				const state: Polling = { fails: 0 };
+				this.polls.set(key, state);
+				const abort = new AbortController();
+				let timer: NodeJS.Timeout | undefined;
+				const round = async () => {
+					try {
+						await look(abort.signal);
+						if (abort.signal.aborted) return;
+						if (state.fails) api.log.info(`works again after ${state.fails} failed ${state.fails === 1 ? "look" : "looks"}`);
+						Object.assign(state, { ok: Date.now(), fails: 0, since: undefined, error: undefined });
+					} catch (e) {
+						if (abort.signal.aborted) return;
+						// Said once, not at every round: the status line carries it from here.
+						if (!state.fails) api.log.warn("could not look", errText(e));
+						Object.assign(state, { fails: state.fails + 1, since: state.since ?? Date.now(), error: errText(e).slice(0, 200) });
+					}
+					const wait = state.fails ? Math.min(ms * 2 ** Math.min(state.fails, 12), Math.max(ms, POLL_BACKOFF_MAX)) : ms;
+					timer = setTimeout(round, wait * (0.9 + Math.random() * 0.2));
+					timer.unref?.();
+				};
+				run.stops.push(() => {
+					abort.abort();
+					clearTimeout(timer);
+					this.polls.delete(key);
+				});
+				// Not awaited: a slow first look must not hold up the start of everything else.
+				timer = setTimeout(round, 0);
+			},
+			changed: (value, slot = "") => {
+				const k = `${prefix}seen:${slot}`;
+				const before = this.kv.get<{ value: any }>(k);
+				if (before && JSON.stringify(before.value) === JSON.stringify(value)) return undefined;
+				this.kv.set(k, { value });
+				return before ? { previous: before.value } : undefined;
+			},
+			exec: (command, opts) => this.exec(key, command, opts),
 			kv: { get: (k) => this.kv.get(prefix + k), set: (k, v) => this.kv.set(prefix + k, v) },
 			secret: (value) => this.redactor.add([value]),
 			media: (dir) => void this.mediaRoots.push(realish(dir)),
@@ -435,6 +584,53 @@ export class SourceHost {
 		}
 		this.running.set(key, run);
 		this.log.info(`source ${key} started`);
+	}
+
+	/** A source's shell command, run the way the shell of the agent it belongs to would run it. */
+	private exec(key: string, command: string, opts: { timeoutMs?: number; maxBytes?: number; signal?: AbortSignal } = {}): Promise<{ code: number; output: string; truncated: boolean }> {
+		const agent = this.cfg.agents[key.includes("@") ? key.slice(key.lastIndexOf("@") + 1) : mainAgentId(this.cfg)];
+		if (!agent) return Promise.reject(new Error("the agent this source belongs to is gone"));
+		const roots = rootsFor(this.cfg, agent);
+		// The variant of a run that has read outside content: what is read into the agent's prompt stays as it is.
+		const argv = agent.sandbox.enabled && sandboxAvailable() ? ["/usr/bin/sandbox-exec", "-p", sandboxProfile(this.cfg, agent, roots, "restricted"), "/bin/bash", "-c", command] : ["/bin/bash", "-c", command];
+		const max = opts.maxBytes ?? 256 * 1024;
+		const timeoutMs = opts.timeoutMs ?? 30_000;
+		return new Promise((resolve, reject) => {
+			if (opts.signal?.aborted) return reject(new Error("stopped"));
+			const child = spawn(argv[0], argv.slice(1), { cwd: roots.workspace, env: shellEnv(agent, roots, {}), stdio: ["ignore", "pipe", "pipe"], detached: true });
+			const chunks: Buffer[] = [];
+			let size = 0;
+			let why = "";
+			// The whole group: a command that started others must not leave them behind.
+			const kill = (reason: string) => {
+				why ||= reason;
+				try {
+					process.kill(-child.pid!, "SIGKILL");
+				} catch {
+					child.kill("SIGKILL");
+				}
+			};
+			const take = (d: Buffer) => {
+				if (size < max) chunks.push(d.subarray(0, max - size));
+				size += d.length;
+				if (size > max * 4) kill("");
+			};
+			child.stdout.on("data", take);
+			child.stderr.on("data", take);
+			const timer = setTimeout(() => kill(`it took longer than ${timeoutMs / 1000} s`), timeoutMs);
+			const stop = () => kill("stopped");
+			opts.signal?.addEventListener("abort", stop, { once: true });
+			const done = () => {
+				clearTimeout(timer);
+				opts.signal?.removeEventListener("abort", stop);
+			};
+			child.on("error", (e) => (done(), reject(new Error(`could not be started: ${errText(e)}`))));
+			child.on("close", (code) => {
+				done();
+				if (why) return reject(new Error(why));
+				resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8"), truncated: size > max });
+			});
+		});
 	}
 
 	private async halt(key: string): Promise<void> {
@@ -478,6 +674,13 @@ export class SourceHost {
 		return this.running.get(key)?.hook;
 	}
 
+	/** What a running source says about itself; for one that polls, with when it last looked or since when that fails. */
+	private statusOf(key: string): string | undefined {
+		const poll = this.polls.get(key);
+		const looked = !poll ? "" : poll.fails ? `failing since ${clock(poll.since!)} (${poll.fails} ${poll.fails === 1 ? "look" : "looks"}): ${poll.error}` : poll.ok ? `last looked ${clock(poll.ok)}` : "looking for the first time";
+		return [looked, this.statuses.get(key)].filter(Boolean).join(". ") || undefined;
+	}
+
 	list(): SourceInfo[] {
 		return this.all().map(({ key, name, scope, source }) => {
 			const seen = this.seen.get(key);
@@ -489,7 +692,7 @@ export class SourceHost {
 				trust: source.trust,
 				running: this.running.has(key),
 				error: this.errors.get(key) ?? (source.enabled ? undefined : "disabled"),
-				status: this.running.has(key) ? this.statuses.get(key) : undefined,
+				status: this.running.has(key) ? this.statusOf(key) : undefined,
 				subscribers: this.subscribersOf(key),
 				topic: `source/${key}`,
 				last: seen ? { ts: seen.ts, topic: seen.topic } : undefined,

@@ -14,9 +14,10 @@ is about what agents can do.
 | What | For one conversation | For the agent | For all agents |
 |---|---|---|---|
 | A remote MCP server | any agent (`add_mcp_server`) | any agent, when you say so | **only the main agent** |
-| An event source (folder, timer, MQTT, webhook, FTP) | any agent (`add_source`) | any agent, when you say so | **only the main agent** |
+| An event source (folder, timer, MQTT, web address, command, webhook, FTP, Telegram) | any agent (`add_source`) | any agent, when you say so | **only the main agent** |
 | A subscription to a source | any agent (`subscribe`) | any agent, when you say so | **only the main agent** |
 | A new agent | | | **only the main agent** (`create_agent`) |
+| A new kind of event source (a program) | | | **only the main agent** (`add_source_type`), you confirm every time |
 
 The main agent is the one `pine.json` names with `"main"`; without that entry it is the agent
 called `main`, or else the first one. The other agents do not have `create_agent`, and they

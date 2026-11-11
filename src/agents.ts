@@ -40,7 +40,7 @@ const contextOf = (session: any): ContextUse | undefined => {
 
 /** Tools that only look. In manual mode everything else waits for approval. */
 // The last ones change pine's setup and ask the owner themselves, each where it matters.
-const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "create_agent"];
+const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "create_agent"];
 /** From this many characters on, an agent is reminded to tidy its MEMORY.md. */
 const MEMORY_LONG = 6000;
 
@@ -53,7 +53,7 @@ function basePrompt(cfg: PineConfig, agent: AgentConfig): string {
 	const mainId = mainAgentId(cfg);
 	const role =
 		agent.id === mainId
-			? `You are the main agent. Only you can create other agents (create_agent) and set things up for all agents (scope "global"); your owner confirms each.`
+			? `You are the main agent. Only you can create other agents (create_agent), set things up for all agents (scope "global") and bring in a new kind of event source (add_source_type); your owner confirms each.`
 			: `Creating agents, and anything that is for all agents, is the main agent's job (its id is ${mainId}): you have no tools for it. When your owner wants that, tell them to ask ${mainId}.`;
 	const user = userFile(cfg);
 	const owner = agent.id === mainId ? `What all agents know about your owner is in ${user}; you are the one who keeps it.` : `What is known about your owner (USER.md) is kept by ${mainId} for all agents; when you learn something that belongs there, say so.`;

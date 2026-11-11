@@ -152,7 +152,7 @@ the example home, `pine init` copies the files you do not have yet and overwrite
 | `pine task <id>` | One task in full |
 | `pine cancel <id>` | Stop a task |
 | `pine state [pattern]` | Shared state |
-| `pine sources` | Event sources: running or idle, who is subscribed, last event |
+| `pine sources` | Event sources: running or idle, who is subscribed, last event; for one that polls (`http`, `command`), when it last looked or since when that fails |
 | `pine subscribe <agent> <source> [--session name] [--note text] [--throttle 5m] [--when json] [--separate]`, `pine unsubscribe <agent> <source> [--session name]` | Wake an agent on a source's events (with `--session`: only that conversation), or stop that |
 | `pine subscribe --global <source> [--note text] ...`, `pine unsubscribe --global <source>` | The same for every agent that can use the source |
 | `pine approvals`, `pine approve <id> [--always]`, `pine deny <id>` | Answer approval requests; `--always` stops the question for the rest of that conversation |

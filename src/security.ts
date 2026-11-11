@@ -394,6 +394,8 @@ export function audit(cfg: PineConfig): string[] {
 	for (const [where, sources] of [["pine.json", cfg.sources] as const, ...Object.values(cfg.agents).map((a) => [`agent ${a.id}`, a.sources] as const)]) {
 		for (const [name, s] of Object.entries(sources)) if (s.trust === "owner" && !["timer", "telegram"].includes(s.type ?? "")) out.push(`${where}: what the source "${name}" (${s.type ?? "custom"}) reports is treated as coming from you; whoever can feed it gets an agent's full tool set`);
 	}
+	// A source type is a program inside the daemon, whoever wrote it.
+	for (const [name, file] of Object.entries(cfg.sourceTypes)) out.push(`source type "${name}": ${file} runs inside pine with your rights, outside any sandbox`);
 	for (const r of cfg.routes) if (r.trust === "owner") out.push(`route "${r.name}" treats events on ${r.on.join(", ")} as coming from you; whoever can publish there gets the agent's full tool set`);
 	return out;
 }

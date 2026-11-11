@@ -85,7 +85,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
 | Know what agents can set up by tool call, for whom, and what you are asked: MCP servers, event sources, new agents | [references/setup.md](references/setup.md) |
 | Add an agent, give it a workspace, tools and a persona; delegation, sub-agents, sessions, shared state | [references/agents.md](references/agents.md) |
-| Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, webhooks, FTP uploads from cameras, timers; subscribing, unsubscribing, sending | [references/sources.md](references/sources.md) |
+| Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras, timers; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
 | Write rules for events yourself: set state, publish, single model calls, schedules, debounce | [references/events.md](references/events.md) |
 | Add MCP servers globally or per agent; web search, page reading and the bundled browser; turn shell commands into tools | [references/mcp.md](references/mcp.md) |
 | Understand the defences against outside abuse and prompt injection, and their limits | [references/security.md](references/security.md) |

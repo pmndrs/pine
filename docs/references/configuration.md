@@ -100,7 +100,7 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `http.hooks.<name>` | none | A webhook at `POST /hook/<name>`: `{ "secret": "...", "topic": "hook/<name>" }`. See [events.md](events.md). For a webhook an agent subscribes to, use a `webhook` source instead. |
 | `mcp` | `{}` | Global MCP servers. See [mcp.md](mcp.md). |
 | `sources` | `{}` | Event sources every agent can subscribe to. See [sources.md](sources.md). |
-| `sourceTypes` | `{}` | Source types of your own: a name and the module that implements it, e.g. `{ "doorbell": "./sources/doorbell.ts" }`. The module says which options it takes, and agents can then set up sources of that type by tool call. |
+| `sourceTypes` | `{}` | Source types of your own: a name and the module that implements it, e.g. `{ "doorbell": "./sources/doorbell.ts" }`. The module says which options it takes, and agents can then set up sources of that type by tool call. The main agent adds entries here with `add_source_type`, pointing at the copy pine keeps in `sources/` of its home. |
 | `subscribe` | `[]` | Subscriptions for all agents: every agent that can use the source is woken in its main conversation. |
 | `extensions` | `[]` | Paths of pi extensions loaded into every agent's sessions. |
 | `skills` | `[]` | Folders of skills available to every agent. |

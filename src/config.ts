@@ -57,7 +57,7 @@ export interface SourceConfig {
 	options: Record<string, any>;
 }
 
-export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "timer", "telegram"];
+export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "timer", "telegram", "http", "command"];
 
 /**
  * A subscription: one conversation of an agent listens to one source, and each event of the source

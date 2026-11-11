@@ -1,11 +1,14 @@
+import fs from "node:fs";
+import path from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type AgentConfig, effectiveMcp, mainAgentId } from "./config.ts";
+import { type AgentConfig, effectiveMcp, mainAgentId, PINE_ROOT } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
 import type { AgentManager, Live, Profile } from "./agents.ts";
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { addServer, removeServer, validateServer } from "./mcp-config.ts";
+import { isInside, realish } from "./security.ts";
 import { describeOptions } from "./sources.ts";
 import { errText, matchesAny, safeName, truncate } from "./util.ts";
 
@@ -397,6 +400,59 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				},
 			}),
 		);
+		// A new kind of source is a program that runs inside pine itself. The main agent is the one
+		// that may bring one in, and only with the owner's yes for exactly that text.
+		if (isMain) {
+			const manual = path.join(PINE_ROOT, "docs", "references", "sources.md");
+			tools.push(
+				defineTool({
+					name: "add_source_type",
+					label: "Add source type",
+					description: `Register a new TYPE of event source, for something no existing type can watch (a device or service with a protocol of its own). Try the existing types first: most things are covered by http (an address that answers), command, mqtt, webhook or folder with the right options, and those need no new code. A type is a small TypeScript module that you write into your workspace: its default export starts a source, and its "type" export says what it reports and which options it takes. Read the section "A source type of your own" in ${manual} before you write one, and use only Node's own modules. Then call this with the file. Your owner is shown what it is and must confirm, every time: the module runs inside pine itself, outside any sandbox. pine keeps its own copy of the file as it was confirmed; changing yours afterwards changes nothing. Once it is registered, set sources of that type up with add_source. Not possible in a conversation that has read outside content.`,
+					parameters: Type.Object({
+						name: Type.String({ description: "Name of the type: lowercase letters, digits, - and _ (for example fridge, doorbell)" }),
+						file: Type.String({ description: "The module, a .ts file in your workspace" }),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						// Outside content may be where the wish comes from, and what it would get is everything.
+						if (live.tainted) throw new Error("This conversation has read outside content, and from such a conversation no program can be put into pine. Leave the module where it is and tell your owner: in a new conversation they ask you to register it, and you read it again there before you do.");
+						const file = realish(path.resolve(agent.workspace, String(p.file)));
+						if (!isInside(realish(agent.workspace), file)) throw new Error("the module must be a file in your workspace");
+						if (!/\.ts$/.test(file) || !fs.existsSync(file) || !fs.statSync(file).isFile()) throw new Error(`${file} is not a .ts file that exists`);
+						if (fs.statSync(file).size > 200_000) throw new Error("that file is too large for a source type (200 KB at most)");
+						const code = fs.readFileSync(file, "utf8");
+						// What it reaches for, as far as its text says. A hint for the owner, not a promise.
+						const uses = [...new Set([...code.matchAll(/(?:from\s*|import\s*\(\s*|require\s*\(\s*)["']([^"']+)["']/g)].map((m) => m[1]).filter((m) => !/source-types\.ts$|sources\.ts$/.test(m)))];
+						if (/\bfetch\s*\(/.test(code)) uses.push("fetch (the network)");
+						const summary = `register the source type "${p.name}" from ${file} (${code.trimEnd().split("\n").length} lines)\nThis is a program. Once registered it runs inside pine itself, with your rights and outside any sandbox, whenever a source of this type runs.\nIt uses: ${uses.join(", ") || "nothing it imports"}.\nRead the file before you say yes. pine keeps a copy of it exactly as it is now.`;
+						const decision = await confirm("add_source_type", summary, "this puts a program into pine that runs with your rights", signal);
+						if (!decision.allow) throw new Error(`not registered (${decision.by}). Do not retry; tell your owner what the type is for.`);
+						const made = await host.addType(p.name, code);
+						// Every conversation learns of the new type with its next message.
+						await manager.refreshSessions();
+						return ok(`Registered the source type "${made.name}": ${made.summary}. Options: ${made.options}. Set a source of this type up with add_source (type: "${made.name}"); that works right away.`);
+					},
+				}),
+				defineTool({
+					name: "remove_source_type",
+					label: "Remove source type",
+					description: `Take a source type out of pine that was registered with add_source_type. Sources of that type must be removed first. pine's own types stay. Registered right now: ${host.ownTypes().map((t) => t.name).join(", ") || "none"}.`,
+					parameters: Type.Object({ name: Type.String({ description: "Name of the type" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						const known = host.ownTypes().find((t) => t.name === p.name);
+						if (known && !known.usedBy.length) {
+							const decision = await confirm("remove_source_type", `remove the source type "${p.name}"\nNo source uses it. Its program is deleted from pine.`, `this takes a kind of event source out of pine's configuration${careful()}`, signal);
+							if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						}
+						host.removeType(p.name);
+						await manager.refreshSessions();
+						return ok(`Removed the source type "${p.name}".`);
+					},
+				}),
+			);
+		}
 	}
 
 	if (live.trust === "owner" && !profile.leaf) {

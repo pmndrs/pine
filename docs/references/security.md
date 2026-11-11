@@ -303,7 +303,37 @@ in `agent.json` (or `defaults.mode` in `pine.json` for all agents); `/mode` or `
 terminal UI; `pine mode <agent> <mode>` from a shell. A switch made while running lasts until the
 daemon restarts.
 
-### 5. Outputs check for themselves
+### 5. Sources that go and look
+
+- **A web address (`http`)** is fetched by pine itself, so the address is yours to confirm: the
+  dialog names it and says when it is on your own network, a redirect is followed only on the
+  same host, and a token is sent nowhere else. An address that was confirmed as a public one is
+  not followed into your network if its name later leads there. What the address answers is outside content like any page an agent reads.
+- **A command (`command`)** runs in the sandbox of the agent the source belongs to, exactly like
+  a command in that agent's own shell: no more files, no more network, not your environment. It
+  cannot read pine's secrets or write its configuration. You see the command line before it is
+  set up, in every mode. What it prints is outside content unless you say the source is yours.
+- **Status lines** (when a source last looked, what it found) are read by agents without the
+  mark that outside content gets. A source therefore repeats a found value there only when it
+  is a number or a single word.
+
+### 6. A new kind of source is a program
+
+A source type runs inside pine with pine's rights; no sandbox applies to it. It gets in by your
+hand (`sourceTypes` in `pine.json`) or through the main agent's `add_source_type`, and then only
+
+- from the main agent, in a conversation with you,
+- never from a conversation that has read outside content: there the tool refuses without
+  asking you,
+- with your yes in a dialog that says it is a program, how long it is, what it imports and
+  where the file is, in every mode and every time,
+- as a copy pine takes at that moment into its own home, which agents cannot write. What you
+  confirmed is what runs.
+
+Read the file before you confirm. Nothing else stands between that module and your account.
+`pine check` lists every registered source type with the file it runs.
+
+### 7. Outputs check for themselves
 
 Whatever asks, the Telegram source sends only to your own chat, and the MQTT source publishes
 only to topics on its `publish` list. In a conversation that has read outside content, the
@@ -311,7 +341,7 @@ only to topics on its `publish` list. In a conversation that has read outside co
 may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/`, `pine/`,
 `state/`, `timer/`).
 
-### 6. Secrets
+### 8. Secrets
 
 - Secrets live in `.env`. pine fills them into the configuration and does not put them into
   its environment, so child processes do not inherit them.
@@ -326,7 +356,7 @@ may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/
   model have still seen it: change such a secret if the model is not yours.
 - `pine check` reports configuration files other users can read.
 
-### 7. Limits against runaway behaviour
+### 9. Limits against runaway behaviour
 
 Delegation depth and loops, event hops, queue length per agent, task and shell time limits,
 prompt size for untrusted events, webhook rate. All in [configuration.md](configuration.md).
@@ -365,7 +395,8 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
 - **Bypass mode.** It is what it says: an agent in bypass acts with your rights, on your files,
   with the network, unasked. Use it for a task you are watching, on an agent that is not reading
   the web, and switch back.
-- **Your own MCP servers, extensions and source types.** They run unsandboxed. A server that can delete mail can
+- **Your own MCP servers, extensions and source types.** They run unsandboxed, also a source
+  type the main agent wrote and you confirmed: the dialog shows what it is, not what it does. A server that can delete mail can
   delete mail when an agent asks; mark such servers `"approve": "tainted"` or `"always"`.
 - **Shell with network.** `sandbox.network: true` lets commands reach the internet and your
   local network, including an unauthenticated model server. Prefer the `web` server or a
