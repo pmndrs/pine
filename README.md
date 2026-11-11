@@ -83,7 +83,7 @@ Opens the terminal UI. If no daemon is running, it starts one inside and stops i
 pine
 ```
 
-Runs the daemon alone, without the UI, so agents keep reacting to events with no terminal
+Runs the daemon as a service, without the UI, so agents keep reacting to events with no terminal
 open. `pine` then attaches to it. To have it start at login, see
 [operations.md](docs/references/operations.md).
 
@@ -91,9 +91,7 @@ open. `pine` then attaches to it. To have it start at login, see
 pine start
 ```
 
-That is a home in `~/.pine` with one agent, `main`, and the terminal UI talking to it. Out of
-the box the model is Claude through `claude -p`, so Claude Code has to be installed and signed
-in. To use something else, sign in and switch with `/model` in the UI:
+Connect your subscriptions, orlocal llm servers. Switch with `/model` in the UI:
 
 ```bash
 pine login opencode-go
@@ -135,21 +133,3 @@ Start at [docs/SKILL.md](docs/SKILL.md); it indexes everything.
 | MCP servers, web search, command tools                                                  | [mcp.md](docs/references/mcp.md)                             |
 | Know what is protected and what is not                                                  | [security.md](docs/references/security.md)                   |
 | Work on pine itself                                                                     | [AGENTS.md](AGENTS.md), [stack.md](docs/references/stack.md) |
-
-## Tests
-
-```bash
-npm test
-```
-
-About ten seconds: every test runs against a scripted model server, nothing leaves the
-machine. `npm run test:live` adds a run against a real model through `claude -p` and one with
-the real browser.
-`npm run check` type-checks. `npm run baseline` re-runs the 59 checks that chart how the pi SDK
-behaves when embedded ([baseline/RESULTS.md](baseline/RESULTS.md)).
-
-## Status
-
-Version 0.1. Verified against a scripted model and against Claude through `claude -p`. Not yet
-run against llama.cpp, a quantised local model, or a hosted provider signed in with
-`pine login`; see the open points at the end of [stack.md](docs/references/stack.md).
