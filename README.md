@@ -55,7 +55,7 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
    Telegram · MQTT · FTP │           │ ◄───────── skills
    webhooks · folders    │   agent   │
    web addresses         │           │
-   commands              │           │
+   commands · etc        │           │
  schedules ────────────► │           │
    at set times · once   └─────┬─────┘
                                │  delegate ──► other agents
