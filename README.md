@@ -13,7 +13,7 @@ npm install -g @pmndrs/pine
 
 Most harnesses just do input chat: "Do this do that". And maybe a scheduler: "Do it tomorrow". In PINE agents react to any stimuli. From watching folders, commands, websites, ftp endpoints, webhooks, to any other event source. You can hook them up and let them react to and operate your physical devices in the house, or digital assets.
 
-PINE of course also handles regular chat, coding, tasks and orchestration. Agents carry memory and so on. All the boring stuff is in there, too.
+PINE of course also handles regular chat, coding, tasks and orchestration. Agents carry memory and so on. All the basic stuff is in there, too.
 
 ### Here are some things that it does quite differently:
 
