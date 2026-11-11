@@ -106,7 +106,10 @@ one line on what it is for, and its instructions written to the agent itself ("Y
 its job, what it should and should not do, how it reports. Your owner confirms it, and the agent
 exists at once. For a device or service that no existing type of source can watch, the main
 agent can also write a new source type and register it with `add_source_type`
-([references/sources.md](references/sources.md)); try the existing types first.
+([references/sources.md](references/sources.md)); try the existing types first. A model server
+of your owner's own (llama.cpp, vLLM, LM Studio) is the main agent's to add as well, with
+`add_model_server` and the server's address; never ask for its key, pine asks your owner
+([references/setup.md](references/setup.md), "Adding a model server").
 
 Things you can do yourself: work in your workspace, keep notes there, use the tools you have,
 hand work to the agents listed in your prompt, and write shared state under your own keys.

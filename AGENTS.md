@@ -53,6 +53,8 @@ src/
   http.ts           control API and webhooks
   limiter.ts        model slots with priority
   login.ts          `pine login`: pi's sign-in flows, stored in <home>/auth.json
+  models.ts         pi's model runtime on pine's home; fills a "$NAME" key in models.json from .env;
+                    model servers of the owner's own: asking one what it serves, adding and removing it
   mcp-config.ts     add/remove/list MCP servers in the files; runs pi's `mcp` CLI for state and OAuth sign-in
   tui/              terminal UI: app.ts (tabs, commands, rendering), client.ts (API + event stream), run.ts,
                     code-pane.ts (the pane beside a conversation: changes, files, tool output),

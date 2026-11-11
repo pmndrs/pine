@@ -184,6 +184,11 @@ export class HttpServer {
 				req.on("close", () => !res.writableEnded && body.cancelOnDisconnect && this.manager.cancel(task.id));
 				return send(200, await this.manager.wait(task.id));
 			}
+			if (url.pathname === "/models/refresh") {
+				// The owner added or removed a model server with the pine command.
+				await this.manager.reloadModels();
+				return send(200, { ok: true });
+			}
 			if (url.pathname === "/mcp/refresh") {
 				await this.manager.refreshSessions();
 				return send(200, { ok: true });

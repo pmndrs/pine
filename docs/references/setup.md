@@ -31,10 +31,11 @@ is about what agents can do.
 | A skill | any agent (`add_skill`) | any agent, when you say so | **only the main agent** |
 | A new agent | | | **only the main agent** (`create_agent`) |
 | A new type of event source (a program) | | | **only the main agent** (`add_source_type`), you confirm every time |
+| A model server of your own (llama.cpp, vLLM, LM Studio, ...) | | | **only the main agent** (`add_model_server`), you confirm every time |
 
 The main agent is the one `pine.json` names with `"main"`; without that entry it is the agent
-called `main`, or else the first one. The other agents do not have `create_agent` or
-`add_source_type`, and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
+called `main`, or else the first one. The other agents do not have `create_agent`,
+`add_source_type` or `add_model_server`, and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
 an agent you ask for something that is not its to do sends you to the main agent instead of
 trying.
 
@@ -83,7 +84,7 @@ In a conversation that has read outside content two things are stricter, because
 write is read back as instructions or runs as a program. `add_skill` is checked by the
 reviewer like a write to the agent's memory ([security.md](security.md), "After outside
 content: the reviewer"; with `security.review: "ask"` it shows you the skill instead).
-`add_source_type` is refused: start a new conversation for it.
+`add_source_type` and `add_model_server` are refused: start a new conversation for it.
  Runs with the
 reduced tool set, which outside events start through a route or a subscription marked
 `separate`, have none of these tools, and neither have sub-agents.
@@ -113,10 +114,35 @@ reduced tool set, which outside events start through a route or a subscription m
 | `remove_skill` `name` | Deletes a skill in pine's own skill folders (`skills/`, `agents/<id>/skills/`, a conversation's), also one you put there by hand. A skill in a folder named under `skills` in a configuration file is yours to remove. |
 | **Agents** | |
 | `create_agent` `id` `description` `instructions` [`model`] [`tools`] | Main agent only. See below. |
+| **Model servers** | |
+| `add_model_server` `name` `url` [`context`] | Main agent only. Adds a model server of your own by its address; pine asks the server for its models. See "Adding a model server". |
+| `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default or the reviewer uses one of its models. |
 
 Everything takes effect without a restart. An agent has new MCP tools and new skills from its
 next message on, in the same conversation. After `add_mcp_server` that next message is pine's
 own: the agent is called again at once and goes on with the new tools.
+
+## Adding a model server
+
+Tell the main agent: "add my llama server at http://100.64.0.7:8080 as studio". It calls
+`add_model_server` with the name and the address, and then:
+
+1. You are shown the address and confirm it. This is asked every time, in every mode: an agent
+   that is given one of the server's models sends its whole conversation there. Until you say
+   yes, no request goes to that address.
+2. pine asks the server which models it has, how much context one request gets and whether it
+   reads pictures (from llama.cpp's `/props`; other servers say less).
+3. If the server wants a key, a second dialog asks you to type it. It goes into `.env` as
+   `PINE_MODEL_<NAME>_API_KEY`; the agent and its model never see it. A key the server does not
+   accept is not kept.
+4. The entry is written to `models.json`, and the models are there at once: choose one with
+   `/model studio/<model>`, or have the main agent give it to a new agent.
+
+Where a server does not say how much context its models get, the agent is told so and asks you
+for the number. The name cannot be one a provider already has (`anthropic`, `openai`, ...), so
+no stored key can be pointed at another address. You can do the same yourself with
+`pine model add <name> <address>` ([operations.md](operations.md)); what is written is described
+in [configuration.md](configuration.md), "models.json".
 
 ## Creating an agent
 

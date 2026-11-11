@@ -4,6 +4,7 @@ import path from "node:path";
 import { Agent, Pool, setGlobalDispatcher } from "undici";
 import { AgentManager } from "./agents.ts";
 import { loadConfig, type PineConfig } from "./config.ts";
+import { modelOrigins } from "./models.ts";
 import { HttpServer } from "./http.ts";
 import type { CompleteOptions } from "./router.ts";
 import { Router } from "./router.ts";
@@ -35,17 +36,10 @@ export interface Pine {
  * their own connection pools with header and idle timeouts; everything else keeps the defaults.
  */
 function installModelTimeouts(cfg: PineConfig): void {
-	const origins = new Set<string>();
-	try {
-		const models = JSON.parse(fs.readFileSync(path.join(cfg.home, "models.json"), "utf8"));
-		for (const p of Object.values<any>(models.providers ?? {})) if (typeof p?.baseUrl === "string") origins.add(new URL(p.baseUrl).origin);
-	} catch {
-		// AgentManager.init() reports a missing or broken models.json.
-	}
 	setGlobalDispatcher(
 		new Agent({
 			factory: (origin, opts) =>
-				new Pool(origin, origins.has(String(origin)) ? { ...opts, headersTimeout: cfg.limits.modelHeadersTimeoutMs, bodyTimeout: cfg.limits.modelStreamIdleMs } : opts),
+				new Pool(origin, modelOrigins.has(String(origin)) ? { ...opts, headersTimeout: cfg.limits.modelHeadersTimeoutMs, bodyTimeout: cfg.limits.modelStreamIdleMs } : opts),
 		}),
 	);
 }

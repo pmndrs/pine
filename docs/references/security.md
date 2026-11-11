@@ -485,7 +485,10 @@ What no mode opens:
   asks you in every mode with the name and the URL or command; a local server added this way
   runs inside the agent's sandbox, not with the daemon's rights), event sources and subscriptions, and, for the
   main agent alone, a new agent (`create_agent`, which always asks you and shows its
-  instructions). Only the main agent can set anything up for all agents. Runs with the reduced
+  instructions) and a model server of your own (`add_model_server`: you confirm the address
+  every time, before any request goes there; its key is typed into pine's dialog and kept in
+  `.env`; the name cannot be a provider's that exists, so no stored key is sent to a new
+  address; refused in a conversation that has read outside content). Only the main agent can set anything up for all agents. Runs with the reduced
   tool set (layer 2) have none of these tools, and a proposal from a conversation that has read
   outside content says so in the dialog, because a web page asking for "this handy server" is
   the obvious trick.
@@ -652,6 +655,12 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
   keeps pine's home closed to the agent's own commands, not to a program it starts outside the
   sandbox (an app, a script handed to another program). The line of defence is the reviewer
   after outside content.
+- **A model server reads what it is sent.** Whoever runs a server you add (`pine model add`,
+  `add_model_server`) sees every conversation of the agents that use its models: your messages,
+  the files they read, the results of their tools. Over plain `http` so does anyone on the
+  network path; use it on this machine, on your own network or through a VPN, and `https`
+  elsewhere. pine asks you before it adds one and never sends a key anywhere but to the address
+  you confirmed.
 - **The reviewer is a model.** It can be wrong in both directions, and a small local model is
   wrong more often than a large one. It never sees outside text, which is what makes it hard
   to fool, but it also judges with less than the agent knows. Use `security.review: "ask"` if

@@ -11,6 +11,7 @@ import { addServer, mcpEnvName, removeServer, splitCommand, validateServer } fro
 import { setEnv } from "./env-file.ts";
 import { isInside, realish } from "./security.ts";
 import { type Part, pineManual, showRead, showSearch } from "./manual.ts";
+import { addModelServer, checkServerName, listModelServers, lookAt, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
 import { checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions } from "./sources.ts";
 import { localTime } from "./timers.ts";
@@ -774,6 +775,58 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						manager.schedules?.agentsChanged();
 						await manager.refreshSessions();
 						return ok(`Your owner confirmed it. The agent ${made.id} exists now, with its workspace at ${made.workspace}. Your owner can talk to it in the terminal UI (/agent ${made.id}) or with "pine send ${made.id} ...". You can hand it work with delegate from your next message on. It starts with no MCP servers and no event sources of its own; it can set those up itself when your owner asks it to.`);
+					},
+				}),
+				// Model servers of the owner's own. Whoever runs one reads every conversation that uses it,
+				// so the address is the owner's to confirm each time, and its key never passes a model.
+				defineTool({
+					name: "add_model_server",
+					label: "Add model server",
+					description: `Add a model server of your owner's own to pine: a machine that runs llama.cpp (llama-server), vLLM, LM Studio or anything else that speaks OpenAI's chat API. Give a short name and the server's address; pine asks the server which models it has and how much context they get, and writes the entry itself. Your owner sees the address and must confirm, every time: an agent that uses one of its models sends its whole conversation there. If the server wants a key, pine asks your owner to type it into a dialog; never ask for the key yourself and never take one from the conversation. Afterwards its models can be chosen with /model or given to a new agent. Use this when your owner asks to add or connect a model server; do not tell them to edit models.json. Not possible in a conversation that has read outside content.`,
+					parameters: Type.Object({
+						name: Type.String({ description: "Short name for the server: lowercase letters, digits and - (for example studio). Its models are then called <name>/<model>" }),
+						url: Type.String({ description: "The server's address, as your owner gave it, for example http://127.0.0.1:8080 or http://100.64.0.7:8080" }),
+						context: Type.Optional(Type.Number({ description: "Tokens of context one request gets. Only when pine said the server does not tell, and with the number your owner gave you; never a guess" })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						if (live.tainted) throw new Error("This conversation has read outside content, and from such a conversation no model server can be added: whoever runs that server would read every conversation that uses it. Tell your owner the address; they add it in a new conversation, or themselves with: pine model add <name> <address>");
+						const baseUrl = serverUrl(p.url);
+						checkServerName(p.name, manager.models.getProviders().map((x: any) => x.id));
+						const themselves = `pine model add ${p.name} ${baseUrl}`;
+						const decision = await confirm("add_model_server", `add the model server "${p.name}" at ${baseUrl}\nAn agent that is given one of its models sends its conversations there: what you write, the files it reads, the results of its tools.`, "this adds a place that whole conversations can be sent to", signal);
+						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner they can add it themselves with: ${themselves}`);
+						let look = await lookAt(baseUrl);
+						let key: string | undefined;
+						if (look.locked) {
+							const asked = await confirm("add_model_server", `the model server "${p.name}" at ${baseUrl} wants a key`, "it answers only with its key, which you type here; pine keeps it in its .env file", signal, [{ name: "key", label: `API key of ${new URL(baseUrl).host} (what the server was started with)`, secret: true }]);
+							if (!asked.allow) throw new Error(`not added (${asked.by}): the server wants a key and none was given. Do not retry; tell your owner they can add it themselves with: ${themselves}`);
+							key = String(asked.values?.key ?? "");
+							manager.sources?.keepOut([key]);
+							look = await lookAt(baseUrl, key);
+							if (look.locked) throw new Error("the server did not accept the key your owner typed. Nothing was added. Tell them; when they have the right key, call this again.");
+						}
+						const models = addModelServer(cfg.home, { name: p.name, baseUrl, key, models: look.models, context: p.context });
+						await manager.reloadModels();
+						return ok(`Your owner confirmed it. Added the model server "${p.name}" with ${models.join(", ")}.${key ? " Its key is in pine's .env file." : ""} Nothing uses it yet: your owner chooses a model with /model ${models[0]} in the terminal UI, or you give one to a new agent with create_agent.`);
+					},
+				}),
+				defineTool({
+					name: "remove_model_server",
+					label: "Remove model server",
+					description: `Take a model server of your owner's own out of pine again, with the key pine keeps for it. Not possible while an agent, the default or the reviewer uses one of its models. Your owner confirms it. Right now: ${listModelServers(cfg.home).map((s) => s.name).join(", ") || "none"}.`,
+					parameters: Type.Object({ name: Type.String({ description: "Name of the server, as in <name>/<model>" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						if (!listModelServers(cfg.home).some((s) => s.name === p.name)) throw new Error(`there is no model server called "${p.name}". There ${listModelServers(cfg.home).length === 1 ? "is" : "are"}: ${listModelServers(cfg.home).map((s) => s.name).join(", ") || "none"}`);
+						// What stands in the way is said before the owner is asked anything.
+						const users = modelServerUsers(cfg, p.name);
+						if (users.length) throw new Error(`"${p.name}" is in use by ${users.join(", ")}. Your owner gives ${users.length === 1 ? "it" : "them"} another model first (/model in the terminal UI).`);
+						const decision = await confirm("remove_model_server", `remove the model server "${p.name}"\nNothing uses it. Its entry and the key pine keeps for it are deleted.`, `this takes a model server out of pine's configuration${careful()}`, signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner they can remove it themselves with: pine model remove ${p.name}`);
+						removeModelServer(cfg, p.name);
+						await manager.reloadModels();
+						return ok(`Removed the model server "${p.name}".`);
 					},
 				}),
 			);

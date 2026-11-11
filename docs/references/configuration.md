@@ -51,6 +51,10 @@ password or secret, the value is stored there as `PINE_SOURCE_<NAME>_<AGENT>_<OP
 the agent for a source of all agents), and the configuration holds only the `${...}` reference.
 Removing the source removes the entry. See [sources.md](sources.md).
 
+The key of a model server of your own goes there too, as `PINE_MODEL_<NAME>_API_KEY` when pine
+asked you for it (`pine model add`, `add_model_server`); `models.json` names it as `"apiKey":
+"$NAME"`, see [models.json](#modelsjson).
+
 ## pine.json
 
 ```json
@@ -198,7 +202,12 @@ This is pi's own file; pine passes it through. It is only needed for model serve
 pi already knows the hosted providers (OpenCode, Anthropic, OpenAI and many more), and
 `pine login <provider>` supplies their credentials. `pine init` writes two providers: `dev`
 (Claude through `claude -p`, served by `pine dev-model`; the example's `defaults.model` is
-`dev/claude-haiku`) and `local` for llama.cpp. The `local` entry:
+`dev/claude-haiku`) and `local` for llama.cpp.
+
+You do not have to write an entry yourself: `pine model add <name> <address>` asks the server
+what it serves and writes it ([operations.md](operations.md), "With a model server of your
+own"), and the main agent does the same with `add_model_server` ([setup.md](setup.md)). What
+they write looks like the `local` entry:
 
 ```json
 {
@@ -233,3 +242,35 @@ pi already knows the hosted providers (OpenCode, Anthropic, OpenAI and many more
   been verified against a real llama-server yet; see [stack.md](stack.md).
 - pi's documentation for this file is in
   `node_modules/@earendil-works/pi-coding-agent/docs/models-configuration.md`.
+
+### A server that wants a key
+
+A model server that was started with a key (llama-server with `--api-key`, a server behind a
+proxy) gets it from `.env`. `pine model add` and `add_model_server` do this themselves: they
+ask you for the key and store it as `PINE_MODEL_<NAME>_API_KEY`. By hand, name it in
+`models.json` and put the value into `<home>/.env`:
+
+```json
+"studio": {
+  "baseUrl": "http://100.64.0.7:8080/v1",
+  "api": "openai-completions",
+  "apiKey": "$STUDIO_API_KEY",
+  "models": [ ... ]
+}
+```
+
+```
+STUDIO_API_KEY=...
+```
+
+- `$NAME` and `${NAME}` both work; `$$` is a dollar sign. This is pi's way of writing it, which
+  is why there is no `${NAME:-fallback}` here.
+- pine fills the key in when it starts and gives it to pi in memory. It is not written to a
+  file and not put into the daemon's environment, so agent shells and MCP servers never see it.
+  A change to `.env` takes effect with the next start.
+- A name that is neither in `.env` nor in the daemon's environment does not stop pine: the
+  provider's models are missing from `/model`, the log says which name is missing when pine
+  starts, and `pine check` lists it under "Model notes".
+- Only `apiKey` is filled in from `.env`. A `$NAME` in `headers` is read by pi from the
+  daemon's environment; `pine check` says so when a header names an `.env` entry.
+- `"apiKey": "none"` (or any text without a `$`) is sent as it is, for a server without a key.

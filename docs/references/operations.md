@@ -11,7 +11,8 @@
 - Node 24 or newer. From a checkout Node runs the TypeScript sources directly; the npm package
   holds them compiled.
 - A model that supports tool calls: a hosted provider pi knows (sign in with `pine login`), or
-  your own model server with an OpenAI-compatible chat completions endpoint.
+  your own model server with an OpenAI-compatible chat completions endpoint (add it with
+  `pine model add`).
 
 ## Install
 
@@ -98,16 +99,37 @@ Claude or ChatGPT subscription. Credentials go to `~/.pine/auth.json` (mode 600)
 `defaults.model` in `pine.json`, for example `"opencode-go/deepseek-v4.1-flash"`, or switch in
 the UI with `/model`. `pine login <unknown>` lists every provider pi knows.
 
-### With llama.cpp
+### With a model server of your own
 
-Start the server with tool-call support and a context that matches `models.json`:
+llama.cpp, vLLM, LM Studio and anything else that speaks OpenAI's chat API is added by its
+address, on this machine or another one:
+
+```bash
+pine model add studio http://127.0.0.1:8080
+```
+
+pine asks the server which models it has, how much context one request gets and whether it
+reads pictures, and writes the entry into `models.json`. If the server wants a key (llama-server
+started with `--api-key`), it asks you for it without showing it and keeps it in `.env`. A
+running pine has the models at once; choose one with `/model studio/<model>`.
+
+- `--context <tokens>` gives the context where the server does not say it (llama.cpp does).
+- `--reasoning` or `--no-reasoning` overrides what the server says about a thinking model.
+- `pine model list` shows the servers with their models; `pine model remove <name>` takes one
+  out again, with its key, unless an agent still uses it.
+- The main agent can do the same when you ask it to ([setup.md](setup.md), "Adding a model
+  server").
+
+For llama.cpp, start the server with tool-call support:
 
 ```bash
 llama-server -m /path/to/model.gguf --jinja -c 65536 -np 2 --port 8080
 ```
 
 `-np` (parallel slots) should equal `limits.maxConcurrentRuns`. The context is shared between
-slots, so each run gets `c / np` tokens; put that number into `contextWindow`.
+slots, so each run gets `c / np` tokens; that is the number the server reports and pine writes
+down. Add `--alias <name>` to give the model a plain name: without it the name is the path of
+the model file.
 
 ## Updating
 
@@ -144,6 +166,7 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine`, `pine tui` | The terminal UI; starts a daemon inside if none is running |
 | `pine .`, `pine <folder>` | The terminal UI with one more tab: a conversation of the main agent that works in that folder (the one from last time, if there is one). A first word that is a command stays a command. See [coding.md](coding.md) |
 | `pine login <provider>`, `pine logout <provider>` | Sign in to a model provider. `--api-key` or `--oauth` force the kind of sign-in |
+| `pine model add <name> <address>`, `pine model list`, `pine model remove <name>` | Add a model server of your own by its address, list them, take one out. `--context <tokens>`, `--reasoning`, `--no-reasoning` for what the server does not say. See "With a model server of your own" |
 | `pine init [dir]` | Set pine up: a home directory from the example and the browser its web tools drive. Safe to run again |
 | `pine update [--check]` | Bring pine up to date. `--check` only says whether there is something newer. See "Updating" |
 | `pine version` | Which version this is and how it is installed |
@@ -264,6 +287,8 @@ are JSON with `Content-Type: application/json`.
 |---|---|
 | `pine.json not found` | Wrong home. Pass `--home` or set `PINE_HOME`. |
 | `model "x/y" is not defined in models.json` | `defaults.model` or an agent's `model` does not match `provider/id`. `/model` in the UI lists what is available. |
+| A model of your own server is missing from `/model` | The server wants a key and `models.json` names one that is not in `.env`. `pine check` lists it under "Model notes"; add the line to `.env` and restart, or remove the server and add it again with `pine model add`. |
+| `pine model add` says "no model server answers" | Nothing listens at that address, or it is not reachable from this machine (a firewall, a VPN that is off). `curl <address>/v1/models` shows what the server says. |
 | A task fails with 401 or "API key" | The provider's credential is missing or expired. `pine login <provider>` again. |
 | The browser tools fail with "Executable doesn't exist" | Run `pine init` again (or `pine browser-install`): the browser is missing or pine was updated to a newer one. |
 | The browser cannot open `localhost` or a page says "not reachable from the browser" | Local addresses need your yes. The agent opens the address with `browser_navigate` and you are asked; see "Local addresses" in [mcp.md](mcp.md). A server the agent started itself also needs network access for its shell. |

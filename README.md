@@ -141,8 +141,9 @@ Connect your subscriptions, orlocal llm servers. Switch with `/model` in the UI:
 pine login opencode-go
 ```
 
-`pine login anthropic` and `pine login openai-codex` use a Claude or ChatGPT subscription; a
-local llama-server goes into `~/.pine/models.json`. See
+`pine login anthropic` and `pine login openai-codex` use a Claude or ChatGPT subscription. A
+model server of your own (llama.cpp, vLLM, LM Studio) is added by its address, with
+`pine model add studio http://127.0.0.1:8080`, or by asking the main agent. See
 [operations.md](docs/references/operations.md) and [tui.md](docs/references/tui.md).
 
 To work on a project, start it in that folder. The agent gets that folder for the

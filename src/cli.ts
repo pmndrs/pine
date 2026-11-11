@@ -4,6 +4,7 @@ import path from "node:path";
 import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig, sandboxScope } from "./config.ts";
 import { audit } from "./security.ts";
 import { pineManual, showRead, showSearch } from "./manual.ts";
+import { modelKeys } from "./models.ts";
 import { allSkills, listSkills } from "./skills.ts";
 import { whenText } from "./timers.ts";
 import { expandHome } from "./util.ts";
@@ -17,6 +18,10 @@ Start here
   pine tui                        chat with your agents; starts a daemon inside if none is running
   pine login <provider>           sign in to a model provider (OpenCode, Claude, ChatGPT, ...)
   pine logout <provider>
+  pine model add <name> <address> [--context tokens] [--reasoning | --no-reasoning]
+                                  add a model server of your own (llama.cpp, vLLM, LM Studio, ...): pine asks
+                                  it for its models, and for its key if it wants one
+  pine model list | pine model remove <name>
 
 Daemon
   pine init [dir]                 set pine up: a home directory (default ~/.pine) from the example, and the
@@ -211,7 +216,7 @@ async function installBrowser(): Promise<number> {
 	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
 }
 
-const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "manual", "mcp", "mode", "reset", "schedules", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
+const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "manual", "mcp", "mode", "model", "reset", "schedules", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
 
 /** Whether a first argument means a folder to open: something written as a path, or the name of a folder here that is not a command. */
 function folderArgument(word: string | undefined, cwd = process.cwd()): string | undefined {
@@ -321,6 +326,62 @@ async function main(): Promise<void> {
 
 	if (cmd === "mcp") return mcpCommand(cfg, process.argv.slice(process.argv.indexOf("mcp") + 1), out);
 
+	if (cmd === "model") {
+		const { addModelServer, checkServerName, listModelServers, lookAt, modelKeyName, removeModelServer, serverUrl } = await import("./models.ts");
+		const sub = rest.shift() ?? "list";
+		const sized = (m: { contextWindow?: number; images: boolean }) => `${m.contextWindow ? `${m.contextWindow} tokens of context` : "context not given"}, ${m.images ? "text and pictures" : "text"}`;
+		// A running daemon reads the file again at once; without one it is read at the next start.
+		const refreshed = async (): Promise<boolean> => {
+			try {
+				const api = client(cfg);
+				if (!(await fetch(`${api.base}/health`, { signal: AbortSignal.timeout(800) })).ok) return false;
+				await api.post("/models/refresh");
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		if (sub === "list") {
+			const servers = listModelServers(cfg.home);
+			if (!servers.length) return out("no model servers of your own. Add one with: pine model add <name> <address>   (for example: pine model add studio http://127.0.0.1:8080)");
+			for (const s of servers) {
+				out(`${s.name}  ${s.baseUrl}  key: ${s.key}`);
+				for (const m of s.models) out(`    ${s.name}/${m.id}  ${sized(m)}`);
+			}
+			return;
+		}
+		if (sub === "add") {
+			const [name, address] = rest;
+			if (!name || !address) throw new Error("usage: pine model add <name> <address> [--context tokens] [--reasoning | --no-reasoning]\n       for example: pine model add studio http://127.0.0.1:8080");
+			const baseUrl = serverUrl(address);
+			const { knownProviders, readSecret } = await import("./login.ts");
+			checkServerName(name, await knownProviders(cfg));
+			let look = await lookAt(baseUrl);
+			let key: string | undefined;
+			if (look.locked) {
+				key = await readSecret(`${new URL(baseUrl).host} wants a key. API key`);
+				process.stdin.pause();
+				if (!key) throw new Error("no key given; nothing was added");
+				look = await lookAt(baseUrl, key);
+				if (look.locked) throw new Error("the server did not accept that key; nothing was added");
+			}
+			const context = flags.context === undefined ? undefined : Number(flags.context);
+			const models = addModelServer(cfg.home, { name, baseUrl, key, models: look.models, context, reasoning: typeof flags.reasoning === "boolean" ? flags.reasoning : undefined });
+			const live = await refreshed();
+			out(`Added "${name}" at ${baseUrl}`);
+			for (const m of listModelServers(cfg.home).find((s) => s.name === name)?.models ?? []) out(`    ${name}/${m.id}  ${sized(m)}`);
+			if (key) out(`Its key is in ${path.join(cfg.home, ".env")} as ${modelKeyName(name)}.`);
+			return out(`${live ? "The running pine has it now." : "pine has it when it next starts."} Choose a model with /model ${models[0]} in the terminal UI.`);
+		}
+		if (sub === "remove") {
+			if (!rest[0]) throw new Error("usage: pine model remove <name>");
+			if (!removeModelServer(cfg, rest[0])) throw new Error(`no model server "${rest[0]}". pine model list shows what there is.`);
+			await refreshed();
+			return out(`Removed "${rest[0]}".`);
+		}
+		throw new Error(`unknown: pine model ${sub}. Use add, list or remove.`);
+	}
+
 	if (cmd === "schedules") {
 		const list = [...cfg.schedules.map((s) => ({ s, whom: s.task ? "all agents" : `event ${s.topic} only` })), ...Object.values(cfg.agents).flatMap((a) => a.schedules.map((s) => ({ s, whom: s.session ? `conversation ${s.session} of ${a.id}` : `agent ${a.id}` })))];
 		if (!list.length) return out("nothing is scheduled. An agent schedules something when you ask it to (\"every morning at seven ...\", \"remind me at five\"), or write it under \"schedules\"; see docs/references/events.md");
@@ -363,6 +424,8 @@ async function main(): Promise<void> {
 			out(`  after outside content: ${a.mode === "bypass" && cfg.security.bypassWhenTainted ? "nothing changes (bypass)" : after}`);
 			out(`  sandbox    ${a.sandbox.enabled ? `on, network ${a.sandbox.network ? "allowed" : "blocked"}` : "OFF"}; untrusted events: ${a.untrusted === false ? "refused" : a.untrusted.tools.join(", ") || "no tools"}`);
 		}
+		const keys = modelKeys(cfg.home).problems;
+		if (keys.length) out(`\nModel notes:\n${keys.map((k) => `  ! ${k}`).join("\n")}`);
 		const warnings = audit(cfg);
 		out(warnings.length ? `\nSecurity notes:\n${warnings.map((w) => `  ! ${w}`).join("\n")}` : "\nNo security notes.");
 		return;

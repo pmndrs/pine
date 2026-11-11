@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { PineConfig } from "./config.ts";
+import { modelRuntime } from "./models.ts";
 import { openInSystem } from "./util.ts";
 
 /** Providers whose usual way in is a browser sign-in with a subscription. */
@@ -71,7 +72,12 @@ async function runtime(cfg: PineConfig): Promise<ModelRuntime> {
 	process.env.PI_SKIP_VERSION_CHECK = "1";
 	process.env.PI_TELEMETRY = "0";
 	fs.mkdirSync(process.env.PI_CODING_AGENT_DIR, { recursive: true });
-	return ModelRuntime.create({ authPath: path.join(cfg.home, "auth.json"), modelsPath: path.join(cfg.home, "models.json") });
+	return modelRuntime(cfg.home);
+}
+
+/** Every provider pi knows here: its own and the ones of models.json. */
+export async function knownProviders(cfg: PineConfig): Promise<string[]> {
+	return (await runtime(cfg)).getProviders().map((p: any) => p.id);
 }
 
 /**

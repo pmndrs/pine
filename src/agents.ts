@@ -9,7 +9,7 @@ import {
 	createMcpExtension,
 	createToolSearchExtension,
 	defineTool,
-	ModelRuntime,
+	type ModelRuntime,
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -17,6 +17,7 @@ import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { dropConversationSkills, renameConversationSkills, skillDirs } from "./skills.ts";
 import { type AgentConfig, conversationsDir, delegateTargets, effectiveMcp, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, PINE_ROOT, type PineConfig, sandboxScope, toPiMcp, userFile, WORKSPACE_FILES } from "./config.ts";
 import { Limiter, type Slot } from "./limiter.ts";
+import { modelRuntime } from "./models.ts";
 import { type Approvals, checkPath, globMatch, isInside, matchesToolPattern, ownFileOf, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shq, toolSubject } from "./security.ts";
 import type { Bus, Kv, State, TaskStore } from "./store.ts";
 import { editJson, removeServer } from "./mcp-config.ts";
@@ -352,15 +353,19 @@ export class AgentManager {
 	}
 
 	async init(): Promise<void> {
-		const modelsPath = path.join(this.cfg.home, "models.json");
 		// models.json is only needed for your own model servers; pi's built-in providers work without it.
-		this.modelRuntime = await ModelRuntime.create({ authPath: path.join(this.cfg.home, "auth.json"), modelsPath });
+		this.modelRuntime = await modelRuntime(this.cfg.home, (problem) => this.log.warn(problem));
 		for (const a of Object.values(this.cfg.agents)) this.modelFor(a); // fail early on unknown models
 		// What the owner allowed a conversation holds until the daemon restarts: nothing is left over from the last run.
 		fs.rmSync(path.join(this.cfg.dataDir, "browser-local"), { recursive: true, force: true });
 		// Whatever was running when the daemon stopped is not resumed: its tool calls may have had effects.
 		for (const t of this.tasks.byStatus("running")) this.finish(t, "failed", "", "interrupted by a daemon restart", undefined);
 		for (const t of this.tasks.byStatus("pending")) this.enqueue(t);
+	}
+
+	/** Read models.json again: a model server was added or removed. Conversations use it from their next start, which a change of model is. */
+	async reloadModels(): Promise<void> {
+		this.modelRuntime = await modelRuntime(this.cfg.home, (problem) => this.log.warn(problem));
 	}
 
 	get models(): ModelRuntime {

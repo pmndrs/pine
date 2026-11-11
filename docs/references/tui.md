@@ -333,7 +333,7 @@ The footer shows the model of the tab's agent.
 | Claude Code installed | Nothing: the example home uses `dev/claude-haiku`, the `claude -p` stand-in. About five seconds per model call. |
 | An OpenCode Zen or Go key | `pine login opencode` or `pine login opencode-go`, paste the key, then `/model opencode-go/deepseek-v4.1-flash` |
 | A Claude or ChatGPT subscription | `pine login anthropic` or `pine login openai-codex` (signs in through the browser), then `/model` |
-| A local llama-server | Edit `models.json`, then `/model local/<id>` |
+| A model server of your own (llama.cpp, vLLM, LM Studio) | `pine model add studio http://127.0.0.1:8080`, then `/model studio/<model>` |
 
 `pine login` uses pi's own sign-in and stores the credential in `auth.json` in pine's home,
 mode 600, where agents cannot read it. The key you type is not echoed.
