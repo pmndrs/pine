@@ -265,10 +265,12 @@ it tells apart). They write, for a model whose template knows `low` and `medium`
   field llama.cpp hands to the chat template. Formats that only send thinking on or off (such
   as `qwen-chat-template`) lose the level.
 - `off` is sent as `none`, which is how llama.cpp turns thinking off.
-- A level the template knows is sent as it is; one below its lowest is sent as that lowest.
-- Any other level has no entry: it is sent as it is and the template answers with its default.
-  The server does not list that default among its levels, so pine cannot name it. If you know
-  it, add the entry yourself, for example `"high": "xhigh"`.
+- A level the template knows is sent as it is. One it does not know is sent as the next level
+  up that it does know, so you never get less thinking than you asked for: with `low`,
+  `medium` and `xhigh`, pine's `high` is sent as `xhigh`.
+- A level above everything the template knows has no entry. pi lowers `xhigh` and `max` to
+  the highest level there is; `high` is sent as it is, and the template answers with its own
+  default.
 
 For a server that does not report this (vLLM, LM Studio), `--reasoning` only marks the model as
 thinking; write a `thinkingLevelMap` by hand if its levels differ.

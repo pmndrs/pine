@@ -117,8 +117,8 @@ running pine has the models at once; choose one with `/model studio/<model>`.
 - `--reasoning` or `--no-reasoning` overrides what the server says about a thinking model.
 - For a thinking model on llama.cpp, pine also writes which thinking level is sent for each of
   its own (`thinkingLevelMap`), from the levels the server says the model's chat template tells
-  apart. So "off" really turns thinking off, and a level the model does not know is not
-  silently answered with its highest. See [configuration.md](configuration.md), "Thinking
+  apart. So "off" really turns thinking off, and a level the model does not know becomes the
+  next one up that it does know, not silently its default. See [configuration.md](configuration.md), "Thinking
   levels".
 - `pine model list` shows the servers with their models; `pine model remove <name>` takes one
   out again, with its key, unless an agent still uses it.

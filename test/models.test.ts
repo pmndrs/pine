@@ -138,7 +138,8 @@ test("the thinking level chosen in pine is the one the model gets", async (t) =>
 	// A template that knows low and medium and takes its highest for everything else: "minimal"
 	// would get the highest, and "off" would leave thinking on, unless pine says what to send.
 	assert.deepEqual(effortMap(["low", "medium"]), { off: "none", minimal: "low", low: "low", medium: "medium" });
-	assert.deepEqual(effortMap(["low", "medium", "xhigh"]), { off: "none", minimal: "low", low: "low", medium: "medium", xhigh: "xhigh" }, "high is left to the template's own default");
+	assert.deepEqual(effortMap(["low", "medium", "xhigh"]), { off: "none", minimal: "low", low: "low", medium: "medium", high: "xhigh", xhigh: "xhigh" }, "a level it does not know gets the next one up, never less than was asked for");
+	assert.deepEqual(effortMap(["low", "max"]), { off: "none", minimal: "low", low: "low", medium: "max", high: "max", xhigh: "max", max: "max" });
 	assert.deepEqual(effortMap(["minimal", "low", "medium", "high", "xhigh", "max"]), { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
 	assert.deepEqual(effortMap(["medium", "high"]), { off: "none", minimal: "medium", low: "medium", medium: "medium", high: "high" });
 	assert.deepEqual(effortMap([]), { off: "none" }, "a template with one way of thinking can still be told to stop");

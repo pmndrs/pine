@@ -138,15 +138,16 @@ const EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
  * which is often its highest, and "off" sends nothing at all, so thinking stays on.
  *  - off: "none", which is how llama.cpp turns thinking off.
  *  - a level the template knows: itself.
- *  - a level below the lowest it knows: that lowest one.
- *  - anything else is left out: it goes as it is, and the template answers with its default.
+ *  - a level it does not know: the next one up that it does (never less than was asked for).
+ *  - a level above all it knows is left out: pi lowers xhigh and max to the highest there is,
+ *    and "high" goes as it is, to the template's own default.
  */
 export function effortMap(efforts: string[]): Record<string, string> {
 	const map: Record<string, string> = { off: "none" };
 	const known = EFFORTS.filter((level) => efforts.includes(level));
 	for (const level of EFFORTS) {
-		if (known.includes(level)) map[level] = level;
-		else if (known.length && EFFORTS.indexOf(level) < EFFORTS.indexOf(known[0])) map[level] = known[0];
+		const next = known.find((k) => EFFORTS.indexOf(k) >= EFFORTS.indexOf(level));
+		if (next) map[level] = next;
 	}
 	return map;
 }
