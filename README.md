@@ -59,7 +59,7 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
  schedules ────────────► │           │
    repeating · once      └─────┬─────┘
                                │  delegate ──► other agents
-                               │  subagent ──► parallel copies
+                               │  subagent ──► with distinct prompts, in parallel
                                ▼
                  answers · messages · actions
 
