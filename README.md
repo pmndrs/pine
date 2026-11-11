@@ -7,7 +7,7 @@
 
 <div align="center">
 <code>
-+ OpenCode, inspired by its interactive TUI
++ Opencode like CLI, everything's interactive + support for images, videos
 + OpenClaw automation, without the weight & complexity
 + PI coding agent for basic turns, auto compact and model providers
 -------------------------------------------------------------------
