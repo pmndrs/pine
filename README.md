@@ -47,13 +47,20 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
 <br/>
 
 ```
- Telegram ─┐                                   ┌─ rule: set state, publish
- MQTT ─────┤                                   │
- files ────┼─► event log ─► routes ────────────┼─ one model call
- webhooks ─┤   (SQLite)     filter, debounce   │
- schedules ┘       ▲                           └─ agent turn (pi session)
-       ...         │                                │  delegate ─► other agents
-                   └──── answers, agent events ◄────┘  subagent ─► parallel copies
+              you:  terminal UI · Telegram
+                           │
+                           ▼
+ wake it             ┌───────────┐             it uses
+ events ───────────► │           │ ◄────────── MCP servers
+ schedules ────────► │   agent   │ ◄────────── skills
+                     └─────┬─────┘
+                           │  delegate ──► other agents
+                           │  subagent ──► parallel copies
+                           ▼
+                 answers · messages · actions
+
+ Each of the four is set up by asking, for one conversation,
+ for the agent, or (main agent only) for all agents.
 ```
 
 ## Quick start
