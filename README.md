@@ -18,7 +18,7 @@ PINE of course also handles regular chat, coding, tasks and orchestration. Agent
 ### Here are some things that it does quite differently:
 
 - **Event-driven agents:** Agents subscribe to events and react. An event source is just a `*.ts` service with a schema. Tell the agent what you want and they subscribe: "Watch ~/documents/scans, for every new file: extract summaries and payment details, if present"
-- **No configs:** Tell the main agent what you want. It configures PINE, creates agents, MCPs, event sources, skills and schedules through administrative tool calls, never touches user config.
+- **No configs:** Tell the main agent what you want. It configures PINE, creates agents, MCPs, event sources, skills and schedules through administrative tool calls, never touches user config, never messes it up or breaks it.
 - **Self-discovery:** A built-in BM25 instruction MCP lets agents look up any API or internal detail on demand, without carrying docs in context.
 - **A CLI that feels like a desktop app:** Tabs, buttons, scroll regions, inline images and video, and drag-and-drop with thumbnails. Works in Kitty-protocol terminals like Ghostty, with fallbacks for older ones.
 - **Built in:** Computer use, web browsing, coding tools, diffs and git.
