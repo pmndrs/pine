@@ -274,8 +274,8 @@ How they look depends on the terminal. kitty, Ghostty, WezTerm and Warp (every t
 is recognised as speaking the Kitty graphics protocol) get the real picture. Every other
 terminal (Apple's Terminal, iTerm2, anything inside tmux) gets a thumbnail made of
 coloured half blocks, two pixels per character. The half-block thumbnail and the conversion of
-jpg, gif and webp use macOS's `sips`; on another system only png files show, and only on a
-terminal with real pictures.
+jpg, gif and webp use macOS's `sips`, and `ffmpeg` on Linux; without either only png files
+show, and only on a terminal with real pictures.
 
 A terminal draws a real picture above all text. While a menu or a dialog lies over a picture or
 a video, that one is therefore drawn with half blocks, so the menu is whole; the real picture

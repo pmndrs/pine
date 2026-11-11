@@ -17,7 +17,7 @@ import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { dropConversationSkills, renameConversationSkills, skillDirs } from "./skills.ts";
 import { type AgentConfig, conversationsDir, delegateTargets, effectiveMcp, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, PINE_ROOT, type PineConfig, toPiMcp, userFile, WORKSPACE_FILES } from "./config.ts";
 import { Limiter, type Slot } from "./limiter.ts";
-import { type Approvals, checkPath, globMatch, isInside, matchesToolPattern, realish, type Roots, rootsFor, sandboxAvailable, sandboxProfile, type SandboxVariant, shellEnv, shq, toolSubject } from "./security.ts";
+import { type Approvals, checkPath, globMatch, isInside, matchesToolPattern, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shq, toolSubject } from "./security.ts";
 import type { Bus, Kv, State, TaskStore } from "./store.ts";
 import { editJson, removeServer } from "./mcp-config.ts";
 import { fetchToFile } from "./net.ts";
@@ -1190,14 +1190,10 @@ export class AgentManager {
 	private coreExtension(agent: AgentConfig, live: Live, profile: Profile, roots: Roots) {
 		const { cfg } = this;
 		const sandboxed = agent.sandbox.enabled && sandboxAvailable();
-		// One set of profile files per session, because access granted to a session is part of them.
+		// The sandbox of a session: made anew for each command, because access granted to the session
+		// is part of it, and so is the variant the run is in at that moment.
 		let network = false;
-		const base = path.join(cfg.home, "sandbox", `${agent.id}.${safeName(live.key)}`);
-		const profiles = sandboxed ? { normal: `${base}.sb`, restricted: `${base}.restricted.sb`, open: `${base}.open.sb` } : undefined;
-		const writeProfiles = () => {
-			if (!profiles) return;
-			for (const v of ["normal", "restricted", "open"] as const) fs.writeFileSync(profiles[v], sandboxProfile(cfg, agent, roots, v, network));
-		};
+		const jail = sandboxed ? (variant: SandboxVariant = live.variant()) => sandboxArgv(cfg, agent, roots, variant, network) : undefined;
 		// What the conversation was granted before this session existed (a sub-agent starting later, or
 		// the conversation's own session coming back after a pause) applies from the start.
 		const sync = () => {
@@ -1207,14 +1203,13 @@ export class AgentManager {
 				for (const p of g.read) if (!roots.read.includes(p)) roots.read.push(p);
 				for (const p of g.write) if (!roots.write.includes(p)) roots.write.push(p);
 			}
-			writeProfiles();
 		};
 		sync();
 		live.sandboxed = sandboxed;
 		live.syncGrants = sync;
 		live.network = () => !sandboxed || agent.sandbox.network || network || live.mode() === "bypass";
 		live.grant = (kind, target) => {
-			if (!profiles) return "there is no sandbox on this session, so there is nothing to widen";
+			if (!jail) return "there is no sandbox on this session, so there is nothing to widen";
 			const g = this.grants.get(live.perm) ?? { network: false, read: [], write: [] };
 			if (kind === "network") {
 				g.network = true;
@@ -1283,7 +1278,7 @@ export class AgentManager {
 
 		return (pi: any) => {
 			for (const [name, server] of Object.entries(profile.mcp)) {
-				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandboxProfile: profiles?.restricted, env: shellEnv(agent, roots, {}) } : {};
+				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandbox: jail?.("restricted"), env: shellEnv(agent, roots, {}) } : {};
 				pi.registerMcpServer(name, toPiMcp(name, server, extra));
 			}
 
@@ -1291,18 +1286,30 @@ export class AgentManager {
 				// Replace pi's shell tool with one that runs every command inside the sandbox, with a clean environment.
 				const bash = createBashTool(roots.cwd, {
 					spawnHook: ({ command, cwd, env }: any) => ({
-						command: profiles ? `exec /usr/bin/sandbox-exec -f ${shq(profiles[live.variant()])} /bin/bash -c ${shq(command)}` : command,
+						command: jail ? `exec ${jail().map(shq).join(" ")} ${shq(bin("bash"))} -c ${shq(command)}` : command,
 						cwd,
 						env: shellEnv(agent, roots, env),
 					}),
 				});
-				pi.registerTool({ ...bash, execute: (id: string, params: any, signal: any, onUpdate: any) => bash.execute(id, params, signal, onUpdate) });
+				pi.registerTool({
+					...bash,
+					execute: async (id: string, params: any, signal: any, onUpdate: any) => {
+						// On Linux a protected file that did not exist cannot be forbidden, only taken away again.
+						const guard = jail ? sandboxGuard(roots, live.variant()) : undefined;
+						try {
+							return await bash.execute(id, params, signal, onUpdate);
+						} finally {
+							const gone = guard?.restore() ?? [];
+							if (gone.length) this.log.warn(`${agent.id}: a command made ${gone.join(", ")}, which a run that has read outside content may not; removed again`);
+						}
+					},
+				});
 			}
 
-			if (profiles) {
+			if (jail) {
 				// The same for the file tools: every read and write goes through the sandbox, so the
 				// operating system, not a path check in this process, decides what they can reach.
-				const sandboxFs = { cwd: roots.cwd, profile: () => profiles[live.variant()], env: () => shellEnv(agent, roots, {}) };
+				const sandboxFs = { cwd: roots.cwd, prefix: () => jail(), env: () => shellEnv(agent, roots, {}), guard: () => sandboxGuard(roots, live.variant()) };
 				for (const tool of sandboxedFileTools(sandboxFs, profile.tools)) pi.registerTool(tool);
 			}
 
@@ -1310,7 +1317,7 @@ export class AgentManager {
 				// Getting a file from a server the owner connected is routine and needs no shell network.
 				// The download runs in the daemon; the file is put in place through the sandbox, so the
 				// operating system decides where it may land, exactly as for the write tool.
-				const sandboxFs = profiles ? { cwd: roots.cwd, profile: () => profiles[live.variant()], env: () => shellEnv(agent, roots, {}) } : undefined;
+				const sandboxFs = jail ? { cwd: roots.cwd, prefix: () => jail(), env: () => shellEnv(agent, roots, {}) } : undefined;
 				pi.registerTool(
 					defineTool({
 						name: "download",
@@ -1522,7 +1529,6 @@ export class AgentManager {
 			this.allowed.delete(live.perm);
 			this.grants.delete(live.perm);
 		}
-		if (live.ephemeral) for (const suffix of [".sb", ".restricted.sb", ".open.sb"]) fs.rmSync(path.join(this.cfg.home, "sandbox", `${live.agent.id}.${safeName(live.key)}${suffix}`), { force: true });
 		const id = `${live.agent.id}:${live.key}`;
 		if (this.lives.get(id) === live) this.lives.delete(id);
 		try {

@@ -7,6 +7,7 @@ import { PineTui, searchItems, urlAt } from "../src/tui/app.ts";
 import { Client } from "../src/tui/client.ts";
 import { harness, type Harness, MCP_STUB, mockMsg, notesOf, sleep, until } from "./support/harness.ts";
 import { FakeTerminal, KEY } from "./support/terminal.ts";
+import { sandboxAvailable } from "../src/security.ts";
 
 // A failed assertion skips the test's own cleanup; an open UI would keep its event stream alive.
 const apps: PineTui[] = [];
@@ -318,7 +319,7 @@ test("tui: dropped files are attached, shown, removable, and arrive in the agent
 	await t.close();
 });
 
-test("tui: bypass in a conversation that has read outside content is a choice, and a pause is announced", { skip: process.platform !== "darwin" }, async () => {
+test("tui: bypass in a conversation that has read outside content is a choice, and a pause is announced", { skip: !sandboxAvailable() }, async () => {
 	const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
 	const t = await open({ agents: { main: { agent: { mcp: { feed }, mode: "bypass" } } } });
 	await t.sees(/main · main · no folder · mock\/m · reasoning off · bypass/);

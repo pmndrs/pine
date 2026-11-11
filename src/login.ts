@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { PineConfig } from "./config.ts";
+import { openInSystem } from "./util.ts";
 
 /** Providers whose usual way in is a browser sign-in with a subscription. */
 const OAUTH_FIRST = ["anthropic", "openai-codex", "github-copilot"];
@@ -61,7 +61,7 @@ const terminalPrompter = (): Prompter & { close(): void } => {
 		text: (m) => ask(`${m} `),
 		secret: (m) => readSecret(m),
 		say: (line) => console.log(line),
-		open: (url) => void spawn("open", [url], { stdio: "ignore", detached: true }).on("error", () => {}),
+		open: openInSystem,
 		close: () => process.stdin.pause(),
 	};
 };

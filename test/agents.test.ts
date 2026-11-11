@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { harness, mockMsg, notesOf, sleep, textOf, until } from "./support/harness.ts";
+import { sandboxAvailable } from "../src/security.ts";
 
 const users = (req: any) => req.body.messages.filter((m: any) => m.role === "user").map((m: any) => textOf(m.content));
 const owner = { trust: "owner" as const };
@@ -228,7 +229,7 @@ test("agents are told how pine works and can read its manual, but not pi's or pi
 	const out = h.toolResults();
 	assert.ok(out[0].includes("If you are an agent running inside pine"), out[0].slice(0, 200));
 	assert.ok(out[1].includes("configuration.md") && out[1].includes("globalMcp"), out[1].slice(0, 200));
-	if (process.platform === "darwin") assert.ok(out[2].includes("# MCP servers"), out[2]);
+	if (sandboxAvailable()) assert.ok(out[2].includes("# MCP servers"), out[2]);
 	assert.match(out[3], /outside the paths this agent may read/);
 	assert.match(out[4], /not accessible to agents/);
 	await h.close();

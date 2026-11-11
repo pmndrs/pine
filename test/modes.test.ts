@@ -3,11 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { audit } from "../src/security.ts";
-import { harness, MCP_STUB, mockMsg, notesOf, until } from "./support/harness.ts";
+import { audit, sandboxAvailable } from "../src/security.ts";
+import { harness, MCP_STUB, mockMsg, notesOf, until, refused } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
-const mac = { skip: process.platform !== "darwin" };
+const mac = { skip: !sandboxAvailable() };
 const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
 const call = (name: string, args: any) => ({ name, args });
 
@@ -38,7 +38,7 @@ test("auto mode: beyond the sandbox is refused, and opens for the conversation o
 	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("read", { path: file }), call("bash", { command: `cat ${file}` })] }]), ...owner });
 	let out = h.toolResults().slice(-2);
 	assert.match(out[0], /outside the paths this agent may read .* call request_access/);
-	assert.match(out[1], /Operation not permitted/);
+	assert.match(out[1], refused);
 	assert.equal(asked.length, 0, "a refusal is not a question");
 
 	await h.pine.agents.run({
@@ -54,7 +54,7 @@ test("auto mode: beyond the sandbox is refused, and opens for the conversation o
 	assert.match(out[1], /cannot be granted: pine's own configuration stays closed/);
 	assert.match(out[2], /Granted: read access to/);
 	assert.ok(out[3].includes("ELSEWHERE-CONTENT"), out[3]);
-	assert.ok(out[4].includes("ELSEWHERE-CONTENT") && /Operation not permitted/.test(out[4]), `read was granted, write was not: ${out[4]}`);
+	assert.ok(out[4].includes("ELSEWHERE-CONTENT") && refused.test(out[4]), `read was granted, write was not: ${out[4]}`);
 	assert.equal(asked.length, 3);
 	assert.ok(asked[2].summary.includes(`read access to ${dir}`) && asked[2].summary.includes("the notes the owner mentioned") && asked[2].tool === "request_access");
 
@@ -112,9 +112,9 @@ test("bypass mode: no questions and the whole account, but never pine's own home
 	assert.ok(fs.existsSync(path.join(dir, "by-tool.txt")));
 	assert.equal(out[3].trim(), "200", "the network is open in bypass mode");
 	assert.match(out[4], /not accessible to agents/);
-	assert.ok(!out[5].includes("sk-mock") && /Operation not permitted/.test(out[5]), out[5]);
+	assert.ok(!out[5].includes("sk-mock") && refused.test(out[5]), out[5]);
 	assert.match(out[6], /pine's own code, which agents cannot change/);
-	assert.match(out[7], /Operation not permitted/);
+	assert.match(out[7], refused);
 	assert.ok(!fs.existsSync(path.join(repo, "src", "evil.ts")));
 	assert.equal(asked.length, 0, "nothing was asked, not even what the approve list names");
 	assert.ok(notesOf(h.mock.state.requests[0])[0].includes("Mode: bypass."));

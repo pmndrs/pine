@@ -1,0 +1,22 @@
+# Starts pine at login and restarts it if it exits (a systemd user service).
+# 1. Replace the node path (run: which node) and the path to pine.
+# 2. Copy to ~/.config/systemd/user/pine.service
+# 3. systemctl --user daemon-reload && systemctl --user enable --now pine
+#    To keep it running while you are logged out: loginctl enable-linger $USER
+# Stop: systemctl --user disable --now pine
+# Logs: journalctl --user -u pine -f
+#
+# Do not add RestrictNamespaces= or PrivateUsers= here: the agent sandbox (bubblewrap)
+# needs user namespaces, and pine would withhold the shell tool without it.
+[Unit]
+Description=pine agent daemon
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/node %h/dev/pine/src/cli.ts start --home %h/.pine
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -13,7 +13,7 @@
 //       timeoutSec?, cwd?, env?, sandbox?, maxOutput?
 //     }
 //   },
-//   cwd, sandboxProfile, env        // filled in by pine: the agent's workspace, sandbox profile and shell environment
+//   cwd, sandbox, env               // filled in by pine: the agent's workspace, what puts a command into its sandbox, its shell environment
 // }
 import { spawn } from "node:child_process";
 import { type McpTool, options, serve } from "./lib.ts";
@@ -37,7 +37,7 @@ interface Command {
 	maxOutput?: number;
 }
 
-const o = options<{ commands?: Record<string, Command>; cwd?: string; sandboxProfile?: string; env?: Record<string, string> }>();
+const o = options<{ commands?: Record<string, Command>; cwd?: string; sandbox?: string[]; env?: Record<string, string> }>();
 
 export function buildArgv(cmd: Command, args: Record<string, unknown>): string[] {
 	const values: Record<string, string> = {};
@@ -63,7 +63,7 @@ export function buildArgv(cmd: Command, args: Record<string, unknown>): string[]
 
 function run(name: string, cmd: Command, args: Record<string, unknown>): Promise<string> {
 	let argv = buildArgv(cmd, args);
-	if (cmd.sandbox && o.sandboxProfile) argv = ["/usr/bin/sandbox-exec", "-f", o.sandboxProfile, ...argv];
+	if (cmd.sandbox && o.sandbox?.length) argv = [...o.sandbox, ...argv];
 	const max = cmd.maxOutput ?? 30_000;
 	return new Promise((resolve, reject) => {
 		const child = spawn(argv[0], argv.slice(1), { cwd: cmd.cwd ?? o.cwd, env: { ...(o.env ?? { PATH: process.env.PATH ?? "" }), ...(cmd.env ?? {}) }, stdio: ["ignore", "pipe", "pipe"] });

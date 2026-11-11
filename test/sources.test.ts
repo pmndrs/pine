@@ -10,6 +10,7 @@ import { Aedes } from "aedes";
 import mqtt from "mqtt";
 import { harness, MCP_STUB, mockMsg, notesOf, sleep, until } from "./support/harness.ts";
 import { png } from "./support/png.ts";
+import { sandboxAvailable } from "../src/security.ts";
 
 const owner = { trust: "owner" as const };
 const call = (name: string, args: any) => ({ name, args });
@@ -320,7 +321,7 @@ test("sources: an agent can always say what it is subscribed to, also when nothi
 	await h.close();
 });
 
-test("sources: asked to watch something, an agent sets the source up itself, the owner confirms what is new, and it works at once", { skip: process.platform !== "darwin" }, async (t) => {
+test("sources: asked to watch something, an agent sets the source up itself, the owner confirms what is new, and it works at once", { skip: !sandboxAvailable() }, async (t) => {
 	const os = await import("node:os");
 	const project = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), ".pine-test-project-")));
 	t.after(() => fs.rmSync(project, { recursive: true, force: true }));

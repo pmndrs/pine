@@ -6,12 +6,13 @@ import { after, test } from "node:test";
 import { getCapabilities, setCapabilities } from "@earendil-works/pi-tui";
 import { PineTui } from "../src/tui/app.ts";
 import { Client } from "../src/tui/client.ts";
-import { halfBlocks, parseBmp, picturesIn, prepare } from "../src/tui/picture.ts";
+import { halfBlocks, parseBmp, picturesIn, prepare, scaled } from "../src/tui/picture.ts";
 import { harness, mockMsg, sleep, until } from "./support/harness.ts";
 import { png } from "./support/png.ts";
 import { FakeTerminal, KEY } from "./support/terminal.ts";
 
-const mac = { skip: process.platform !== "darwin" };
+/** Pictures need a converter: sips on macOS, ffmpeg elsewhere. */
+const mac = { skip: process.platform !== "darwin" && !["/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"].some((f) => fs.existsSync(f)) };
 const owner = { trust: "owner" as const };
 const apps: PineTui[] = [];
 after(async () => {
@@ -41,6 +42,25 @@ test("pictures: a picture becomes half blocks that keep its colours and shape", 
 	// Something that is not a picture, and a broken file: no drawing, no crash.
 	assert.equal((await prepare(Buffer.from("not a picture at all"), "image/png", "x")).pixels, undefined);
 	assert.equal(parseBmp(Buffer.from("BM")), undefined);
+});
+
+// Where there is no sips (Linux), ffmpeg makes the copies. Runs wherever ffmpeg is installed.
+const hasFfmpeg = { skip: !["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", ...(process.env.PATH ?? "").split(":")].some((d) => fs.existsSync(path.join(d, "ffmpeg"))) };
+test("pictures: ffmpeg converts where sips is missing", hasFfmpeg, async (t) => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-pic-test-")));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+	fs.writeFileSync(path.join(dir, "in"), png(64, 40));
+	assert.ok(await scaled(dir, path.join(dir, "in"), 64, "bmp", "ffmpeg"));
+	const same = parseBmp(fs.readFileSync(path.join(dir, "out.bmp")))!;
+	assert.equal(`${same.width}x${same.height}`, "64x40");
+	assert.deepEqual([...same.rgb.subarray(0, 3)], [220, 40, 40], "the colours and which way is up survive");
+	assert.deepEqual([...same.rgb.subarray((39 * 64 + 63) * 3, (39 * 64 + 63) * 3 + 3)], [40, 60, 220]);
+	assert.ok(await scaled(dir, path.join(dir, "in"), 32, "bmp", "ffmpeg"));
+	const small = parseBmp(fs.readFileSync(path.join(dir, "out.bmp")))!;
+	assert.equal(`${small.width}x${small.height}`, "32x20", "scaled by its longer side, the shape kept");
+	assert.ok((await scaled(dir, path.join(dir, "in"), 32, "png", "ffmpeg")) && fs.readFileSync(path.join(dir, "out.png")).subarray(1, 4).toString() === "PNG");
+	fs.writeFileSync(path.join(dir, "bad"), "not a picture at all");
+	assert.equal(await scaled(dir, path.join(dir, "bad"), 32, "bmp", "ffmpeg"), false);
 });
 
 test("pictures: the daemon serves pictures to a UI and nothing else", async (t) => {
@@ -205,7 +225,7 @@ test("tui: a menu opened over a real picture is not covered by it; the picture i
 
 const ffmpeg = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"].find((f) => fs.existsSync(f));
 
-test("tui: a video plays by itself when it arrives, at the size it is shown; pause, play, enlarge and the player are separate clicks", { skip: process.platform !== "darwin" || !ffmpeg }, async () => {
+test("tui: a video plays by itself when it arrives, at the size it is shown; pause, play, enlarge and the player are separate clicks", { skip: !ffmpeg }, async () => {
 	const { execFileSync } = await import("node:child_process");
 	const opened: string[] = [];
 	const h = await harness({ pine: { main: "main", http: { port: 0 } }, agents: { main: {} } });
@@ -283,13 +303,13 @@ test("tui: a video plays by itself when it arrives, at the size it is shown; pau
 	await h.close();
 });
 
-test("tui: on a terminal with the Kitty graphics protocol a video plays as real pictures, each frame replacing the last", { skip: process.platform !== "darwin" || !ffmpeg }, async () => {
+test("tui: on a terminal with the Kitty graphics protocol a video plays as real pictures, each frame replacing the last", { skip: !ffmpeg }, async () => {
 	const { execFileSync } = await import("node:child_process");
 	const { pngFromRgb } = await import("../src/tui/picture.ts");
-	// The frame encoder writes a valid png: sips reads it back with the right size.
+	// The frame encoder writes a valid png: a decoder reads it back with the right size.
 	const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "pine-png-"));
 	fs.writeFileSync(path.join(dir, "f.png"), pngFromRgb(new Uint8Array(6 * 4 * 3).fill(200), 6, 4));
-	assert.match(execFileSync("/usr/bin/sips", ["-g", "pixelWidth", "-g", "pixelHeight", path.join(dir, "f.png")]).toString(), /pixelWidth: 6\s+pixelHeight: 4/);
+	assert.equal(execFileSync(path.join(path.dirname(ffmpeg!), "ffprobe"), ["-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", path.join(dir, "f.png")]).toString().trim(), "6,4");
 	fs.rmSync(dir, { recursive: true, force: true });
 
 	const before = getCapabilities();

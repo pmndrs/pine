@@ -31,7 +31,7 @@ This is a small daemon that runs AI agents _reactively_. Some things it does ver
 - **Orchestrating agents**, sub-agents, ... well, yes it does that. In an intuitive way. A pinned tab is a persistent agent. Create an agent, open a tab, rename it, tell it its basic instructions (these go into AGENTS.md), connect it to event sources, for instance Telegram if you want to chat abroad, pin it, close the tab if you want (you find it back in the running sessions), you're done.
 
 > [!IMPORTANT]
-> Until now this is macos (linux and docker in testing) only, due to some TUI specifics and sandboxing. Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
+> pine runs on macOS and Linux (see [Linux](#linux) for Ubuntu and Docker). Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
 
 <br/>
 
@@ -164,6 +164,42 @@ To get a newer version later, with whatever it needs:
 ```bash
 pine update
 ```
+
+## Linux
+
+The agent sandbox is built on [bubblewrap](https://github.com/containers/bubblewrap). Without
+it pine runs, but agents get no shell. `pine check` says whether it works, and why not.
+
+```bash
+sudo apt install bubblewrap
+```
+
+**Ubuntu 24.04 and later** keep bubblewrap from working until AppArmor allows it. Put this into
+`/etc/apparmor.d/bwrap`:
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
+```
+
+and load it:
+
+```bash
+sudo apparmor_parser -r /etc/apparmor.d/bwrap
+```
+
+**Docker** forbids a sandbox inside a container unless the container is started with the
+rights for one:
+
+```bash
+docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined ...
+```
+
+What differs from macOS is in [security.md](docs/references/security.md), "On Linux".
 
 ## Documentation
 

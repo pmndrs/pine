@@ -7,11 +7,12 @@ import { after, test } from "node:test";
 import { PineTui } from "../src/tui/app.ts";
 import { Client } from "../src/tui/client.ts";
 import { diffLines } from "../src/tui/code-pane.ts";
-import { harness, mockMsg, notesOf, sleep, until } from "./support/harness.ts";
+import { harness, mockMsg, notesOf, sleep, until, refused } from "./support/harness.ts";
 import { FakeTerminal } from "./support/terminal.ts";
+import { sandboxAvailable } from "../src/security.ts";
 
 const owner = { trust: "owner" as const };
-const mac = { skip: process.platform !== "darwin" };
+const mac = { skip: !sandboxAvailable() };
 const call = (name: string, args: any) => ({ name, args });
 const CTRL_G = "\x07";
 
@@ -45,7 +46,7 @@ test("folder: a conversation that is given a folder works there; no other conver
 	const look = [{ tools: [call("bash", { command: `pwd; cat ${dir}/notes.txt` })] }];
 
 	await run(look, "proj");
-	assert.match(h.toolResults().at(-1)!, /Operation not permitted/, "closed before it is opened");
+	assert.match(h.toolResults().at(-1)!, refused, "closed before it is opened");
 
 	assert.deepEqual(await h.pine.agents.setFolder("main", "proj", dir), { folder: dir });
 	await run([{ tools: [call("bash", { command: "pwd; cat notes.txt; echo made-here > made.txt" }), call("read", { path: "notes.txt" }), call("write", { path: "src/new.ts", content: "export {};\n" })] }], "proj");
@@ -60,7 +61,7 @@ test("folder: a conversation that is given a folder works there; no other conver
 
 	// The agent's other conversations, and this one when it handles outside content, have none of it.
 	await run(look, "main");
-	assert.match(h.toolResults().at(-1)!, /Operation not permitted/);
+	assert.match(h.toolResults().at(-1)!, refused);
 	await run([{ tools: [call("read", { path: path.join(dir, "notes.txt") })] }], "proj", "untrusted");
 	assert.ok(!h.toolResults().at(-1)!.includes("PROJECT-NOTES") && !notesOf(h.mock.state.requests.at(-1)).join("\n").includes("Your owner opened the folder"), `a folder is opened for the owner's conversation, not for what outside content says in it: ${h.toolResults().at(-1)}`);
 
@@ -79,7 +80,7 @@ test("folder: a conversation that is given a folder works there; no other conver
 	assert.deepEqual(h.pine.agents.folders("main"), [{ session: "work", folder: dir }]);
 	await h.pine.agents.setFolder("main", "work", null);
 	await run(look, "work");
-	assert.match(h.toolResults().at(-1)!, /Operation not permitted/, "closed again from the next message on");
+	assert.match(h.toolResults().at(-1)!, refused, "closed again from the next message on");
 	await h.pine.agents.setFolder("main", "work", dir);
 	await h.pine.agents.removeSession("main", "work");
 	assert.deepEqual(h.pine.agents.folders("main"), []);

@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { allSkills } from "../src/skills.ts";
-import { harness, MCP_STUB, mockMsg } from "./support/harness.ts";
+import { harness, MCP_STUB, mockMsg, refused } from "./support/harness.ts";
+import { sandboxAvailable } from "../src/security.ts";
 
 const owner = { trust: "owner" as const };
 const call = (name: string, args: any) => ({ name, args });
@@ -135,7 +136,7 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 	await h.close();
 });
 
-test("skills: the agent reads its skill and the files beside it, and cannot rewrite them from its shell", { skip: process.platform !== "darwin" }, async () => {
+test("skills: the agent reads its skill and the files beside it, and cannot rewrite them from its shell", { skip: !sandboxAvailable() }, async () => {
 	const h = await harness({ pine: { main: "main" }, agents: { main: { files: { "kit/run.sh": "echo from-the-skill\n" } } } });
 	h.pine.bus.subscribe("approval/requested", (e) => void h.pine.approvals.decide((e.payload as any).id, true, "test"));
 	const dir = path.join(h.home, "skills", "kit");
@@ -143,7 +144,7 @@ test("skills: the agent reads its skill and the files beside it, and cannot rewr
 	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("bash", { command: `cat ${dir}/SKILL.md; sh ${dir}/run.sh; echo changed | tee -a ${dir}/SKILL.md; echo x | tee ${dir}/new.txt; echo end` })] }]), ...owner });
 	const out = h.toolResults().at(-1)!;
 	assert.ok(out.includes("Run run.sh.") && out.includes("from-the-skill"), out);
-	assert.equal(out.split("Operation not permitted").length, 3, out);
+	assert.equal(out.split(refused).length, 3, out);
 	assert.ok(!fs.readFileSync(path.join(dir, "SKILL.md"), "utf8").includes("changed") && !fs.existsSync(path.join(dir, "new.txt")));
 	await h.close();
 });

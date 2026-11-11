@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { isInside, realish, sandboxAvailable } from "./security.ts";
+import { bin, helperArgv, isInside, realish } from "./security.ts";
 
 // What a UI shows beside a conversation: the files of the folder it works in, and what changed
 // there according to git. Everything here only reads. None of it reaches a model.
@@ -25,11 +25,11 @@ const MAX_OUT = 2_000_000;
  * a diff turned off.
  */
 function git(cwd: string, args: string[]): Promise<{ code: number; out: string }> {
-	if (!sandboxAvailable()) return Promise.resolve({ code: 127, out: "" });
-	const profile = `(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (literal "/dev/null"))`;
+	const jail = helperArgv();
+	if (!jail) return Promise.resolve({ code: 127, out: "" });
 	const safe = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "diff.external=", "-c", "safe.directory=*", "-c", "color.ui=false", "-c", "core.quotePath=false"];
 	return new Promise((resolve) => {
-		const child = spawn("/usr/bin/sandbox-exec", ["-p", profile, "/usr/bin/git", "-C", cwd, ...safe, ...args], { stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME ?? "", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" } });
+		const child = spawn(jail[0], [...jail.slice(1), bin("git"), "-C", cwd, ...safe, ...args], { stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME ?? "", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" } });
 		const chunks: Buffer[] = [];
 		let size = 0;
 		child.stdout.on("data", (d: Buffer) => {

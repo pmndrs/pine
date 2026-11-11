@@ -13,7 +13,7 @@
 | `@earendil-works/pi-tui` | Terminal UI toolkit | pi's own: full-screen layout, editor with completion, Markdown rendering. Used by `src/tui/`. |
 | `highlight.js` | Code colours | Colours code blocks in the terminal UI. |
 | `@playwright/mcp` | Browser automation | Started as a child of `mcp/browser.ts`, which filters its tools and proxies its traffic. `pine init` downloads the browser it drives. |
-| `sandbox-exec` | Containment | macOS's sandbox, driven by a generated profile per agent. |
+| `sandbox-exec`, `bwrap` | Containment | The system's sandbox: Apple's on macOS, driven by a generated profile; bubblewrap on Linux, driven by generated mounts. One set of rules for both (`src/security.ts`, `src/sandbox-linux.ts`). |
 | `typebox` | Tool parameter schemas | The same library pi uses. |
 | `claude -p` | Development model | Optional; used by `pine dev-model`, by the terminal UI when the home's model is `dev/...` (the example home), and by the live test. |
 
@@ -100,6 +100,10 @@ Not verified yet, in rough order of importance:
    of sub-agents when slots are scarce.
 5. **Long uptimes.** Weeks of running: database growth, session file growth, MCP servers that
    die and reconnect.
-6. **Other platforms.** There is no sandbox outside macOS; the shell tool is withheld there.
+6. **Linux.** The whole suite has run on Ubuntu 24.04 on arm64 (in a VM), as a user and as
+   root, and the sandbox's command line in a Docker container. Not run: x86-64 (the system
+   call filter has that processor's numbers, untested), other distributions, and the terminal
+   UI in a real Linux terminal (only through the suite's fake terminal). There is no sandbox
+   on other systems; the shell tool is withheld there.
 7. **Not built:** a Slack source, a web dashboard, voice. Slack would be a source type like
    `telegram`: one that talks and can send.

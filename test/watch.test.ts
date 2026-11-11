@@ -3,13 +3,13 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { test } from "node:test";
-import { audit } from "../src/security.ts";
+import { audit, sandboxAvailable } from "../src/security.ts";
 import { lineDiff, pageText } from "../src/watching.ts";
-import { harness, MCP_STUB, mockMsg, sleep, until } from "./support/harness.ts";
+import { harness, MCP_STUB, mockMsg, sleep, until, refused } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
 const call = (name: string, args: any) => ({ name, args });
-const mac = { skip: process.platform !== "darwin" };
+const mac = { skip: !sandboxAvailable() };
 
 /** A small web site whose answers the test changes: a JSON service, a page, two that send on. */
 async function site() {
@@ -199,7 +199,7 @@ test("command: runs like the agent's own shell, reports what changed in what it 
 	const out = fs.readFileSync(path.join(h.home, "pine.json"), "utf8");
 	assert.ok(out.includes("defaults"), "pine.json was not overwritten");
 	const nosy = events("nosy")[0].payload.value as string;
-	assert.ok(!nosy.includes("do-not-leak-me") && nosy.split("Operation not permitted").length === 3 && nosy.includes(`home=${path.join(h.home, "sandbox", "main")}`) && nosy.endsWith("gamma"), nosy);
+	assert.ok(!nosy.includes("do-not-leak-me") && nosy.split(refused).length === 3 && nosy.includes(`home=${path.join(h.home, "sandbox", "main")}`) && nosy.endsWith("gamma"), nosy);
 	// One that hangs is stopped, and the source says so instead of piling runs up.
 	await until(() => /failing since .*it took longer than 0\.15 s/.test(info("slow").status ?? ""), 4000, "the timeout");
 	await h.close();

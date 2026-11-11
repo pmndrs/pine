@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { bin } from "./security.ts";
 
 /**
  * File tools whose every read and write happens inside the agent's sandbox.
@@ -11,10 +12,15 @@ import { Type } from "typebox";
  * system applies the same policy to file tools as to shell commands, so there is nothing to race.
  */
 export interface SandboxFs {
-	/** Path of the sandbox profile to use for the call that is about to run. */
-	profile(): string;
+	/** What to put in front of the command that is about to run so that it runs inside the agent's sandbox. */
+	prefix(): string[];
 	cwd: string;
 	env(): NodeJS.ProcessEnv;
+	/**
+	 * Where the sandbox cannot forbid making a protected file (Linux, see `sandboxGuard`): taken
+	 * before a write, and `restore` after it removes what the write may not have made.
+	 */
+	guard?(): { restore(): string[] } | undefined;
 }
 
 const MAX_READ = 50 * 1024 * 1024;
@@ -22,7 +28,9 @@ const MAX_OUT = 40_000;
 
 export function sandboxExec(fs: SandboxFs, argv: string[], opts: { stdin?: string | Buffer; signal?: AbortSignal; maxBytes?: number; timeoutMs?: number } = {}): Promise<{ code: number; stdout: Buffer; stderr: string; truncated: boolean }> {
 	return new Promise((resolve, reject) => {
-		const child = spawn("/usr/bin/sandbox-exec", ["-f", fs.profile(), ...argv], { cwd: fs.cwd, env: fs.env(), stdio: ["pipe", "pipe", "pipe"] });
+		const jail = fs.prefix();
+		// The programs are named by where they lie on this system, never looked up on a PATH an agent could shape.
+		const child = spawn(jail[0], [...jail.slice(1), bin(path.basename(argv[0])), ...argv.slice(1)], { cwd: fs.cwd, env: fs.env(), stdio: ["pipe", "pipe", "pipe"] });
 		const max = opts.maxBytes ?? MAX_READ;
 		const chunks: Buffer[] = [];
 		let size = 0;
@@ -55,7 +63,7 @@ export function sandboxExec(fs: SandboxFs, argv: string[], opts: { stdin?: strin
 }
 
 function explain(file: string, stderr: string): Error {
-	if (/Operation not permitted|Permission denied/.test(stderr)) return new Error(`${file}: not permitted. Your file access is limited to your workspace.`);
+	if (/Operation not permitted|Permission denied|Read-only file system|Device or resource busy/.test(stderr)) return new Error(`${file}: not permitted. Your file access is limited to your workspace.`);
 	if (/No such file or directory/.test(stderr)) return Object.assign(new Error(`ENOENT: no such file or directory, open '${file}'`), { code: "ENOENT" });
 	if (/Is a directory/.test(stderr)) return Object.assign(new Error(`EISDIR: ${file} is a directory`), { code: "EISDIR" });
 	return new Error(`${file}: ${stderr.trim().split("\n")[0] || "operation failed"}`);
@@ -72,17 +80,27 @@ export function sniffImage(head: Buffer): string | null {
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }], details: undefined as any });
 const clip = (s: string) => (s.length > MAX_OUT ? `${s.slice(0, MAX_OUT)}\n[output cut at ${MAX_OUT} characters; narrow the search]` : s);
 
-/** read, write, edit, grep, find and ls, all executed through sandbox-exec. */
+/** read, write, edit, grep, find and ls, all executed inside the sandbox. */
 export function sandboxedFileTools(fs: SandboxFs, enabled: string[]): any[] {
 	const readFile = async (file: string) => {
 		const r = await sandboxExec(fs, ["/bin/cat", "--", file]);
 		if (r.code !== 0 && !r.truncated) throw explain(file, r.stderr);
 		return r.stdout;
 	};
-	const writeFile = async (file: string, content: string) => {
-		const r = await sandboxExec(fs, ["/bin/sh", "-c", 'cat > "$1"', "sh", file], { stdin: content });
+	/** A call that writes. What it made although the run may not make it is gone again afterwards, and the call fails. */
+	const writing = async (file: string, argv: string[], stdin?: string) => {
+		const guard = fs.guard?.();
+		let r: Awaited<ReturnType<typeof sandboxExec>>;
+		let gone: string[] = [];
+		try {
+			r = await sandboxExec(fs, argv, { stdin });
+		} finally {
+			gone = guard?.restore() ?? [];
+		}
+		if (gone.length) throw explain(file, "Operation not permitted");
 		if (r.code !== 0) throw explain(file, r.stderr);
 	};
+	const writeFile = (file: string, content: string) => writing(file, ["/bin/sh", "-c", 'cat > "$1"', "sh", file], content);
 	// Opening the file is the only check that tells "missing" from "not permitted".
 	const readable = async (file: string) => {
 		const r = await sandboxExec(fs, ["/usr/bin/head", "-c", "1", "--", file], { maxBytes: 16 });
@@ -107,10 +125,7 @@ export function sandboxedFileTools(fs: SandboxFs, enabled: string[]): any[] {
 			createWriteToolDefinition(fs.cwd, {
 				operations: {
 					writeFile,
-					mkdir: async (dir) => {
-						const r = await sandboxExec(fs, ["/bin/mkdir", "-p", "--", dir]);
-						if (r.code !== 0) throw explain(dir, r.stderr);
-					},
+					mkdir: (dir) => writing(dir, ["/bin/mkdir", "-p", "--", dir]),
 				},
 			}),
 		edit: () => createEditToolDefinition(fs.cwd, { operations: { readFile, writeFile, access: writable } }),

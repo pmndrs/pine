@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { harness, MCP_STUB, mockMsg, notesOf } from "./support/harness.ts";
+import { harness, MCP_STUB, mockMsg, notesOf, refused } from "./support/harness.ts";
+import { sandboxAvailable } from "../src/security.ts";
 
 const owner = { trust: "owner" as const };
-const mac = { skip: process.platform !== "darwin" };
+const mac = { skip: !sandboxAvailable() };
 const call = (name: string, args: any) => ({ name, args });
 const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
 
@@ -48,7 +49,7 @@ test("instructions: an agent writes its own files and sees them from its next me
 	await run("gonzo", [call("write", { path: user, content: "OWNER: someone else\n" }), call("bash", { command: `echo evil | tee ${user}; cat ${user}` })]);
 	const out = h.toolResults().slice(-2);
 	assert.match(out[0], /outside the paths this agent may write/);
-	assert.ok(/Operation not permitted/.test(out[1]) && !out[1].includes("OWNER: Alex"), `neither written nor read as a file: ${out[1]}`);
+	assert.ok(refused.test(out[1]) && !out[1].includes("OWNER: Alex"), `neither written nor read as a file: ${out[1]}`);
 	assert.ok(h.system(h.mock.state.requests.at(-1)).includes("OWNER: Alex, prefers tables"), "it is in its prompt all the same");
 	assert.match(fs.readFileSync(user, "utf8"), /OWNER: Alex/);
 	// The rest of pine's home stays closed to the main agent too.
@@ -70,7 +71,7 @@ test("instructions: a conversation that has read outside content cannot rewrite 
 	});
 	const out = h.toolResults().slice(-4);
 	for (const r of out.slice(0, 3)) assert.match(r, /holds agent instructions and cannot be changed in a run that has handled outside content/);
-	assert.ok(/Operation not permitted/.test(out[3]) && out[3].includes("fine"), out[3]);
+	assert.ok(refused.test(out[3]) && out[3].includes("fine"), out[3]);
 	assert.deepEqual([fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8"), fs.readFileSync(path.join(ws, "SOUL.md"), "utf8"), fs.readFileSync(user, "utf8")], ["MEMORY-V1\n", "SOUL-V1\n", "OWNER-V1\n"]);
 	assert.equal(fs.readFileSync(path.join(ws, "notes.md"), "utf8"), "fine\n", "ordinary notes can still be written");
 	await h.close();

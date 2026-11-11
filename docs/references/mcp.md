@@ -194,7 +194,7 @@ need a shell for it.
 | `params.<name>` | `type` (`string`, `number`, `boolean`), `description`, `enum`, `pattern` (must match the whole value), `default`, `required` (default true). |
 | `timeoutSec` | Default 30. |
 | `cwd`, `env` | Working folder (default: where the conversation's tools start: the agent's workspace, or the folder opened for the conversation) and extra environment. |
-| `sandbox` | `true` runs the command inside the agent's sandbox (the variant in which instruction files are read-only). It has no effect for an agent with `"sandbox": false` or on a platform without `sandbox-exec`. Default `false`: these are your commands, and most need the network. |
+| `sandbox` | `true` runs the command inside the agent's sandbox (the variant in which instruction files are read-only). It has no effect for an agent with `"sandbox": false` or on a machine without a working sandbox. Default `false`: these are your commands, and most need the network. |
 | `maxOutput` | Characters of output returned. Default 30000. |
 
 Arguments are passed as a list, never through a shell: a parameter value of `x; rm -rf ~` is one

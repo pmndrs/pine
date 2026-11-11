@@ -33,7 +33,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { TranscriptEntry } from "../types.ts";
 import type { PineEvent, Task } from "../types.ts";
-import { errText, expandHome } from "../util.ts";
+import { errText, expandHome, openInSystem } from "../util.ts";
 import type { AgentInfo, Client, Conversation } from "./client.ts";
 import { CodePane, PANE_VIEWS, type PaneView } from "./code-pane.ts";
 import { isImageFile, isVideoFile, mimeOf, Picture, picturesAsText, picturesIn, prepare, prepareVideo, Slot, stopVideos, Video } from "./picture.ts";
@@ -800,7 +800,8 @@ export class PineTui {
 			copyOnSelect: true,
 			copySelection: (text) =>
 				new Promise((resolve) => {
-					const child = spawn(process.platform === "darwin" ? "pbcopy" : "xclip", process.platform === "darwin" ? [] : ["-selection", "clipboard"], { stdio: ["pipe", "ignore", "ignore"] });
+					const [copy, ...args] = process.platform === "darwin" ? ["pbcopy"] : process.env.WAYLAND_DISPLAY ? ["wl-copy"] : ["xclip", "-selection", "clipboard"];
+					const child = spawn(copy, args, { stdio: ["pipe", "ignore", "ignore"] });
 					child.on("error", (e) => resolve(e.message));
 					child.on("close", (code) => resolve(code === 0 ? true : `copy failed (${code})`));
 					child.stdin.end(text);
@@ -1190,7 +1191,7 @@ export class PineTui {
 	}
 
 	private async video(file: string, name: string): Promise<Video> {
-		return new Video(await prepareVideo(file, name), () => this.tui.requestRender(), (f) => (this.opts.openFile ?? ((x: string) => void spawn("open", [x], { stdio: "ignore", detached: true }).on("error", () => {})))(f));
+		return new Video(await prepareVideo(file, name), () => this.tui.requestRender(), (f) => (this.opts.openFile ?? openInSystem)(f));
 	}
 
 	/**
@@ -1330,7 +1331,7 @@ export class PineTui {
 	/** A click on a web address. Only the web: nothing an answer contains may launch a program or open a file. */
 	private open(url: string): void {
 		if (!/^https?:\/\//i.test(url)) return;
-		(this.opts.openUrl ?? ((u) => void spawn("open", [u], { stdio: "ignore", detached: true }).on("error", () => {})))(url);
+		(this.opts.openUrl ?? openInSystem)(url);
 		this.flash(`opened ${short(url, 90)}`, 2500);
 	}
 

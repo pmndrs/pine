@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { allocateImageId, type Component, getCapabilities, getCellDimensions, getImageDimensions, Image, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { helperArgv } from "../security.ts";
 import { c } from "./theme.ts";
 
 /**
@@ -43,21 +44,26 @@ const TMP = fs.realpathSync(os.tmpdir());
  * may write only in the temp folder (sips keeps scratch files of its own there).
  */
 function confined(command: string, args: string[], stdio: "ignore" | "pipe", cwd = TMP): ChildProcess {
-	if (process.platform !== "darwin") return spawn(command, args, { cwd, stdio: ["ignore", stdio, "ignore"] });
-	const profile = `(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (subpath "${TMP.replace(/["\\]/g, "\\$&")}") (literal "/dev/null"))`;
-	return spawn("/usr/bin/sandbox-exec", ["-p", profile, command, ...args], { cwd, stdio: ["ignore", stdio, "ignore"] });
+	const jail = helperArgv([TMP]);
+	// Where there is no sandbox at all, the converter still runs: a picture not shown helps nobody.
+	if (!jail) return spawn(command, args, { cwd, stdio: ["ignore", stdio, "ignore"] });
+	return spawn(jail[0], [...jail.slice(1), command, ...args], { cwd, stdio: ["ignore", stdio, "ignore"] });
 }
 
-function sips(dir: string, args: string[]): Promise<boolean> {
-	return new Promise((resolve) => {
-		const child = confined(SIPS, args, "ignore", dir);
-		const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
-		child.on("error", () => (clearTimeout(timer), resolve(false)));
-		child.on("close", (code) => (clearTimeout(timer), resolve(code === 0)));
-	});
+/**
+ * Write a copy of a picture as png or bmp, at most `limit` pixels on its longer side: with
+ * macOS's sips, and with ffmpeg where there is no sips (Linux).
+ */
+export function scaled(dir: string, source: string, limit: number, format: "png" | "bmp", tool: "sips" | "ffmpeg" | undefined = converter()): Promise<boolean> {
+	const target = path.join(dir, `out.${format}`);
+	if (tool === "sips") return finished(confined(SIPS, ["-s", "format", format, "-Z", String(limit), source, "--out", target], "ignore", dir), 15_000);
+	if (tool !== "ffmpeg" || !FFMPEG) return Promise.resolve(false);
+	// bgr24: the bmp then has no alpha and no colour table, which is all `parseBmp` reads.
+	return finished(confined(FFMPEG, ["-loglevel", "error", "-y", "-i", source, "-frames:v", "1", "-vf", `scale=${limit}:${limit}:force_original_aspect_ratio=decrease`, ...(format === "bmp" ? ["-pix_fmt", "bgr24"] : []), target], "ignore", dir), 15_000);
 }
+const converter = () => (hasSips ? "sips" : FFMPEG ? "ffmpeg" : undefined);
 
-/** Read an uncompressed 24 or 32 bit BMP, the simplest format sips writes. Transparent parts are shown on dark grey. */
+/** Read an uncompressed 24 or 32 bit BMP, the simplest format sips and ffmpeg write. Transparent parts are shown on dark grey. */
 export function parseBmp(b: Buffer): Pixels | undefined {
 	if (b.length < 54 || b.toString("latin1", 0, 2) !== "BM") return undefined;
 	const offset = b.readUInt32LE(10);
@@ -95,8 +101,8 @@ export function parseBmp(b: Buffer): Pixels | undefined {
 let queue: Promise<unknown> = Promise.resolve();
 
 /**
- * Make a picture ready to draw. Returns what could be made: without sips (not macOS) a png still
- * shows on a Kitty-protocol terminal, and anything else is shown as a line of text.
+ * Make a picture ready to draw. Returns what could be made: without a converter (no sips, no
+ * ffmpeg) a png still shows on a Kitty-protocol terminal, and anything else is shown as a line of text.
  */
 export function prepare(bytes: Buffer, mime: string, name: string): Promise<Prepared> {
 	// One at a time: a page full of pictures should not start a dozen converters at once.
@@ -108,7 +114,7 @@ export function prepare(bytes: Buffer, mime: string, name: string): Promise<Prep
 async function convert(bytes: Buffer, mime: string, name: string): Promise<Prepared> {
 	const dims = getImageDimensions(bytes.subarray(0, 512 * 1024).toString("base64"), mime) ?? { widthPx: 0, heightPx: 0 };
 	const out: Prepared = { name, widthPx: dims.widthPx, heightPx: dims.heightPx };
-	if (!hasSips) {
+	if (!converter()) {
 		if (mime === "image/png") out.png = bytes.toString("base64");
 		return out;
 	}
@@ -117,12 +123,12 @@ async function convert(bytes: Buffer, mime: string, name: string): Promise<Prepa
 		const source = path.join(dir, "in");
 		fs.writeFileSync(source, bytes, { mode: 0o600 });
 		const kitty = getCapabilities().images === "kitty";
-		// sips scales to the size it is given, also upwards; a small picture stays as small as it is.
+		// A converter scales to the size it is given, also upwards; a small picture stays as small as it is.
 		const longest = Math.max(dims.widthPx, dims.heightPx) || 1200;
-		const fit = (limit: number) => String(Math.min(limit, longest));
-		if (kitty && (await sips(dir, ["-s", "format", "png", "-Z", fit(1200), source, "--out", path.join(dir, "out.png")]))) out.png = fs.readFileSync(path.join(dir, "out.png")).toString("base64");
+		const fit = (limit: number) => Math.min(limit, longest);
+		if (kitty && (await scaled(dir, source, fit(1200), "png"))) out.png = fs.readFileSync(path.join(dir, "out.png")).toString("base64");
 		// The small copy is made in both cases: it is cheap, and it is what shows if the real picture cannot.
-		if (await sips(dir, ["-s", "format", "bmp", "-Z", fit(240), source, "--out", path.join(dir, "out.bmp")])) out.pixels = parseBmp(fs.readFileSync(path.join(dir, "out.bmp")));
+		if (await scaled(dir, source, fit(240), "bmp")) out.pixels = parseBmp(fs.readFileSync(path.join(dir, "out.bmp")));
 	} catch {
 		// shown as text
 	} finally {

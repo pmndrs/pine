@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -117,3 +118,10 @@ export function createLogger(level: LogLevel = "info", scope = "pine", sink: (li
 }
 
 export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** Hand a file or a web address to the system: the program the owner set for it opens it. Only ever on the owner's click. */
+export function openInSystem(target: string): void {
+	spawn(process.platform === "darwin" ? "open" : "xdg-open", [target], { stdio: "ignore", detached: true })
+		.on("error", () => {})
+		.unref();
+}

@@ -2,7 +2,12 @@
 
 ## Requirements
 
-- macOS (the sandbox uses `sandbox-exec`). pine starts elsewhere, but withholds the shell tool.
+- macOS, or Linux with [bubblewrap](https://github.com/containers/bubblewrap) installed
+  (`apt install bubblewrap`). The agent sandbox is built on `sandbox-exec` and on `bwrap`;
+  without one of them pine starts, but withholds the shell tool, and `pine check` says why.
+  See [security.md](security.md), "On Linux".
+- Optional: `ffmpeg` for videos in the terminal UI (on Linux also for pictures other than
+  png); on Linux `xclip` or `wl-copy` for copying a selection.
 - Node 24 or newer. From a checkout Node runs the TypeScript sources directly; the npm package
   holds them compiled.
 - A model that supports tool calls: a hosted provider pi knows (sign in with `pine login`), or
@@ -174,13 +179,17 @@ also tell a running daemon, so the change applies at once. `pine help` prints th
 
 ## Running at login
 
-[examples/launchd/com.pine.daemon.plist](../../examples/launchd/com.pine.daemon.plist) is a
-LaunchAgent that starts pine at login and restarts it when it exits. Follow the three steps at
-its top. Logs then go to `~/.pine/data/pine.log`.
+On macOS, [examples/launchd/com.pine.daemon.plist](../../examples/launchd/com.pine.daemon.plist)
+is a LaunchAgent that starts pine at login and restarts it when it exits. Follow the three
+steps at its top. Logs then go to `~/.pine/data/pine.log`.
 
-A LaunchAgent runs as you, in your login session. To separate the agents from your files more
-strongly, create a dedicated macOS user, keep pine's home and the agents' workspaces there, and
-install the plist for that user.
+On Linux, [examples/systemd/pine.service](../../examples/systemd/pine.service) is a systemd
+user service that does the same. Follow the steps at its top. Logs go to the journal
+(`journalctl --user -u pine`).
+
+Both run as you, in your login session. To separate the agents from your files more
+strongly, create a dedicated user, keep pine's home and the agents' workspaces there, and
+install the service for that user.
 
 ## The control API
 

@@ -5,15 +5,15 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { audit, globMatch, matchesToolPattern } from "../src/security.ts";
-import { harness, MCP_STUB, mockMsg, notesOf, sleep, textOf, until } from "./support/harness.ts";
+import { audit, globMatch, matchesToolPattern, sandboxAvailable } from "../src/security.ts";
+import { harness, MCP_STUB, mockMsg, notesOf, sleep, textOf, until, refused, toolRefused } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
 const bash = (...commands: string[]) => mockMsg([{ tools: commands.map((command) => ({ name: "bash", args: { command } })) }]);
 const users = (req: any) => req.body.messages.filter((m: any) => m.role === "user").map((m: any) => textOf(m.content));
 const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
 
-test("shell commands are confined: no secrets, no writes outside the workspace, no network, clean environment", { skip: process.platform !== "darwin" }, async () => {
+test("shell commands are confined: no secrets, no writes outside the workspace, no network, clean environment", { skip: !sandboxAvailable() }, async () => {
 	const h = await harness({
 		pine: { mcp: { x: { command: process.execPath, args: [MCP_STUB], env: { MCP_SECRET: "${PINE_TEST_SECRET}" }, agents: [] } } },
 		files: { ".env": "PINE_TEST_SECRET=s3cr3t-value-123\n" },
@@ -39,21 +39,24 @@ test("shell commands are confined: no secrets, no writes outside the workspace, 
 			"ps -ax",
 			`ln ${home}/pine.json stolen`,
 			`osascript -e 'tell application "Finder" to get name of startup disk' 2>&1 | tail -1`,
-			"git init -q . && git add note.txt && git -c user.email=a@b.c -c user.name=n commit -qm one && git log --oneline | wc -l",
+			"git init -q . && echo tracked > tracked.txt && git add tracked.txt && git -c user.email=a@b.c -c user.name=n commit -qm one && git log --oneline | wc -l",
 		),
 		...owner,
 	});
 	delete process.env.PINE_TEST_LEAK;
 	assert.equal(r.status, "done");
 	const out = h.toolResults();
-	for (const i of [0, 1, 2, 3, 4, 5, 6, 7]) assert.ok(/Operation not permitted/.test(out[i]), `command ${i} should be refused: ${out[i]}`);
+	for (const i of [0, 1, 2, 3, 5, 6, 7]) assert.ok(refused.test(out[i]), `command ${i} should be refused: ${out[i]}`);
+	// The owner's home: refused on macOS, an empty folder on Linux.
+	assert.ok(refused.test(out[4]) || out[4].trim().split("\n").length <= 1, `the owner's home: ${out[4]}`);
 	assert.ok(/Could not resolve|Couldn't connect|Failed to connect|not permitted/.test(out[8]), out[8]);
 	assert.ok(out[9].includes("inside") && out[9].includes(`home=${home}/sandbox/main`) && out[9].includes("wrote-home"), out[9]);
 	assert.ok(!out[10].includes("s3cr3t-value-123") && !out[10].includes("daemon-env-value"), "the shell environment carries nothing from the daemon");
-	assert.ok(/not permitted/.test(out[11]), `signalling the daemon: ${out[11]}`);
-	assert.ok(/not permitted/.test(out[12]), `listing other processes: ${out[12]}`);
-	assert.ok(/not permitted/.test(out[13]), `hard-linking a secret: ${out[13]}`);
-	assert.ok(/error|invalid/i.test(out[14]), `AppleScript must not reach other apps: ${out[14]}`);
+	// On Linux the sandbox has a process list of its own: the daemon is not in it.
+	assert.ok(/not permitted|No such process/.test(out[11]), `signalling the daemon: ${out[11]}`);
+	assert.ok(/not permitted/.test(out[12]) || !/node/.test(out[12]), `listing other processes: ${out[12]}`);
+	assert.ok(refused.test(out[13]), `hard-linking a secret: ${out[13]}`);
+	assert.ok(/error|invalid|not found/i.test(out[14]), `AppleScript must not reach other apps: ${out[14]}`);
 	assert.equal(out[15].trim(), "1", "ordinary work such as git still runs inside the sandbox");
 	assert.ok(!JSON.stringify(h.mock.state.requests.map((q: any) => q.body)).includes("s3cr3t-value-123"), "the secret never reached the model");
 	assert.ok(JSON.parse(fs.readFileSync(path.join(home, "agents", "main", "agent.json"), "utf8")), "agent.json is intact");
@@ -93,9 +96,9 @@ test("file tools are jailed to the workspace, symlinks included", async () => {
 	await h.close();
 });
 
-test("file tools run inside the sandbox themselves, so swapping in a symlink gains nothing", { skip: process.platform !== "darwin" }, async () => {
+test("file tools run inside the sandbox themselves, so swapping in a symlink gains nothing", { skip: !sandboxAvailable() }, async () => {
 	const { loadConfig } = await import("../src/config.ts");
-	const { rootsFor, sandboxProfile, shellEnv } = await import("../src/security.ts");
+	const { rootsFor, sandboxArgv, sandboxGuard, shellEnv } = await import("../src/security.ts");
 	const { sandboxedFileTools } = await import("../src/sandbox-fs.ts");
 	const h = await harness({ agents: { main: { agent: { sandbox: { sharedTmp: false } }, files: { "notes/a.md": "alpha\nbeta needle\n", "notes/b.txt": "needle too\n", "AGENTS.md": "RULES\n" } } }, start: false });
 	const cfg = loadConfig(h.home);
@@ -103,13 +106,7 @@ test("file tools run inside the sandbox themselves, so swapping in a symlink gai
 	const roots = rootsFor(cfg, agent);
 	const ws = roots.workspace;
 	let restricted = false;
-	const file = (r: boolean) => {
-		const f = path.join(h.home, `p${r ? "-r" : ""}.sb`);
-		fs.writeFileSync(f, sandboxProfile(cfg, agent, roots, r));
-		return f;
-	};
-	const profiles = { open: file(false), restricted: file(true) };
-	const tools = Object.fromEntries(sandboxedFileTools({ cwd: ws, profile: () => (restricted ? profiles.restricted : profiles.open), env: () => shellEnv(agent, roots, {}) }, ["read", "write", "edit", "grep", "find", "ls"]).map((t: any) => [t.name, t]));
+	const tools = Object.fromEntries(sandboxedFileTools({ cwd: ws, prefix: () => sandboxArgv(cfg, agent, roots, restricted), env: () => shellEnv(agent, roots, {}), guard: () => sandboxGuard(roots, restricted) }, ["read", "write", "edit", "grep", "find", "ls"]).map((t: any) => [t.name, t]));
 	// Call the tools directly: no path check in front, only the operating system's policy.
 	const call = async (name: string, args: any) => {
 		try {
@@ -124,12 +121,16 @@ test("file tools run inside the sandbox themselves, so swapping in a symlink gai
 	fs.symlinkSync(path.join(h.home, "agents", "main"), path.join(ws, "up"));
 
 	assert.match(await call("read", { path: "notes/a.md" }), /alpha\nbeta needle/);
-	assert.match(await call("read", { path: "innocent.txt" }), /ERROR: .*not permitted/);
-	assert.match(await call("ls", { path: "userhome" }), /ERROR: .*not permitted/);
-	assert.match(await call("write", { path: "up/agent.json", content: "{}" }), /ERROR: .*not permitted/);
-	assert.match(await call("write", { path: "up/extensions/evil.ts", content: "x" }), /ERROR: .*not permitted/);
-	assert.match(await call("write", { path: path.join(os.tmpdir(), `pine-outside-${process.pid}`), content: "x" }), /ERROR: .*not permitted/);
-	assert.match(await call("grep", { pattern: "apiKey", path: h.home }), /^ERROR: .*not permitted/);
+	assert.match(await call("read", { path: "innocent.txt" }), toolRefused);
+	// The owner's home: refused on macOS; on Linux an empty folder, with nothing but the way to what the agent was given.
+	const homeSeen = await call("ls", { path: "userhome" });
+	assert.ok(toolRefused.test(homeSeen) || !/^\./m.test(homeSeen), homeSeen);
+	assert.match(await call("write", { path: "up/agent.json", content: "{}" }), toolRefused);
+	assert.match(await call("write", { path: "up/extensions/evil.ts", content: "x" }), toolRefused);
+	assert.match(await call("write", { path: path.join(os.tmpdir(), `pine-outside-${process.pid}`), content: "x" }), toolRefused);
+	// pine's home holds models.json with its key: refused on macOS, and on Linux the file is not there to be searched.
+	const searched = await call("grep", { pattern: "apiKey", path: h.home });
+	assert.ok(toolRefused.test(searched) || searched === "no matches", searched);
 	assert.ok(JSON.parse(fs.readFileSync(path.join(h.home, "agents", "main", "agent.json"), "utf8")));
 
 	assert.match(await call("write", { path: "deep/dir/new.txt", content: "zeile eins\näöü 'quotes' $HOME `x`\n" }), /Successfully wrote/);
@@ -144,8 +145,8 @@ test("file tools run inside the sandbox themselves, so swapping in a symlink gai
 
 	assert.match(await call("write", { path: "AGENTS.md", content: "RULES 2\n" }), /Successfully wrote/);
 	restricted = true;
-	assert.match(await call("write", { path: "AGENTS.md", content: "EVIL" }), /ERROR: .*not permitted/);
-	assert.match(await call("write", { path: ".pi/extensions/x.ts", content: "EVIL" }), /ERROR: .*not permitted/);
+	assert.match(await call("write", { path: "AGENTS.md", content: "EVIL" }), toolRefused);
+	assert.match(await call("write", { path: ".pi/extensions/x.ts", content: "EVIL" }), toolRefused);
 	assert.match(await call("write", { path: "deep/ok.txt", content: "fine" }), /Successfully wrote/);
 	assert.equal(fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8"), "RULES 2\n");
 	await h.close();
@@ -249,7 +250,7 @@ test("after a session has seen outside content, actions that send things out nee
 	await h.close();
 });
 
-test("a tainted session cannot rewrite its own instructions, with file tools or the shell", { skip: process.platform !== "darwin" }, async () => {
+test("a tainted session cannot rewrite its own instructions, with file tools or the shell", { skip: !sandboxAvailable() }, async () => {
 	const h = await harness({ agents: { main: { agent: { mcp: { feed } }, files: { "AGENTS.md": "RULES\n" } } } });
 	const attempt = [{ name: "write", args: { path: "AGENTS.md", content: "EVIL" } }, { name: "write", args: { path: ".pi/extensions/x.ts", content: "EVIL" } }, { name: "bash", args: { command: "echo EVIL | tee -a AGENTS.md; echo fine | tee notes.md" } }];
 	const clean = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "write", args: { path: "AGENTS.md", content: "RULES v2\n" } }] }]), ...owner });
@@ -258,12 +259,12 @@ test("a tainted session cannot rewrite its own instructions, with file tools or 
 	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "mcp__feed__echo", args: { text: "x" } }] }, { tools: attempt }]), ...owner });
 	const out = h.toolResults().slice(-3);
 	assert.ok(/holds agent instructions/.test(out[0]) && /holds agent instructions/.test(out[1]), out.join(" | "));
-	assert.ok(/Operation not permitted/.test(out[2]) && out[2].includes("fine"), out[2]);
+	assert.ok(refused.test(out[2]) && out[2].includes("fine"), out[2]);
 	assert.equal(fs.readFileSync(path.join(h.workspace("main"), "AGENTS.md"), "utf8"), "RULES v2\n");
 	await h.close();
 });
 
-test("a tainted session can use git in a repository but not change what makes git run programs", { skip: process.platform !== "darwin" }, async () => {
+test("a tainted session can use git in a repository but not change what makes git run programs", { skip: !sandboxAvailable() }, async () => {
 	const h = await harness({ agents: { main: { agent: { mcp: { feed } }, files: { "a.txt": "one\n" } } } });
 	const ws = h.workspace("main");
 	const bash = (command: string) => ({ name: "bash", args: { command } });
@@ -291,7 +292,7 @@ test("a tainted session can use git in a repository but not change what makes gi
 	});
 	const out = h.toolResults().slice(-6);
 	assert.match(out[0], /^\s*2\s*$/m, `committing still works: ${out[0]}`);
-	assert.ok(out[1].includes("hook:1") && /Operation not permitted/.test(out[1]), out[1]);
+	assert.ok(out[1].includes("hook:1") && refused.test(out[1]), out[1]);
 	assert.ok(/config:(?!0)\d+/.test(out[2]) && /fsmonitor:(?!0)\d+/.test(out[2]), out[2]);
 	assert.ok(out[3].includes("move:1"), out[3]);
 	assert.ok(/hooks or configuration/.test(out[4]) && /hooks or configuration/.test(out[5]), `${out[4]} | ${out[5]}`);
@@ -392,7 +393,7 @@ test("tool patterns and the configuration audit", async () => {
 	await h.close();
 });
 
-test("agents cannot read each other's workspaces, and odd session names cannot escape the sessions folder", { skip: process.platform !== "darwin" }, async (t) => {
+test("agents cannot read each other's workspaces, and odd session names cannot escape the sessions folder", { skip: !sandboxAvailable() }, async (t) => {
 	const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-ws-")));
 	t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
 	const h = await harness({
@@ -401,7 +402,7 @@ test("agents cannot read each other's workspaces, and odd session names cannot e
 	const target = path.join(outside, "a", "private.txt");
 	await h.pine.agents.run({ agent: "b", prompt: mockMsg([{ tools: [{ name: "bash", args: { command: `cat ${target}` } }, { name: "read", args: { path: target } }] }]), ...owner });
 	const out = h.toolResults();
-	assert.ok(/Operation not permitted/.test(out[0]) && /belongs to another agent/.test(out[1]), out.join(" | "));
+	assert.ok(refused.test(out[0]) && /belongs to another agent/.test(out[1]), out.join(" | "));
 	assert.ok(!JSON.stringify(h.mock.state.requests.at(-1).body).includes("A-PRIVATE"));
 
 	for (const name of ["..", "../../x", "_t99", "a/b"]) await h.pine.agents.run({ agent: "a", prompt: "hi", session: name, ...owner });

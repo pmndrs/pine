@@ -1,8 +1,10 @@
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type AgentConfig, agentSkillsDir, conversationsDir, globalSkillsDir, mainAgentId, PINE_ROOT, type PineConfig, userFile, WORKSPACE_FILES } from "./config.ts";
+import { bwrapArgs, Guard, helperArgs, jailed, type Protected, protectedNow, SESSIONS } from "./sandbox-linux.ts";
 import type { Bus } from "./store.ts";
 import { type Logger, truncate } from "./util.ts";
 
@@ -216,7 +218,109 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 	return `${lines.join("\n")}\n`;
 }
 
-export const sandboxAvailable = () => process.platform === "darwin" && fs.existsSync("/usr/bin/sandbox-exec");
+/** Where a system program lies on this machine: the same few folders on macOS and Linux, never the agent's PATH. */
+export function bin(name: string): string {
+	return ["/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"].map((d) => path.join(d, name)).find((f) => fs.existsSync(f)) ?? name;
+}
+
+let kind: "macos" | "linux" | null | undefined;
+let bwrap = "";
+let whyNot = "";
+
+/**
+ * Which sandbox this machine has: Apple's sandbox-exec on macOS, bubblewrap on Linux. On Linux
+ * it is tried once, because bubblewrap can be installed and still not be allowed to work (a
+ * system that has switched off user namespaces for ordinary users, some containers).
+ */
+export function sandboxKind(): "macos" | "linux" | undefined {
+	if (kind !== undefined) return kind ?? undefined;
+	kind = null;
+	if (process.platform === "darwin") {
+		if (fs.existsSync("/usr/bin/sandbox-exec")) kind = "macos";
+		else whyNot = "sandbox-exec is missing";
+	} else if (process.platform === "linux") {
+		bwrap = [...(process.env.PATH ?? "").split(":").filter((d) => path.isAbsolute(d)), "/usr/bin", "/bin", "/usr/local/bin"].map((d) => path.join(d, "bwrap")).find((f) => fs.existsSync(f)) ?? "";
+		if (!bwrap) whyNot = "bubblewrap is not installed (the package is usually called bubblewrap; the program is bwrap)";
+		else {
+			try {
+				const probe = jailed(bwrap, [...helperArgs([]), bin("true")], false);
+				execFileSync(probe[0], probe.slice(1), { stdio: ["ignore", "ignore", "pipe"], timeout: 10_000 });
+				kind = "linux";
+			} catch (e) {
+				// What bubblewrap itself said, not the command line it was given.
+				const said = String((e as { stderr?: unknown }).stderr ?? "").trim().split("\n")[0] || (e instanceof Error ? e.message.split("\n")[0].slice(0, 120) : String(e));
+				let apparmor = false;
+				try {
+					apparmor = fs.readFileSync("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").trim() === "1";
+				} catch {}
+				whyNot = `bubblewrap is installed (${bwrap}) but cannot make a sandbox here ("${said}"). ${apparmor ? "This system restricts user namespaces through AppArmor: give bubblewrap an AppArmor profile that allows them, or set kernel.apparmor_restrict_unprivileged_userns=0" : "Ordinary users may not create user namespaces here (a container, or a system that has switched them off)"}`;
+			}
+		}
+	} else whyNot = `no sandbox is implemented for ${process.platform}`;
+	return kind ?? undefined;
+}
+
+export const sandboxAvailable = () => sandboxKind() !== undefined;
+/** Why this machine has no sandbox, in words for the owner. */
+export const sandboxMissing = () => (sandboxKind() ? "" : whyNot);
+
+/** What a run that has handled outside content must not change, as the Linux sandbox needs it said. */
+const protectedOf = (roots: Roots): Protected => ({
+	roots: [roots.workspace, ...(roots.folder ? [roots.folder] : [])],
+	files: [roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))],
+	names: INSTRUCTION_FILES,
+	dirs: INSTRUCTION_DIRS.filter((d) => !d.includes("/")),
+});
+
+/**
+ * What to put in front of a command so that it runs with an agent's limits: the same rules on
+ * both systems, said to Apple's sandbox as a profile and to bubblewrap as mounts. Made anew for
+ * every command, because on Linux what exists at that moment is part of it.
+ */
+export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false): string[] {
+	if (sandboxKind() !== "linux") return ["/usr/bin/sandbox-exec", "-p", sandboxProfile(cfg, agent, roots, variant, network)];
+	const v: SandboxVariant = variant === true ? "restricted" : variant === false ? "normal" : variant;
+	const net = agent.sandbox.network || network;
+	// Bypass is the owner's own session. Otherwise sockets between programs go with the network, as on macOS.
+	return jailed(
+		bwrap,
+		bwrapArgs({
+			userHome: realish(os.homedir()),
+			pineHome: roots.home,
+			pineCode: PINE_CODE,
+			read: roots.read,
+			write: roots.write,
+			ownedRead: roots.ownedRead,
+			ownedWrite: roots.ownedWrite,
+			closed: v === "open" ? roots.secrets : [...roots.secrets, ...roots.others, ...SESSIONS],
+			network: net,
+			variant: v,
+			frozen: v === "restricted" ? protectedNow(protectedOf(roots)) : undefined,
+		}),
+		v === "open" || net,
+	);
+}
+
+/**
+ * On Linux, mounts cannot forbid making a file of a protected name. Take this before a command
+ * in the restricted variant and call `restore` after it: what the command made although it may
+ * not is removed again. On macOS the profile forbids it outright and there is nothing to do.
+ */
+export function sandboxGuard(roots: Roots, variant: SandboxVariant | boolean): Guard | undefined {
+	return sandboxKind() === "linux" && (variant === true || variant === "restricted") ? new Guard(protectedOf(roots)) : undefined;
+}
+
+/**
+ * What to put in front of a helper that works on things from anywhere (git looking at a folder,
+ * a picture converter): it may read, write only in `write`, and has no network. Undefined where
+ * there is no sandbox.
+ */
+export function helperArgv(write: string[] = []): string[] | undefined {
+	const k = sandboxKind();
+	if (k === "linux") return jailed(bwrap, helperArgs(write), false);
+	if (k === "macos") return ["/usr/bin/sandbox-exec", "-p", `(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* ${subpaths(write)} (literal "/dev/null"))`];
+	return undefined;
+}
 
 /** Environment for an agent's shell: nothing from the daemon except what a shell needs. */
 export function shellEnv(agent: AgentConfig, roots: Roots, sessionEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -380,7 +484,7 @@ export function audit(cfg: PineConfig): string[] {
 		const m = mode(path.join(cfg.home, f));
 		if (m !== undefined && m & 0o077) out.push(`${f} is readable by other users (mode ${m.toString(8)}); run: chmod 600 ${path.join(cfg.home, f)}`);
 	}
-	if (!sandboxAvailable()) out.push("no OS sandbox on this platform: agents with the sandbox on get no shell, and command sources do not run; an agent with \"sandbox\": false runs its shell with the daemon's full permissions");
+	if (!sandboxAvailable()) out.push(`no sandbox on this machine: ${sandboxMissing()}. Agents with the sandbox on get no shell, and command sources do not run; an agent with "sandbox": false runs its shell with the daemon's full permissions`);
 	const homeMode = mode(cfg.home);
 	if (homeMode !== undefined && homeMode & 0o077) out.push(`pine's home is open to other users (mode ${homeMode.toString(8)}); run: chmod 700 ${cfg.home}`);
 	for (const a of Object.values(cfg.agents)) {

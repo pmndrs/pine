@@ -34,8 +34,9 @@ src/
   tools.ts          delegate, subagent, publish_event, request_access, state_get, state_set, and the setup tools
                     (add_mcp_server, remove_mcp_server, sources, subscribe, unsubscribe, add_source, remove_source, create_agent)
   agent-admin.ts    create_agent: checks a proposed agent and writes its folder
-  security.ts       sandbox profile, path checks, approvals, redaction, configuration audit
-  sandbox-fs.ts     read/write/edit/grep/find/ls executed through sandbox-exec
+  security.ts       the sandbox's rules (macOS profile; `sandboxArgv` for either system), path checks, approvals, redaction, configuration audit
+  sandbox-linux.ts  the same rules as bubblewrap mounts; what a mount cannot forbid is removed after the command (`Guard`)
+  sandbox-fs.ts     read/write/edit/grep/find/ls executed inside the sandbox
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
   manual.ts         pine's manual made searchable: docs/ cut into parts, BM25 over them, synonyms; the `manual` tool and `pine manual`
   skills.ts         skills by tool call: where one lies says whom it is for (all agents, an agent, a conversation)
@@ -54,7 +55,7 @@ src/
   tui/              terminal UI: app.ts (tabs, commands, rendering), client.ts (API + event stream), run.ts,
                     code-pane.ts (the pane beside a conversation: changes, files, tool output),
                     theme.ts (colours, markdown), highlight.ts (code colours),
-                    picture.ts (pictures and video: conversion with sips, Kitty-protocol or half-block drawing)
+                    picture.ts (pictures and video: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing)
   types.ts, util.ts shared types; topics, templates, filters, durations, logger
   dev/claude-model.ts   OpenAI-compatible server backed by `claude -p` (development only)
 mcp/                bundled MCP servers (separate processes): web, browser, commands
@@ -107,8 +108,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    the mode: `live.variant()` picks the normal, restricted or open profile for each call, and
    access the owner granted with `request_access` is written into that session's profiles.)
    In every variant pine's home and pine's code stay closed. Shell commands and all six file
-   tools run through `sandbox-exec` with the profile from `sandboxProfile()`. `checkPath()` only
-   produces a clear error early; do not rely on it. Never add a tool that reads or writes files in
+   tools run behind `sandboxArgv()`: `sandbox-exec` with the profile from `sandboxProfile()` on
+   macOS, `bwrap` with the mounts from `bwrapArgs()` on Linux. A rule goes into both or into
+   neither, and a helper that touches bytes from anywhere goes behind `helperArgv()`; nothing
+   else names either program. `checkPath()` only produces a clear error early; do not rely on it. Never add a tool that reads or writes files in
    the daemon process on a path the model chose.
 3. **Trust comes from where an event entered, never from what it says.** Out of the box three
    things publish `trust: "owner"`: a Telegram account the owner paired in pine (or listed), the
@@ -161,8 +164,8 @@ These are invariants. A change that breaks one needs a test that shows why it is
    `setFolder` in `src/agents.ts` is reached from the control API only; there is no tool for it.
    It refuses pine's home, pine's code and other agents' workspaces in either direction, and a
    run started by outside content does not get the folder. `src/workspace-view.ts` serves the
-   code pane: every path is resolved and must stay inside the folder, and `git` runs through
-   `sandbox-exec` without write access or network and with everything a repository's
+   code pane: every path is resolved and must stay inside the folder, and `git` runs behind
+   `helperArgv()` without write access or network and with everything a repository's
    configuration could make it start turned off. Keep new git calls on that `git()` helper.
 
 ## pi behaviours pine depends on

@@ -11,6 +11,14 @@ import { createLogger } from "../../src/util.ts";
 const NOTE = /<pine-note>[\s\S]*?<\/pine-note>\s*/g;
 
 /** Message text as the author wrote it, without pine's notes. */
+/**
+ * How a refusal by the sandbox reads in a shell. macOS says no. On Linux what is closed is not
+ * there, and what may not be written lies on a read-only mount.
+ */
+export const refused = /Operation not permitted|No such file or directory|Read-only file system|Permission denied|Device or resource busy/;
+/** The same from a file tool. */
+export const toolRefused = /ERROR: .*(not permitted|no such file or directory)/i;
+
 export const textOf = (content: unknown): string => rawTextOf(content).replace(NOTE, "");
 /** All notes pine has sent in the conversation of a request, oldest first. */
 export const notesOf = (req: any): string[] => (req.body.messages ?? []).filter((m: any) => m.role === "user").flatMap((m: any) => rawTextOf(m.content).match(NOTE) ?? []);

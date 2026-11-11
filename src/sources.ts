@@ -11,7 +11,7 @@ import { setEnv, unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
 import type { SourcePlan, SourceType } from "./source-types.ts";
 import type { Router } from "./router.ts";
-import { type Approvals, realish, type Redactor, rootsFor, sandboxAvailable, sandboxProfile, shellEnv } from "./security.ts";
+import { type Approvals, realish, type Redactor, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, shellEnv } from "./security.ts";
 import type { Bus, Kv } from "./store.ts";
 import type { PineEvent } from "./types.ts";
 import { errText, type Logger, parseDuration, resolvePath } from "./util.ts";
@@ -595,7 +595,9 @@ export class SourceHost {
 		// Where the agent's own shell is withheld because nothing could confine it, a source's command is not run either.
 		if (agent.sandbox.enabled && !sandboxAvailable()) return Promise.reject(new Error("there is no sandbox on this platform to run the command in, so it is not run"));
 		// The variant of a run that has read outside content: what is read into the agent's prompt stays as it is.
-		const argv = agent.sandbox.enabled ? ["/usr/bin/sandbox-exec", "-p", sandboxProfile(this.cfg, agent, roots, "restricted"), "/bin/bash", "-c", command] : ["/bin/bash", "-c", command];
+		const argv = agent.sandbox.enabled ? [...sandboxArgv(this.cfg, agent, roots, "restricted"), bin("bash"), "-c", command] : [bin("bash"), "-c", command];
+		// On Linux a protected file that did not exist cannot be forbidden, only taken away again.
+		const guard = agent.sandbox.enabled ? sandboxGuard(roots, "restricted") : undefined;
 		const max = opts.maxBytes ?? 256 * 1024;
 		const timeoutMs = opts.timeoutMs ?? 30_000;
 		return new Promise((resolve, reject) => {
@@ -630,6 +632,7 @@ export class SourceHost {
 			child.on("error", (e) => (done(), reject(new Error(`could not be started: ${errText(e)}`))));
 			child.on("close", (code) => {
 				done();
+				guard?.restore();
 				if (why) return reject(new Error(why));
 				resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8"), truncated: size > max });
 			});
