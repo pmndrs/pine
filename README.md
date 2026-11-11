@@ -16,7 +16,7 @@
 </div>
 <br/>
 
-This is a small daemon that runs AI agents. Yes, you've heard that before. Some things it does very differently:
+This is a small daemon that runs AI agents _reactively_. Some things it does very differently:
 
 - **Letting agents react to external events**: chat, FTP, webhooks, MQTT, web addresses, schedules, etc. In a simple, modular way, and without configs. Agents can subscribe to any installed event source and react accordingly, or list available sources and unsubscribe. Event sources are simple to create, it's a \*.ts service with a schema. This allows you to create full automation workflows by just stating what you want: "watch my security cam, ring the alarm if someone enters while i'm away".
 - **No configs**: you tell the agent what you want. They operate through safe tool calls. Main agent can create other agents, global MCPs, event sources, skills, schedules, etc. Other agents can create these either for local conversations or their scope. No agent will touch or bypass into user config (where your tokens are).
