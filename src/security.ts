@@ -209,8 +209,18 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		}
 	}
 	if (agent.sandbox.network || network) {
+		// The network is addresses. A socket file is another program on this machine (a terminal
+		// multiplexer, an ssh agent, an editor's helper: some run commands for whoever connects),
+		// and stays closed. Two exceptions: the system's name lookup, and socket files in the
+		// agent's own folders, which are its own programs talking to each other. Shared temp is
+		// not one of those folders: that is where the other programs' sockets lie.
+		const temp = [realish(os.tmpdir()), "/private/tmp"];
 		lines.push(
-			"(allow network*)",
+			'(allow network-outbound (remote ip "*:*"))',
+			'(allow network-inbound (local ip "*:*"))',
+			'(allow network-bind (local ip "*:*"))',
+			'(allow network-outbound (literal "/private/var/run/mDNSResponder"))',
+			`(allow network* ${subpaths(roots.write.filter((w) => !temp.includes(w)))})`,
 			"(allow system-socket)",
 			'(allow mach-lookup (global-name "com.apple.trustd.agent") (global-name "com.apple.trustd") (global-name "com.apple.SystemConfiguration.configd") (global-name "com.apple.SystemConfiguration.DNSConfiguration") (global-name "com.apple.dnssd.service") (global-name "com.apple.networkd") (global-name "com.apple.symptomsd"))',
 		);

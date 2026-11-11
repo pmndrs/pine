@@ -63,6 +63,34 @@ test("shell commands are confined: no secrets, no writes outside the workspace, 
 	await h.close();
 });
 
+// macOS only: on Linux a command that was given the network can still reach socket files in the temp folders (see security.md, "On Linux").
+test("with the network granted, a command reaches addresses but not other programs' socket files", { skip: process.platform !== "darwin" || !sandboxAvailable() }, async (t) => {
+	const net = await import("node:net");
+	// Another program of the owner's that listens on a socket file in the shared temp folder, as a terminal multiplexer or an ssh agent does.
+	const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "pine-o-"));
+	const outside = path.join(dir, "s");
+	const server = net.createServer((c) => c.end("SECRET-FROM-OUTSIDE"));
+	await new Promise<void>((r) => server.listen(outside, r));
+	t.after(() => (server.close(), fs.rmSync(dir, { recursive: true, force: true })));
+	const h = await harness({
+		agents: {
+			main: {
+				agent: { sandbox: { network: true } },
+				files: {
+					"connect.js": `require("node:net").connect(process.argv[2]).on("data", (d) => console.log("REACHED " + d)).on("error", (e) => console.log("outside:" + e.code));\n`,
+					"own.js": `const net = require("node:net"), p = process.env.TMPDIR + "/o.sock";\nconst s = net.createServer((c) => c.end("x")).listen(p, () => net.connect(p).on("data", () => (console.log("OWN-OK"), s.close())));\ns.on("error", (e) => console.log("own:" + e.code));\n`,
+				},
+			},
+		},
+	});
+	await h.pine.agents.run({ agent: "main", prompt: bash(`${process.execPath} connect.js ${outside}; ${process.execPath} own.js; curl -s -m 3 -o /dev/null -w 'tcp:%{http_code}' http://127.0.0.1:${h.mock.port}/v1/models`), ...owner });
+	const out = h.toolResults().at(-1)!;
+	assert.ok(out.includes("outside:EPERM") && !out.includes("SECRET-FROM-OUTSIDE"), `another program's socket file: ${out}`);
+	assert.ok(out.includes("OWN-OK"), `its own programs still talk to each other in its own folders: ${out}`);
+	assert.ok(/tcp:\d{3}/.test(out) && !out.includes("tcp:000"), `addresses are the network it was given: ${out}`);
+	await h.close();
+});
+
 test("file tools are jailed to the workspace, symlinks included", async () => {
 	const h = await harness({ agents: { main: { agent: { tools: ["read", "write", "edit", "grep", "find", "ls"], sandbox: { sharedTmp: false } }, files: { "ok.txt": "fine\n" } } } });
 	fs.symlinkSync("/", path.join(h.workspace("main"), "rootlink"));

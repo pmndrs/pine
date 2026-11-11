@@ -103,7 +103,9 @@ Not verified yet, in rough order of importance:
 6. **Linux.** The whole suite has run on Ubuntu 24.04 on arm64 (in a VM), as a user and as
    root, and the sandbox's command line in a Docker container. Not run: x86-64 (the system
    call filter has that processor's numbers, untested), other distributions, and the terminal
-   UI in a real Linux terminal (only through the suite's fake terminal). There is no sandbox
+   UI in a real Linux terminal (only through the suite's fake terminal). With the network
+   granted, Linux still lets a command reach socket files in the temp folders, which macOS
+   refuses. There is no sandbox
    on other systems; the shell tool is withheld there.
 7. **Not built:** a Slack source, a web dashboard, voice. Slack would be a source type like
    `telegram`: one that talks and can send.

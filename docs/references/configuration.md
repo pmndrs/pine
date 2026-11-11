@@ -177,7 +177,7 @@ Every key is optional; `{}` is a valid agent.
 |---|---|---|
 | `mode` | from `defaults` | `manual`: every action waits for approval. `auto`: works inside the sandbox and asks for the rest. `bypass`: never asks, and reaches your whole account. |
 | `sandbox` | on | `false` runs shell and file tools with the daemon's full rights. Do not, unless the machine itself is disposable. |
-| `sandbox.network` | `false` | Shell commands may use the network. |
+| `sandbox.network` | `false` | Shell commands may use the network: the internet and your local network, ports of this machine included. See [security.md](security.md), "On Linux", for what that means for socket files. |
 | `sandbox.read`, `sandbox.write` | `[]` | Further folders the agent may read / write, besides its workspace. |
 | `sandbox.sharedTmp` | `true` | Allow `/tmp` and the user's temp folder. |
 | `sandbox.env` | `{}` | Extra environment variables for the agent's shell. Do not put secrets here; the agent can read them. |

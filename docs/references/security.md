@@ -140,7 +140,7 @@ What differs from macOS:
 | Your home folder, pine's home | Access is refused | They are empty, read-only folders: a command sees that they exist, and in them only the way to the folders it was given |
 | Instruction files, and a repository's hooks and configuration, in a run that read outside content (layer 4) | Cannot be written or created, at any depth | What exists is read-only. What did not exist can be created by a shell command, and pine removes it when the command ends. Both are looked for six folders deep, and not inside folders of installed packages or build output (`node_modules`, `.venv`, `dist`, `build`, `target` and the like) |
 | Programs on the same machine (the session bus, the keyring, a container daemon, a terminal multiplexer, an editor's helper) | Without the network, no connection of any kind. Keychain, clipboard, AppleScript and launching apps are refused by name, also with the network | Without the network a command cannot make a socket to another program (a system call filter, on x86-64 and arm64; programs built for 32 bit do not run then). The session's folder (`/run/user`) is empty and the sockets in `/run` are covered, also with the network |
-| With the network granted | Also programs that listen on a socket file where the agent can read | The same, and those that listen on a socket without a file (an X server does) |
+| With the network granted | Addresses only: the internet and your local network. Socket files stay closed, except in the agent's own folders (not the shared temp folder), where its own programs talk to each other | Also programs that listen on a socket file where the agent can read outside `/run` (a tmux server or an ssh agent in the temp folder), and those that listen on a socket without a file (an X server does) |
 | Processes a command leaves in the background | Not ended by the sandbox | End with the command |
 | pine run as root | Commands run as root | Commands run as root without root's special powers (capabilities), which they could otherwise use to undo the sandbox |
 
@@ -513,9 +513,10 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
   type the main agent wrote and you confirmed: the dialog shows what it is, not what it does. A server that can delete mail can
   delete mail when an agent asks; mark such servers `"approve": "tainted"` or `"always"`.
 - **Shell with network.** `sandbox.network: true` lets commands reach the internet and your
-  local network, including an unauthenticated model server, and programs on this machine that
-  listen on a socket file where the agent can read (a tmux server, an editor's helper, an ssh
-  agent in the temp folder): some of those run commands for whoever connects. Prefer the `web` server or a
+  local network, including an unauthenticated model server and anything else that listens on
+  a port of this machine. On Linux also programs that listen on a socket file in the temp
+  folders (a tmux server, an editor's helper, an ssh agent): some of those run commands for
+  whoever connects. macOS keeps socket files closed ("On Linux" under layer 3). Prefer the `web` server or a
   `commands` tool for the one thing that needs the network.
 - **A signed-in browser.** With a persistent `profile`, the bundled browser acts as you on every
   site you signed in to. A hostile page can ask the agent to click things there. Keep signed-in
