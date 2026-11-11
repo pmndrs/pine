@@ -16,7 +16,13 @@ We needed something different:
 - **Coding assistance**: diffs, output files, git integration, current folders ...
 - **Orchestrating agents**, sub-agents, ... well, yes it does that. In an intuitive way. A pinned tab is a persistent agent. Create an agent, open a tab, rename it, tell it its basic instructions (these go into AGENTS.md), connect it to event sources, for instance Telegram if you want to chat abroad, pin it, close the tab if you want (you find it back in the running sessions), you're done.
 
-PINE = OpenCode with a fresh GUI + OpenClaw automation without configs + [PI coding agent](https://pi.dev) for basic turns, auto compact and model providers.
+```
++ OpenCode, with a fresh GUI
++ OpenClaw automation, without configs or the weight
++ [PI coding agent](https://pi.dev) for basic turns, auto compact and model providers.
+-----------------------------------------
+= PINE
+```
 
 <p align="center">
   <img src="docs/images/meme.png" width="49%" alt="pine searches the web, downloads a picture and shows it in the terminal">
