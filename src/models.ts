@@ -98,6 +98,11 @@ export interface ServerModel {
 	contextWindow?: number;
 	images: boolean;
 	reasoning: boolean;
+	/**
+	 * For a model that thinks, on a server that says so (llama.cpp): the levels of effort its chat
+	 * template tells apart, lowest first. Its own default is not among them.
+	 */
+	efforts?: string[];
 }
 
 /** What a server answered: its models, or that it wants a key first. */
@@ -122,6 +127,28 @@ export function serverUrl(text: string): string {
 export function checkServerName(name: string, taken: readonly string[]): void {
 	if (!SERVER_NAME.test(name)) throw new Error(`"${name}" is not a usable name for a model server: lowercase letters, digits and -, starting with a letter (for example studio)`);
 	if (taken.includes(name)) throw new Error(`a model provider called "${name}" exists already; pick another name`);
+}
+
+/** The levels of effort a request can name, lowest first. */
+const EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * What is sent for each of pi's thinking levels, for a model whose template knows `efforts`.
+ * Without this a level the template does not know is answered with the template's default,
+ * which is often its highest, and "off" sends nothing at all, so thinking stays on.
+ *  - off: "none", which is how llama.cpp turns thinking off.
+ *  - a level the template knows: itself.
+ *  - a level below the lowest it knows: that lowest one.
+ *  - anything else is left out: it goes as it is, and the template answers with its default.
+ */
+export function effortMap(efforts: string[]): Record<string, string> {
+	const map: Record<string, string> = { off: "none" };
+	const known = EFFORTS.filter((level) => efforts.includes(level));
+	for (const level of EFFORTS) {
+		if (known.includes(level)) map[level] = level;
+		else if (known.length && EFFORTS.indexOf(level) < EFFORTS.indexOf(known[0])) map[level] = known[0];
+	}
+	return map;
 }
 
 const positive = (n: unknown): number | undefined => (typeof n === "number" && Number.isInteger(n) && n > 0 ? n : undefined);
@@ -155,11 +182,15 @@ export async function lookAt(baseUrl: string, key?: string): Promise<Look> {
 	for (const m of list.slice(0, 100)) {
 		// A name is shown to agents and written into the file, so it is a name and nothing else.
 		if (typeof m?.id !== "string" || !MODEL_ID.test(m.id)) continue;
+		const caps = props?.chat_template_caps;
+		const reasoning = caps?.supports_reasoning_effort === true;
 		models.push({
 			id: m.id,
 			contextWindow: positive(props?.default_generation_settings?.n_ctx) ?? positive(m.max_model_len) ?? positive(m.context_length) ?? positive(m.context_window),
 			images: props?.modalities?.vision === true || (Array.isArray(m.architecture?.input_modalities) && m.architecture.input_modalities.includes("image")),
-			reasoning: props?.chat_template_caps?.supports_reasoning_effort === true,
+			reasoning,
+			// Only the names pine knows are kept: what a server says goes into a file.
+			...(reasoning ? { efforts: EFFORTS.filter((level) => Array.isArray(caps.reasoning_effort_levels) && caps.reasoning_effort_levels.includes(level)) } : {}),
 		});
 	}
 	if (!models.length) throw new Error(`${baseUrl} lists no model with a usable name${list.length ? ` (it has ${list.length}, named with spaces or other characters; llama-server takes a plain name with --alias)` : ""}`);
@@ -201,15 +232,18 @@ export function addModelServer(home: string, server: NewServer): string[] {
 		models: server.models.map((m) => {
 			const contextWindow = server.context ?? m.contextWindow!;
 			const reasoning = server.reasoning ?? m.reasoning;
+			// Where the server said which levels the model knows, the level chosen in pine is the one it gets.
+			const mapped = reasoning && m.efforts !== undefined;
 			return {
 				id: m.id,
 				contextWindow,
 				maxTokens: Math.min(8192, Math.floor(contextWindow / 2)),
 				input: m.images ? ["text", "image"] : ["text"],
 				...(reasoning ? { reasoning: true } : {}),
+				...(mapped ? { thinkingLevelMap: effortMap(m.efforts!) } : {}),
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				// What a plain server may reject is not sent.
-				compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: reasoning, maxTokensField: "max_tokens" },
+				compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: reasoning, ...(mapped ? { thinkingFormat: "openai" } : {}), maxTokensField: "max_tokens" },
 			};
 		}),
 	};
@@ -259,7 +293,7 @@ export interface ServerInfo {
 	baseUrl: string;
 	/** Where its key comes from, in words. */
 	key: string;
-	models: Array<{ id: string; contextWindow?: number; images: boolean }>;
+	models: Array<{ id: string; contextWindow?: number; images: boolean; reasoning: boolean }>;
 }
 
 /** The model servers in models.json. */
@@ -272,7 +306,7 @@ export function listModelServers(home: string): ServerInfo[] {
 			name,
 			baseUrl: p.baseUrl,
 			key: raw.startsWith("!") ? "from a command" : names.length ? `${names.join(", ")} in .env` : !raw || raw === "none" ? "none" : "written in models.json",
-			models: (Array.isArray(p.models) ? p.models : []).filter((m: any) => typeof m?.id === "string").map((m: any) => ({ id: m.id, contextWindow: positive(m.contextWindow), images: Array.isArray(m.input) && m.input.includes("image") })),
+			models: (Array.isArray(p.models) ? p.models : []).filter((m: any) => typeof m?.id === "string").map((m: any) => ({ id: m.id, contextWindow: positive(m.contextWindow), images: Array.isArray(m.input) && m.input.includes("image"), reasoning: m.reasoning === true })),
 		};
 	});
 }

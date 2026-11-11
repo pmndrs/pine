@@ -130,8 +130,9 @@ Tell the main agent: "add my llama server at http://100.64.0.7:8080 as studio". 
 1. You are shown the address and confirm it. This is asked every time, in every mode: an agent
    that is given one of the server's models sends its whole conversation there. Until you say
    yes, no request goes to that address.
-2. pine asks the server which models it has, how much context one request gets and whether it
-   reads pictures (from llama.cpp's `/props`; other servers say less).
+2. pine asks the server which models it has, how much context one request gets, whether it
+   reads pictures and, for a model that thinks, which thinking levels it knows (from
+   llama.cpp's `/props`; other servers say less).
 3. If the server wants a key, a second dialog asks you to type it. It goes into `.env` as
    `PINE_MODEL_<NAME>_API_KEY`; the agent and its model never see it. A key the server does not
    accept is not kept.

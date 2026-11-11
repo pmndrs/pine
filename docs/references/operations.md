@@ -115,6 +115,11 @@ running pine has the models at once; choose one with `/model studio/<model>`.
 
 - `--context <tokens>` gives the context where the server does not say it (llama.cpp does).
 - `--reasoning` or `--no-reasoning` overrides what the server says about a thinking model.
+- For a thinking model on llama.cpp, pine also writes which thinking level is sent for each of
+  its own (`thinkingLevelMap`), from the levels the server says the model's chat template tells
+  apart. So "off" really turns thinking off, and a level the model does not know is not
+  silently answered with its highest. See [configuration.md](configuration.md), "Thinking
+  levels".
 - `pine model list` shows the servers with their models; `pine model remove <name>` takes one
   out again, with its key, unless an agent still uses it.
 - The main agent can do the same when you ask it to ([setup.md](setup.md), "Adding a model

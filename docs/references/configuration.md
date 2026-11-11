@@ -243,6 +243,36 @@ they write looks like the `local` entry:
 - pi's documentation for this file is in
   `node_modules/@earendil-works/pi-coding-agent/docs/models-configuration.md`.
 
+### Thinking levels
+
+pine's reasoning levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`
+(`/reasoning` in the terminal UI, `thinking` in `agent.json`). A model on a server of your own
+rarely knows all of them. A chat template answers a level it does not know with its own
+default, which is often its highest, and without an entry for `off` nothing is sent at all, so
+thinking stays on.
+
+For llama.cpp, `pine model add` and `add_model_server` settle this from what the server
+reports (`chat_template_caps` in `/props`: whether the template takes a level, and which levels
+it tells apart). They write, for a model whose template knows `low` and `medium`:
+
+```json
+"reasoning": true,
+"thinkingLevelMap": { "off": "none", "minimal": "low", "low": "low", "medium": "medium" },
+"compat": { "thinkingFormat": "openai", "supportsReasoningEffort": true, ... }
+```
+
+- `"thinkingFormat": "openai"` makes pi send the level as `reasoning_effort`, which is the
+  field llama.cpp hands to the chat template. Formats that only send thinking on or off (such
+  as `qwen-chat-template`) lose the level.
+- `off` is sent as `none`, which is how llama.cpp turns thinking off.
+- A level the template knows is sent as it is; one below its lowest is sent as that lowest.
+- Any other level has no entry: it is sent as it is and the template answers with its default.
+  The server does not list that default among its levels, so pine cannot name it. If you know
+  it, add the entry yourself, for example `"high": "xhigh"`.
+
+For a server that does not report this (vLLM, LM Studio), `--reasoning` only marks the model as
+thinking; write a `thinkingLevelMap` by hand if its levels differ.
+
 ### A server that wants a key
 
 A model server that was started with a key (llama-server with `--api-key`, a server behind a

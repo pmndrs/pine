@@ -329,7 +329,7 @@ async function main(): Promise<void> {
 	if (cmd === "model") {
 		const { addModelServer, checkServerName, listModelServers, lookAt, modelKeyName, removeModelServer, serverUrl } = await import("./models.ts");
 		const sub = rest.shift() ?? "list";
-		const sized = (m: { contextWindow?: number; images: boolean }) => `${m.contextWindow ? `${m.contextWindow} tokens of context` : "context not given"}, ${m.images ? "text and pictures" : "text"}`;
+		const sized = (m: { contextWindow?: number; images: boolean; reasoning: boolean }) => `${m.contextWindow ? `${m.contextWindow} tokens of context` : "context not given"}, ${m.images ? "text and pictures" : "text"}${m.reasoning ? ", thinks" : ""}`;
 		// A running daemon reads the file again at once; without one it is read at the next start.
 		const refreshed = async (): Promise<boolean> => {
 			try {
