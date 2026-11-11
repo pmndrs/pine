@@ -12,7 +12,7 @@
 | `mqtt` | MQTT client | Only loaded when the MQTT plugin is configured or an `mqtt` source starts. |
 | `@earendil-works/pi-tui` | Terminal UI toolkit | pi's own: full-screen layout, editor with completion, Markdown rendering. Used by `src/tui/`. |
 | `highlight.js` | Code colours | Colours code blocks in the terminal UI. |
-| `@playwright/mcp` | Browser automation | Started as a child of `mcp/browser.ts`, which filters its tools and proxies its traffic. Needs `pine browser-install` once. |
+| `@playwright/mcp` | Browser automation | Started as a child of `mcp/browser.ts`, which filters its tools and proxies its traffic. `pine init` downloads the browser it drives. |
 | `sandbox-exec` | Containment | macOS's sandbox, driven by a generated profile per agent. |
 | `typebox` | Tool parameter schemas | The same library pi uses. |
 | `claude -p` | Development model | Optional; used by `pine dev-model`, by the terminal UI when the home's model is `dev/...` (the example home), and by the live test. |

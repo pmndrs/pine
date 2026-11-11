@@ -14,12 +14,13 @@ Start here
   pine logout <provider>
 
 Daemon
-  pine init [dir]                 create a home directory (default ~/.pine) from the example
+  pine init [dir]                 set pine up: a home directory (default ~/.pine) from the example, and the
+                                  browser its web tools use. Safe to run again
   pine check                      validate the configuration and list what it sets up
   pine start                      run the daemon in the foreground
   pine dev-model [--port 7464] [--model haiku]
                                   OpenAI-compatible model server backed by "claude -p" (development only)
-  pine browser-install            download the Chromium build the bundled browser tools use
+  pine browser-install            fetch the browser again (pine init does this; use it after an update)
 
 Talking to a running daemon
   pine status                     running tasks, live sessions, queue
@@ -186,6 +187,17 @@ async function mcpCommand(cfg: PineConfig, argv: string[], out: (v: unknown) => 
 	}
 }
 
+/**
+ * Download the Chromium build the bundled browser tools drive. It has to match the Playwright
+ * version pine ships with, so that copy's own installer is used. Quick when it is there already.
+ */
+async function installBrowser(): Promise<number> {
+	const { spawnSync } = await import("node:child_process");
+	const { createRequire } = await import("node:module");
+	const cli = path.join(path.dirname(createRequire(import.meta.url).resolve("playwright-core")), "cli.js");
+	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
+}
+
 async function main(): Promise<void> {
 	const { flags, rest } = parseArgs(process.argv.slice(2));
 	const cmd = rest.shift();
@@ -199,17 +211,24 @@ async function main(): Promise<void> {
 		fs.mkdirSync(target, { recursive: true, mode: 0o700 });
 		fs.chmodSync(target, 0o700);
 		const created = copyDir(path.join(PINE_ROOT, "examples", "home"), target);
-		out(created.length ? `Created in ${target}:\n${created.map((f) => `  ${path.relative(target, f)}`).join("\n")}\n\nNext: edit models.json and pine.json, put secrets in .env, then run "pine check --home ${target}".` : `${target} already has every example file; nothing changed.`);
+		out(created.length ? `Created in ${target}:\n${created.map((f) => `  ${path.relative(target, f)}`).join("\n")}` : `${target} already has every example file; nothing changed.`);
+		// Everything the built-in tools need comes with it, so that what is set up also works. The
+		// browser is the one large piece; a second run finds it there and takes a moment.
+		// (PINE_SKIP_DOWNLOADS is for pine's own tests, which must not fetch 600 MB.)
+		if (!process.env.PINE_SKIP_DOWNLOADS) {
+			out("\nGetting the browser the built-in web tools drive (about 600 MB, once) ...");
+			const status = await installBrowser();
+			if (status !== 0) {
+				out(`\nThe browser could not be downloaded (exit ${status}). Everything else is set up; web search and page reading work without it. Run "pine init" again when you are online to get it.`);
+				process.exitCode = 1;
+				return;
+			}
+		}
+		out(`\nReady. Start with: pine${target === defaultHome() ? "" : ` --home ${target}`}\nThe example uses Claude through "claude -p". For another model: pine login <provider>, then /model in the UI.`);
 		return;
 	}
 
-	if (cmd === "browser-install") {
-		// The browser build must match the Playwright version pine ships with, so use that copy's installer.
-		const { spawnSync } = await import("node:child_process");
-		const { createRequire } = await import("node:module");
-		const cli = path.join(path.dirname(createRequire(import.meta.url).resolve("playwright-core")), "cli.js");
-		process.exit(spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1);
-	}
+	if (cmd === "browser-install") process.exit(await installBrowser());
 
 	if (cmd === "dev-model") {
 		const { startClaudeModel } = await import("./dev/claude-model.ts");

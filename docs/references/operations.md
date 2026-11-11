@@ -28,18 +28,17 @@ Otherwise use `bin/pine` from the checkout.
 ## First start
 
 ```bash
-pine browser-install
-```
-
-downloads the Chromium build the bundled browser tools use (about 600 MB, into Playwright's
-cache). Skip it if you do not want the browser; the other tools work without.
-
-```bash
 pine init
 ```
 
-copies the example home to `~/.pine`: one agent, `main`, with web search and the browser, a
-`models.json`, an empty `.env`. Nothing is overwritten if you run it again.
+sets everything up in one step:
+
+- From a fresh checkout, `bin/pine` first installs pine's dependencies (`npm install`), once.
+- It copies the example home to `~/.pine`: one agent, `main`, with web search and the browser, a
+  `models.json`, an empty `.env`. Nothing is overwritten if you run it again.
+- It downloads the Chromium build the bundled browser tools drive (about 600 MB, into
+  Playwright's cache). A second run finds it there and takes a moment. If the download fails,
+  everything else is set up and `pine init` can simply be run again.
 
 ```bash
 pine
@@ -108,8 +107,8 @@ slots, so each run gets `c / np` tokens; put that number into `contextWindow`.
 |---|---|
 | `pine`, `pine tui` | The terminal UI; starts a daemon inside if none is running |
 | `pine login <provider>`, `pine logout <provider>` | Sign in to a model provider. `--api-key` or `--oauth` force the kind of sign-in |
-| `pine browser-install` | Download the browser the bundled browser tools use |
-| `pine init [dir]` | Create a home directory from the example |
+| `pine init [dir]` | Set pine up: a home directory from the example and the browser its web tools drive. Safe to run again |
+| `pine browser-install` | Fetch the browser again, for example after an update of pine changed the version it needs |
 | `pine check` | Validate the configuration; show each agent's workspace, model, tools, MCP servers; list security notes |
 | `pine start` | Run the daemon in the foreground. Ctrl-C or SIGTERM stops it cleanly |
 | `pine dev-model [--port 7464] [--model haiku]` | The `claude -p` model server |
@@ -214,7 +213,7 @@ are JSON with `Content-Type: application/json`.
 | `pine.json not found` | Wrong home. Pass `--home` or set `PINE_HOME`. |
 | `model "x/y" is not defined in models.json` | `defaults.model` or an agent's `model` does not match `provider/id`. `/model` in the UI lists what is available. |
 | A task fails with 401 or "API key" | The provider's credential is missing or expired. `pine login <provider>` again. |
-| The browser tools fail with "Executable doesn't exist" | Run `pine browser-install`. |
+| The browser tools fail with "Executable doesn't exist" | Run `pine init` again (or `pine browser-install`): the browser is missing or pine was updated to a newer one. |
 | The UI says "reconnecting…" | The daemon it was attached to stopped. Start it again; the UI picks it up. |
 | `no daemon answers on http://127.0.0.1:7463` | The daemon is not running, or `http.port` differs from what the CLI reads in this home. |
 | A task fails with a connection error | The model server is down or `baseUrl` is wrong. `curl <baseUrl>/models` should answer. |

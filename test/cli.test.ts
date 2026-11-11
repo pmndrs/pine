@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 import { harness, until } from "./support/harness.ts";
 
 const run = promisify(execFile);
+// "pine init" also fetches the browser, which a test must not do.
+process.env.PINE_SKIP_DOWNLOADS = "1";
 const CLI = path.resolve(import.meta.dirname, "../src/cli.ts");
 const freePort = () =>
 	new Promise<number>((resolve) => {

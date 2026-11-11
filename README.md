@@ -37,17 +37,7 @@ Basically OpenCode with a nicer GUI + Openclaw without the bloat and configs + [
 
 Requires Node 24 or newer and macOS (for the sandbox).
 
-```bash
-npm install
-```
-
-Installs playwright.
-
-```bash
-bin/pine browser-install
-```
-
-Initializes your user folder (`~/.pine`)
+Sets everything up: dependencies, the browser the web tools drive, and your user folder (`~/.pine`).
 
 ```bash
 bin/pine init

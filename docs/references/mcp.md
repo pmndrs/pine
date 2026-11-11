@@ -210,7 +210,7 @@ Playwright MCP server with a guard around it.
 "browser": { "pine": "browser", "options": { "headed": false } }
 ```
 
-Run `pine browser-install` once to download the browser itself.
+`pine init` downloads the browser itself; `pine browser-install` fetches it again after an update.
 
 The tools appear as `mcp__browser__browser_navigate`, `..._snapshot`, `..._click`, `..._type`,
 `..._fill_form`, `..._press_key`, `..._select_option`, `..._hover`, `..._wait_for`, `..._find`,

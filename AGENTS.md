@@ -141,6 +141,8 @@ upgrade pi (`npm run baseline`, then `npm test`).
 - UI tests type, click (`term.click(x, y)`) and drop files (`term.paste(path)`) on `FakeTerminal`
   and assert on `app.screen()`. Send keys one at a time
   (`term.type("text")` does) and wait with `sees()`, not with sleeps.
+- `pine init` downloads the browser. A test that runs it sets `PINE_SKIP_DOWNLOADS=1` (see
+  `test/cli.test.ts`); the variable exists for tests only and is not a user option.
 - `npm test` passes `--test-force-exit`, so a leaked handle cannot hang the run; a test that
   fails must still not leave a daemon behind (see the `after` hooks in `test/support/harness.ts`).
 - A new security property needs a test that fails without the code that provides it.
