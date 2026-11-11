@@ -14,7 +14,8 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
-import { type AgentConfig, delegateTargets, effectiveMcp, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, PINE_ROOT, type PineConfig, toPiMcp, userFile, WORKSPACE_FILES } from "./config.ts";
+import { dropConversationSkills, renameConversationSkills, skillDirs } from "./skills.ts";
+import { type AgentConfig, conversationsDir, delegateTargets, effectiveMcp, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, PINE_ROOT, type PineConfig, toPiMcp, userFile, WORKSPACE_FILES } from "./config.ts";
 import { Limiter, type Slot } from "./limiter.ts";
 import { type Approvals, checkPath, globMatch, isInside, matchesToolPattern, realish, type Roots, rootsFor, sandboxAvailable, sandboxProfile, type SandboxVariant, shellEnv, shq, toolSubject } from "./security.ts";
 import type { Bus, Kv, State, TaskStore } from "./store.ts";
@@ -40,7 +41,7 @@ const contextOf = (session: any): ContextUse | undefined => {
 
 /** Tools that only look. In manual mode everything else waits for approval. */
 // The last ones change pine's setup and ask the owner themselves, each where it matters.
-const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "create_agent"];
+const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "create_agent"];
 /** From this many characters on, an agent is reminded to tidy its MEMORY.md. */
 const MEMORY_LONG = 6000;
 
@@ -76,7 +77,7 @@ const BASE_PROMPT = `You are an agent in pine, a system that runs several AI age
 
 <limits>
 - Your shell and file tools work inside your workspace and a private home folder. The rest of the computer, including pine's own configuration, is closed to you. When a tool call is refused, do not look for a way around it: say what you could not do.
-- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can connect and remove remote MCP servers (add_mcp_server, remove_mcp_server) and set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. {{ROLE}} Everything else (your built-in tools, model, skills) your owner changes in pine's home folder, followed by a restart: read the "pine" skill and explain the steps for them to take.
+- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove remote MCP servers (add_mcp_server, remove_mcp_server), and write down how something is done as a skill (add_skill, remove_skill); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. {{ROLE}} Everything else (your built-in tools, your model) your owner changes in pine's home folder, followed by a restart: read the "pine" skill and explain the steps for them to take.
 - Passwords, tokens and keys are not yours to handle. Never ask your owner to write one into the conversation, and do not look for one in files: a tool that needs one gets it from your owner through pine's own dialog, or by its name in pine's .env file.
 - Some actions need your owner's approval. If one is not approved, do not retry it: report what you wanted to do and why.
 </limits>
@@ -701,6 +702,7 @@ export class AgentManager {
 		for (const name of sources) await this.sources!.remove(agentId, name);
 		const servers = own ? Object.entries(agent.mcp).filter(([, s]) => s.session === keys[0]).map(([name]) => name) : [];
 		for (const name of servers) removeServer(this.cfg, name, agentId);
+		if (own) dropConversationSkills(agent, keys[0]);
 		let removed = false;
 		const root = path.join(agent.dir, "sessions");
 		for (const key of keys) {
@@ -760,6 +762,7 @@ export class AgentManager {
 		const ui = this.uiTabs();
 		this.saveUiTabs(ui.tabs.map((t) => (t.agent === agentId && t.session === from ? { agent: agentId, session: b } : t)), ui.active);
 		await this.sources?.renameSession(agentId, a, b);
+		renameConversationSkills(agent, a, b);
 		const servers = Object.entries(agent.mcp).filter(([, s]) => s.session === a);
 		if (servers.length) {
 			editJson(path.join(agent.dir, "agent.json"), (json) => {
@@ -1059,7 +1062,14 @@ export class AgentManager {
 		const excludeTools = BUILTIN_TOOLS.filter((t) => !profile.tools.includes(t));
 		const customTools = pineTools(this, agent, live, profile);
 
-		const owned = [realish(agent.dir), realish(PINE_DOCS), ...cfg.skills.map(realish), ...agent.skills.map(realish), ...(agent.trustWorkspace ? [roots.workspace] : [])];
+		// The conversation this session belongs to: a sub-agent's is the one that started it, a one-off run counts as the main one.
+		const conversation = ephemeral && this.permSession(task) === task.session ? "main" : this.permSession(task).replace(/~u$/, "");
+		// Skills set up by tool call: those for all agents and those of this conversation. The agent's own are found in its folder.
+		const moreSkills = skillDirs(cfg, agent, conversation);
+		// What another conversation of this agent set up for itself lies in the agent's folder too, and is not this one's.
+		const others = realish(conversationsDir(agent));
+		const owned = [realish(agent.dir), realish(PINE_DOCS), ...cfg.skills.map(realish), ...agent.skills.map(realish), ...moreSkills.map(realish), ...(agent.trustWorkspace ? [roots.workspace] : [])];
+		const isOwned = (file: string) => owned.some((r) => isInside(r, file)) && (!isInside(others, file) || moreSkills.some((d) => isInside(realish(d), file)));
 		const createRuntime = async (o: any) => {
 			const settingsManager = SettingsManager.create(o.cwd, agent.dir, { projectTrusted: agent.trustWorkspace });
 			if (Object.keys(agent.settings).length) settingsManager.applyOverrides(agent.settings as any);
@@ -1075,10 +1085,10 @@ export class AgentManager {
 					systemPromptOverride: (base: string | undefined) => base ?? basePrompt(this.cfg, agent),
 					extensionFactories,
 					additionalExtensionPaths: [...cfg.extensions, ...agent.extensions],
-					additionalSkillPaths: [PINE_DOCS, ...cfg.skills, ...agent.skills],
+					additionalSkillPaths: [PINE_DOCS, ...cfg.skills, ...agent.skills, ...moreSkills],
 					// pi also discovers skills and instruction files in the user's home and in the folders
 					// above the workspace. An agent gets only what its own configuration names.
-					skillsOverride: (base: any) => ({ ...base, skills: base.skills.filter((sk: any) => owned.some((r) => isInside(r, realish(sk.filePath)))) }),
+					skillsOverride: (base: any) => ({ ...base, skills: base.skills.filter((sk: any) => isOwned(realish(sk.filePath))) }),
 					// Exactly the files pine names, read here: pi's own search would also take what lies in
 					// the folders above.
 					agentsFilesOverride: () => ({ agentsFiles: this.instructionFiles(agent, folder).map((f) => ({ path: f, content: fs.readFileSync(f, "utf8") })) }),

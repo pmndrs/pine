@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig } from "./config.ts";
 import { audit } from "./security.ts";
+import { allSkills, listSkills } from "./skills.ts";
 import { expandHome } from "./util.ts";
 
 const HELP = `pine - PI neural engine
@@ -56,6 +57,7 @@ Event sources
 
 MCP servers
   pine mcp list                   configured servers, who gets them, and whether they connect
+  pine skills                     every skill: whom it is for and where it lies
   pine mcp add <name> <https-url> [--agent id] [--taints] [--approve always|tainted] [--timeout seconds]
   pine mcp add <name> [--agent id] -- <command> [args...]
   pine mcp remove <name> [--agent id]
@@ -203,7 +205,7 @@ async function installBrowser(): Promise<number> {
 	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
 }
 
-const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "mcp", "mode", "reset", "send", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
+const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "mcp", "mode", "reset", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
 
 /** Whether a first argument means a folder to open: something written as a path, or the name of a folder here that is not a command. */
 function folderArgument(word: string | undefined, cwd = process.cwd()): string | undefined {
@@ -304,6 +306,17 @@ async function main(): Promise<void> {
 
 	if (cmd === "mcp") return mcpCommand(cfg, process.argv.slice(process.argv.indexOf("mcp") + 1), out);
 
+	if (cmd === "skills") {
+		const list = allSkills(cfg);
+		if (!list.length) return out("no skills yet. An agent writes one when you ask it to (\"make a skill for this\"), or put a folder with a SKILL.md into the skills folder of pine's home or of an agent; see docs/references/agents.md");
+		for (const s of list) {
+			out(`${s.name}  ${s.scope === "global" ? "all agents" : s.scope === "agent" ? `agent ${s.agent}` : `conversation ${s.session} of ${s.agent}`}${s.managed ? "" : "  [yours, from the configuration]"}`);
+			out(`    ${s.description}`);
+			out(`    ${s.dir}`);
+		}
+		return;
+	}
+
 	if (cmd === "check") {
 		out(`home       ${cfg.home}`);
 		out(`http       ${cfg.http ? `${cfg.http.host}:${cfg.http.port}, hooks: ${Object.keys(cfg.http.hooks).join(", ") || "none"}` : "off"}`);
@@ -315,6 +328,7 @@ async function main(): Promise<void> {
 			out(`  model      ${a.model ?? cfg.defaults.model}`);
 			out(`  tools      ${(a.tools ?? ["read", "bash", "edit", "write"]).join(", ")}`);
 			out(`  mcp        ${Object.keys(effectiveMcp(cfg, a)).join(", ") || "none"}`);
+			out(`  skills     ${listSkills(cfg, a, "main").map((s) => s.name).join(", ") || "none"}`);
 			out(`  delegates  ${a.delegates.join(", ") || "none"}; sub-agents ${a.subagents.enabled ? `up to ${a.subagents.maxParallel}` : "off"}`);
 			out(`  mode       ${a.mode}`);
 			out(`  sandbox    ${a.sandbox.enabled ? `on, network ${a.sandbox.network ? "allowed" : "blocked"}` : "OFF"}; untrusted events: ${a.untrusted === false ? "refused" : a.untrusted.tools.join(", ") || "no tools"}`);

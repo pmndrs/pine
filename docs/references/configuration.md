@@ -103,7 +103,7 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `sourceTypes` | `{}` | Source types of your own: a name and the module that implements it, e.g. `{ "doorbell": "./sources/doorbell.ts" }`. The module says which options it takes, and agents can then set up sources of that type by tool call. The main agent adds entries here with `add_source_type`, pointing at the copy pine keeps in `sources/` of its home. |
 | `subscribe` | `[]` | Subscriptions for all agents: every agent that can use the source is woken in its main conversation. |
 | `extensions` | `[]` | Paths of pi extensions loaded into every agent's sessions. |
-| `skills` | `[]` | Folders of skills available to every agent. |
+| `skills` | `[]` | Further folders of skills for every agent, for skills that lie outside pine's home. Not needed for `skills/` in pine's home: what is there is for every agent without an entry, and so is what the main agent adds with `add_skill`. Agents cannot replace or remove a skill that is named here. |
 | `routes` | `[]` | See [events.md](events.md). |
 | `schedules` | `[]` | See [events.md](events.md). |
 
@@ -147,7 +147,7 @@ Every key is optional; `{}` is a valid agent.
 | `globalMcp` | `true` | `true`: every global server that includes this agent. `false`: none. A list of names: exactly those. |
 | `sources` | `{}` | Event sources only this agent can subscribe to. An entry with `"session": "<conversation>"` was set up for that conversation alone and is removed with it. See [sources.md](sources.md). |
 | `subscribe` | `[]` | What this agent is subscribed to: a list of names, an object with `note`, `when`, `throttle`, `debounce` per source, or a list of entries with `source` and, for one conversation only, `session`. The agent's `subscribe` tool and `pine subscribe` write here. |
-| `extensions`, `skills` | `[]` | Further pi extension files and skill folders for this agent. |
+| `extensions`, `skills` | `[]` | Further pi extension files and skill folders for this agent. Its own `skills/` folder needs no entry. |
 | `bashTimeoutSec` | from `defaults` | Longest shell command. |
 | `bashDeny` | `[]` | Regular expressions; a shell command matching one is refused. A convenience, not a boundary: the sandbox is the boundary. |
 

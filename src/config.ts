@@ -559,6 +559,15 @@ export const WORKSPACE_FILES = ["AGENTS.md", "SOUL.md", "MEMORY.md"];
 /** What all agents know about the owner: one file in pine's home, in every agent's prompt, kept by the main agent. */
 export const userFile = (cfg: PineConfig): string => path.join(cfg.home, "USER.md");
 
+/**
+ * Where skills lie that were set up by tool call. The place says whom a skill is for: all agents,
+ * one agent, or one conversation of an agent. All of it is inside pine's home, which agents read
+ * but do not write.
+ */
+export const globalSkillsDir = (cfg: Pick<PineConfig, "home">) => path.join(cfg.home, "skills");
+export const agentSkillsDir = (agent: Pick<AgentConfig, "dir">) => path.join(agent.dir, "skills");
+export const conversationsDir = (agent: Pick<AgentConfig, "dir">) => path.join(agent.dir, "conversations");
+
 export function mainAgentId(cfg: PineConfig): string {
 	return cfg.main ?? (cfg.agents.main ? "main" : Object.keys(cfg.agents)[0]);
 }

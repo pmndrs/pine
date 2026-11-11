@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type AgentConfig, mainAgentId, PINE_ROOT, type PineConfig, userFile, WORKSPACE_FILES } from "./config.ts";
+import { type AgentConfig, agentSkillsDir, conversationsDir, globalSkillsDir, mainAgentId, PINE_ROOT, type PineConfig, userFile, WORKSPACE_FILES } from "./config.ts";
 import type { Bus } from "./store.ts";
 import { type Logger, truncate } from "./util.ts";
 
@@ -64,7 +64,9 @@ export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
 	// The one file of pine's home that an agent may touch: what is known about the owner, and only for the main agent.
 	const user = path.join(home, path.basename(userFile(cfg)));
 	const keepsUser = agent.id === mainAgentId(cfg) ? [user] : [];
-	const ownedRead = [...new Set([workspace, realish(sandboxHome), realish(path.join(agent.dir, "skills")), realish(path.join(PINE_ROOT, "docs")), ...cfg.skills.map(realish), ...agent.skills.map(realish), ...agent.sandbox.read.map(realish), ...keepsUser])];
+	// Skills are read, never written, by the agent they are for: its own, its conversations', and those for all agents.
+	const skills = [agentSkillsDir(agent), conversationsDir(agent), globalSkillsDir(cfg), ...cfg.skills, ...agent.skills].map(realish);
+	const ownedRead = [...new Set([workspace, realish(sandboxHome), realish(path.join(PINE_ROOT, "docs")), ...skills, ...agent.sandbox.read.map(realish), ...keepsUser])];
 	const ownedWrite = [...new Set([workspace, realish(sandboxHome), ...agent.sandbox.write.map(realish), ...keepsUser])];
 	return {
 		workspace,

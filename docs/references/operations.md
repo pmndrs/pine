@@ -159,6 +159,7 @@ the example home, `pine init` copies the files you do not have yet and overwrite
 | `pine reset <agent> [session]` | Start a conversation over; also clears its taint |
 | `pine mode <agent> [manual\|auto\|bypass]` | Show or change an agent's mode until the daemon restarts |
 | `pine mcp list` | MCP servers, who gets them, whether they connect |
+| `pine skills` | Every skill: whom it is for (all agents, an agent, one conversation) and where it lies |
 | `pine mcp add <name> <url>`, `pine mcp add <name> -- <command...>` | Add a remote or a local server. `--agent <id>` for one agent |
 | `pine mcp remove <name> [--agent <id>]` | Remove a server from `pine.json`, or from that agent's `agent.json` |
 | `pine mcp login <name>`, `pine mcp logout <name>` | Sign in to a remote server through the browser, or forget its tokens |

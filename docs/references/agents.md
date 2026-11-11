@@ -10,7 +10,8 @@ agents/gonzo/
     AGENTS.md      its purpose and how it works
     SOUL.md        who it is: character and tone
     MEMORY.md      what should outlive a conversation
-  skills/        optional: its own skills
+  skills/        its own skills, one folder each; the agent adds them with add_skill
+  conversations/ what was set up for one conversation alone (its skills); made when needed
   extensions/    optional: its own pi extensions
   AGENTS.md      optional: rules of yours that the agent cannot change
 ```
@@ -75,9 +76,9 @@ Its system prompt is put together from, in this order:
    After them the instruction files of a folder opened for the conversation, and any files in
    `context`.
 4. Its skills: one line each; the agent reads a skill's file when it needs it. One skill is
-   always there: `pine`, this manual. An agent asked for a skill, a schedule or another model
-   reads it and tells you what to put into which file; an MCP server or an event source it
-   sets up itself by tool call ([setup.md](setup.md)).
+   always there: `pine`, this manual. An agent asked for a schedule or another model reads it
+   and tells you what to put into which file; an event source, an MCP server or a skill it sets
+   up itself by tool call ([setup.md](setup.md)).
 5. A `<pine>` block: who the agent is, which agents it can delegate to, which MCP servers it
    has. It only changes when the configuration does.
 
@@ -273,8 +274,46 @@ description: Read and interpret the inverter's daily export. Use for questions a
 ```
 
 The agent sees the description in its system prompt and reads the file when the task calls for
-it. Put skills for one agent in `agents/<id>/skills/`, skills for all in a folder listed under
-`skills` in `pine.json`.
+it. Files the instructions refer to (a script, a template) lie beside the `SKILL.md`.
+
+### Ask the agent
+
+> Remember how to do this: make a skill for filing invoices.
+
+The agent calls `add_skill` with a name, the description and the instructions, and optionally a
+folder of its workspace whose files go along. pine writes the skill; the agent has it from its
+next message on. Asking again under the same name replaces it, and `remove_skill` deletes it.
+
+Like an event source or an MCP server, a skill is for the conversation it was asked for in,
+for the agent, or for all agents ([setup.md](setup.md)):
+
+| Said | Who gets it | You are asked |
+|---|---|---|
+| "make a skill for this" in a side conversation | That conversation; it goes when the conversation is removed | No |
+| the same in the agent's main conversation, or "for you as an agent" | Every conversation of that agent | Only from a side conversation |
+| "for all agents" | Every agent. Only the main agent can do this | Yes |
+
+A name is used once among everything that would stand beside the skill, so no conversation
+ever has two skills of one name.
+
+A skill is part of what an agent is told, like its `AGENTS.md`. It is therefore written by
+pine, in pine's home where the agent reads but does not write, and never from a conversation
+that has read outside content: there `add_skill` refuses. What is a fact and not a way of
+doing something belongs into the agent's `MEMORY.md`.
+
+### Put it there yourself
+
+A folder with a `SKILL.md` in one of these places is a skill, with no entry anywhere:
+
+| Folder | For |
+|---|---|
+| `~/.pine/skills/<name>/` | all agents |
+| `~/.pine/agents/<id>/skills/<name>/` | that agent |
+
+A skill that lies somewhere else is named under `skills` in `pine.json` (for all) or in an
+`agent.json` (for that agent). Agents can use those and cannot replace or remove them.
+
+`pine skills` lists every skill, whom it is for and where it lies.
 
 ## Checking on agents
 

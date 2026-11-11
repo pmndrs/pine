@@ -37,6 +37,7 @@ src/
   security.ts       sandbox profile, path checks, approvals, redaction, configuration audit
   sandbox-fs.ts     read/write/edit/grep/find/ls executed through sandbox-exec
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
+  skills.ts         skills by tool call: where one lies says whom it is for (all agents, an agent, a conversation)
   source-types.ts   what a source type module declares: summary, options schema, plan()
   sources/          the built-in source types: folder, mqtt, webhook, ftp, timer, telegram, http, command
   watching.ts       what the polling types share: picking a value, line differences, a page's text
@@ -69,16 +70,23 @@ These are invariants. A change that breaks one needs a test that shows why it is
 1. **Nothing an agent can write is ever executed or trusted by the daemon.** Agents write only
    to their workspace, their sandbox home and temp. Extensions, `agent.json` and
    `pine.json` live elsewhere in pine's home, which the sandbox closes. Agents change
-   configuration only through the setup tools in `src/tools.ts` (`add_mcp_server`,
-   `remove_mcp_server`, `add_source`, `remove_source`, `subscribe`, `unsubscribe`, and for the
-   main agent `create_agent`): each validates its input, writes only the entry it is for, and
-   asks the owner where `docs/references/setup.md` says so. A server is a remote URL, never a
-   command. Global scope and agent creation are refused to every agent but the main one.
-   Removing something must leave the file as it was before it was added.
+   configuration only through the setup tools in `src/tools.ts`. There are three things an
+   agent can be given, each with the same three scopes (a conversation, the agent, all agents):
+   events (`add_source`, `remove_source`, `subscribe`, `unsubscribe`), MCP servers
+   (`add_mcp_server`, `remove_mcp_server`) and skills (`add_skill`, `remove_skill`); the main
+   agent also has `create_agent` and `add_source_type`. Each validates its input, writes only
+   the entry it is for, and asks the owner where `docs/references/setup.md` says so. A server
+   is a remote URL, never a command. Global scope, agent creation and new source types are
+   refused to every agent but the main one. Removing something must leave things as they were
+   before it was added. A new kind of thing an agent can set up follows the same scopes and
+   wording (`scopeOf`, `forWhom`, `whoIs` in `src/tools.ts`), not rules of its own.
    What an agent writes and pine reads back is text for its own prompt, never code or
    configuration: `AGENTS.md`, `SOUL.md` and `MEMORY.md` at the top of its workspace, and for
    the main agent `USER.md` in pine's home, the one file there an agent may write. A run that
    has handled outside content cannot write any of them (`isOwnFile` in `src/security.ts`).
+   Skills are instructions too, and need no configuration entry: where the folder lies says
+   whom it is for (`src/skills.ts`). They are written by `add_skill` into pine's home, which
+   the agent reads and cannot write, and `add_skill` refuses in a tainted conversation.
 2. **File access is enforced by the OS, not by a path check.** (What the OS enforces depends on
    the mode: `live.variant()` picks the normal, restricted or open profile for each call, and
    access the owner granted with `request_access` is written into that session's profiles.)

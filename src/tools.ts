@@ -9,6 +9,7 @@ import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { addServer, removeServer, validateServer } from "./mcp-config.ts";
 import { isInside, realish } from "./security.ts";
+import { checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions } from "./sources.ts";
 import { errText, matchesAny, safeName, truncate } from "./util.ts";
 
@@ -246,7 +247,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				execute: async () => {
 					const session = here();
 					const mine = host.available(agent.id, session);
-					if (!mine.length) return ok(`No event sources exist yet, so nothing is subscribed to anything and nothing wakes you by itself. You can set one up with add_source when your owner asks you to watch or react to something: a folder, a time (timer), an MQTT device, a webhook, an FTP drop for cameras. The "pine" skill has the details in references/sources.md.`);
+					if (!mine.length) return ok(`No event sources exist yet, so nothing is subscribed to anything and nothing wakes you by itself. You can set one up with add_source when your owner asks you to watch or react to something: a folder, a time (timer), a web address or a command that is looked at again and again, an MQTT device, a webhook, an FTP drop for cameras, Telegram. The "pine" skill has the details in references/sources.md.`);
 					const all = host.list();
 					const senders = host.senders(agent.id, session);
 					const lines = mine.map((s) => {
@@ -456,9 +457,13 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 	}
 
 	if (live.trust === "owner" && !profile.leaf) {
-		const serverScope = inMain
-			? `Leave it out: this is your main conversation, so the server is yours as an agent, in all your conversations.${isMain ? ' "global": for all agents; only if your owner said all agents or everyone.' : ""}`
-			: `Leave it out, or "local": only THIS conversation gets the server, and it is removed when this conversation is removed. "agent": all your conversations get it, and it stays.${isMain ? ' "global": all agents get it.' : ""} Use ${isMain ? '"agent" or "global"' : '"agent"'} only when your owner said so; if you are not sure, ask them.`;
+		// The same three places for everything an agent can be given: a server, a skill.
+		const forWhom = (thing: string) =>
+			inMain
+				? `Leave it out: this is your main conversation, so ${thing} is yours as an agent, in all your conversations.${isMain ? ' "global": for all agents; only if your owner said all agents or everyone.' : ""}`
+				: `Leave it out, or "local": only THIS conversation gets ${thing}, and it is removed when this conversation is removed. "agent": all your conversations get it, and it stays.${isMain ? ' "global": all agents get it.' : ""} Use ${isMain ? '"agent" or "global"' : '"agent"'} only when your owner said so; if you are not sure, ask them.`;
+		const serverScope = forWhom("the server");
+		const whose = (scope: "local" | "agent" | "global") => (scope === "global" ? "all agents" : scope === "agent" ? "you, in all your conversations" : "this conversation; it is removed when this conversation is removed");
 		tools.push(
 			defineTool({
 				name: "add_mcp_server",
@@ -491,8 +496,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 						throw new Error(`could not be added: ${errText(e)}`);
 					}
 					await manager.refreshSessions(target ? [target] : undefined);
-					const whom = scope === "global" ? "all agents" : scope === "agent" ? "you, in all your conversations" : "this conversation; it is removed when this conversation is removed";
-					return ok(`Your owner confirmed it. Added "${p.name}" for ${whom}. Its tools are available from your next message on; their names start with ${mcpNamespace(p.name)}__ (look at your tool list for the exact names, do not guess them). If the server requires sign-in, they stay missing until your owner signs in: /mcp login ${p.name} in the terminal UI, or "pine mcp login ${p.name}" in a shell. Tell them that.`);
+					return ok(`Your owner confirmed it. Added "${p.name}" for ${whose(scope)}. Its tools are available from your next message on; their names start with ${mcpNamespace(p.name)}__ (look at your tool list for the exact names, do not guess them). If the server requires sign-in, they stay missing until your owner signs in: /mcp login ${p.name} in the terminal UI, or "pine mcp login ${p.name}" in a shell. Tell them that.`);
 				},
 			}),
 			defineTool({
@@ -516,6 +520,71 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					removeServer(cfg, name, own ? agent.id : undefined);
 					await manager.refreshSessions(own ? [agent.id] : undefined);
 					return ok(`Removed the MCP server "${name}". Its tools are gone from your next message on.`);
+				},
+			}),
+		);
+		// Skills: how something is done, written down once. They are part of what an agent is told, like
+		// its instruction files, and so they are written by pine and never from a conversation that
+		// outside content may steer.
+		tools.push(
+			defineTool({
+				name: "add_skill",
+				label: "Add skill",
+				description: `Write down how something is done, as a skill, so that you can do it again later without being told: a procedure your owner explained, the way through a system you worked out, a format they want. A skill has a name, a description (one or two sentences on what it is for and when to use it: that line is always in front of you, and you decide by it whether to read the rest) and instructions (the steps, written to yourself, with the paths and commands that matter). Files the instructions refer to (scripts, templates, references) can go along: put them into a folder in your workspace and name it in "files". Calling this again with the same name replaces the skill. A skill is for this conversation, for yourself as an agent${isMain ? ", or for all agents" : ""}.${isMain ? "" : ` One for all agents is the main agent's to add (${mainId}).`} Use it when your owner says "remember how to do this" or "make a skill for this"; what is a fact rather than a way of doing something belongs into your MEMORY.md instead. Not possible in a conversation that has read outside content.`,
+				parameters: Type.Object({
+					name: Type.String({ description: "Short name: lowercase letters, digits and single hyphens (for example invoices, solar-yield)" }),
+					description: Type.String({ description: "One or two sentences: what it is for and when to use it" }),
+					instructions: Type.String({ description: "What to do, step by step, in Markdown, written to yourself. Refer to files that go along by their path relative to the skill" }),
+					files: Type.Optional(Type.String({ description: "A folder in your workspace whose files go along with the skill (scripts, templates, references). They are copied; the folder itself stays yours" })),
+					scope: Type.Optional(Type.String({ description: `Who gets it. ${forWhom("the skill")}` })),
+				}),
+				execute: async (_id, p, signal) => {
+					run();
+					if (live.tainted) throw new Error("This conversation has read outside content, and a skill is part of your instructions: it cannot be written from here. Tell your owner; in a conversation that has read nothing from outside they can ask you again.");
+					const scope = scopeOf(p.scope, "add skills");
+					const skill = checkSkill({ name: p.name, description: p.description, instructions: p.instructions, files: p.files }, agent.workspace);
+					const dir = skillDir(cfg, agent, scope, here(), skill.name);
+					// One name, one skill, as far as anyone who would get it can see.
+					const seen = skillsBeside(cfg, agent, scope, here());
+					const there = seen.find((x) => x.name === skill.name && realish(x.dir) !== realish(dir));
+					if (there) throw new Error(`a skill named "${skill.name}" exists already${there.managed ? ` (${there.scope === "global" ? "for all agents" : there.scope === "agent" ? "an agent's own" : "one conversation's own"})` : ", set up by your owner"}; pick another name${there.managed ? ", or remove that one first" : ""}`);
+					const replaces = seen.some((x) => x.name === skill.name);
+					// Its own thing needs no question; what reaches beyond this conversation does.
+					if (scope === "global" || (scope === "agent" && !inMain) || live.mode() === "manual") {
+						const summary = `${replaces ? "replace" : "add"} the skill "${skill.name}" for ${whoIs(scope)}
+${skill.description}${skill.copy.length ? `
+With ${skill.copy.length} file${skill.copy.length === 1 ? "" : "s"} from ${p.files}` : ""}
+Instructions:
+${truncate(skill.instructions, 1200)}`;
+						const decision = await confirm("add_skill", summary, `a skill becomes part of what ${scope === "global" ? "every agent" : "this agent"} is told, in ${scope === "local" ? "this conversation" : "all its conversations"}`, signal);
+						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what the skill was for.`);
+					}
+					writeSkill(dir, skill);
+					await manager.refreshSessions(scope === "global" ? undefined : [agent.id]);
+					return ok(`${replaces ? "Replaced" : "Added"} the skill "${skill.name}" for ${whose(scope)}. It is at ${dir}/SKILL.md${skill.copy.length ? `, with ${skill.copy.length} file${skill.copy.length === 1 ? "" : "s"} beside it` : ""}. From your next message on it is listed among your skills; read that file when a task calls for it.`);
+				},
+			}),
+			defineTool({
+				name: "remove_skill",
+				label: "Remove skill",
+				description: `Remove a skill that was added with add_skill, when your owner no longer wants it or it is wrong. You can remove a skill of this conversation or of your own agent${isMain ? ", and as the main agent one that is for all agents" : "; one that is for all agents is the main agent's to remove"}. Your owner confirms it unless it is this conversation's own. To change a skill, add it again under the same name instead.`,
+				parameters: Type.Object({ name: Type.String({ description: "The skill's name, as it is listed among your skills" }) }),
+				execute: async (_id, p, signal) => {
+					run();
+					const mine = listSkills(cfg, agent, here());
+					const found = mine.find((x) => x.name === p.name);
+					if (!found) throw new Error(`there is no skill called "${p.name}". Yours: ${mine.map((x) => `${x.name} (${x.scope === "global" ? "all agents" : x.scope})`).join(", ") || "none"}`);
+					if (!found.managed) throw new Error(`"${found.name}" was put there by your owner (${found.dir}) and is theirs to remove.`);
+					if (found.scope === "global") mainOnly("remove a skill");
+					const own = found.scope === "local" || (found.scope === "agent" && inMain);
+					if (!own || live.tainted || live.mode() === "manual") {
+						const decision = await confirm("remove_skill", `remove the skill "${found.name}" of ${found.scope === "global" ? "ALL agents" : `agent ${agent.id}`}
+${found.description}`, `this takes away something ${found.scope === "global" ? "every agent" : "this agent"} was told how to do${careful()}`, signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+					}
+					deleteSkill(found.dir, found.scope === "global" ? cfg.home : agent.dir);
+					await manager.refreshSessions(found.scope === "global" ? undefined : [agent.id]);
+					return ok(`Removed the skill "${found.name}". It is gone from your next message on.`);
 				},
 			}),
 		);

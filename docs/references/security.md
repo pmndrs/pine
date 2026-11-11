@@ -333,7 +333,22 @@ hand (`sourceTypes` in `pine.json`) or through the main agent's `add_source_type
 Read the file before you confirm. Nothing else stands between that module and your account.
 `pine check` lists every registered source type with the file it runs.
 
-### 7. Outputs check for themselves
+### 7. Skills are instructions
+
+A skill is read into an agent's prompt (its name and description) and followed when a task
+calls for it, so it is guarded like the instruction files:
+
+- Skills lie in pine's home, where an agent can read its own and write none. `add_skill`
+  writes them; an agent's shell and file tools cannot.
+- `add_skill` refuses in a conversation that has read outside content, in every mode, without
+  asking you: text from a web page must not become a standing instruction.
+- A skill for all agents is the main agent's to add, and you see its description and
+  instructions before it exists. So does one an agent adds for itself from a side conversation.
+- Scripts that go along with a skill run like anything else the agent runs: in its sandbox.
+- Files are copied as files. A link in the folder that is to go along is refused, so a skill
+  cannot be made to carry a file from outside the workspace.
+
+### 8. Outputs check for themselves
 
 Whatever asks, the Telegram source sends only to your own chat, and the MQTT source publishes
 only to topics on its `publish` list. In a conversation that has read outside content, the
@@ -341,7 +356,7 @@ only to topics on its `publish` list. In a conversation that has read outside co
 may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/`, `pine/`,
 `state/`, `timer/`).
 
-### 8. Secrets
+### 9. Secrets
 
 - Secrets live in `.env`. pine fills them into the configuration and does not put them into
   its environment, so child processes do not inherit them.
@@ -356,7 +371,7 @@ may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/
   model have still seen it: change such a secret if the model is not yours.
 - `pine check` reports configuration files other users can read.
 
-### 9. Limits against runaway behaviour
+### 10. Limits against runaway behaviour
 
 Delegation depth and loops, event hops, queue length per agent, task and shell time limits,
 prompt size for untrusted events, webhook rate. All in [configuration.md](configuration.md).
