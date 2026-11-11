@@ -6,7 +6,10 @@ import path from "node:path";
 import { test } from "node:test";
 import { Aedes } from "aedes";
 import mqtt from "mqtt";
+import { PineTui } from "../src/tui/app.ts";
+import { Client } from "../src/tui/client.ts";
 import { harness, mockMsg, notesOf, sleep, until } from "./support/harness.ts";
+import { FakeTerminal } from "./support/terminal.ts";
 
 const TOKEN = "123456:FAKE-TOKEN-abcdefghijklmnop";
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
@@ -58,13 +61,15 @@ test("telegram: set up by asking, paired by the owner in pine, then a conversati
 	h.pine.bus.subscribe("approval/requested", (e) => {
 		const r = e.payload as any;
 		asked.push(r);
-		if (r.tool === "add_source") h.pine.approvals.decide(r.id, true, "test");
+		// The token is typed by the owner into pine's dialog; here the test is the dialog.
+		if (r.tool === "add_source") h.pine.approvals.decide(r.id, true, "test", false, { token: TOKEN });
 		else if (r.tool === "telegram") h.pine.approvals.decide(r.id, /Telegram id 1001\b/.test(r.summary), "test");
 	});
 	const run = (tools: any[], agent = "main") => h.pine.agents.run({ agent, prompt: mockMsg([{ tools }]), ...owner });
 
-	// "watch telegram, here is the token": one tool call, with the token going to .env and not into the file.
-	let r = await run([call("add_source", { name: "telegram", type: "telegram", description: "my Telegram", options: { token: TOKEN, apiBase: tg.apiBase }, note: "Answer briefly." })]);
+	// "watch telegram": one tool call without the token. pine asks the owner for it, and it goes to .env without passing through the model.
+	let r = await run([call("add_source", { name: "telegram", type: "telegram", description: "my Telegram", options: { apiBase: tg.apiBase }, note: "Answer briefly." })]);
+	assert.deepEqual(asked[0].inputs, [{ name: "token", label: "token: the bot's token, which @BotFather gives when a bot is made with /newbot (123456789:AA...)" }]);
 	assert.match(r.text, /Added the event source "telegram" \(telegram\)\. Tell your owner to open the bot in Telegram and write anything to it\. pine then asks them, here and not in Telegram, to confirm that account/);
 	assert.ok(asked[0].summary.includes("take what that account writes as coming from you") && asked[0].summary.includes("ask you here, in pine, before it listens to anyone"), asked[0].summary);
 	const entry = JSON.parse(fs.readFileSync(path.join(h.home, "agents", "main", "agent.json"), "utf8")).sources.telegram;
@@ -129,6 +134,8 @@ test("telegram: set up by asking, paired by the owner in pine, then a conversati
 	await until(() => tg.sent().some((m) => m.text.startsWith("FINAL::") && m.text.includes("removed")), 5000, "the approved command's result");
 	assert.ok(tg.calls.some((c) => c.method === "editMessageReplyMarkup" && /Allowed \(telegram:1001\)/.test(JSON.stringify(c.body))));
 	assert.ok(!JSON.stringify(h.pine.bus.query({ limit: 500 })).includes(TOKEN), "the bot token is in no event");
+	assert.ok(!JSON.stringify(h.mock.state.requests.map((q: any) => q.body)).includes(TOKEN), "and no model was ever sent it");
+	assert.ok(h.system(h.mock.state.requests[0]).includes("never ask your owner to write one into the conversation") || JSON.stringify(h.mock.state.requests[0].body.tools).includes("never ask your owner to write one into the conversation"), "the agent is told that secrets are not its to handle");
 
 	// It survives a restart with its pairing, and goes without a trace when it is removed.
 	await h.restart();
@@ -191,5 +198,104 @@ test("mqtt: an agent acts on a device through the source, on the listed topics o
 	await sleep(60);
 	assert.deepEqual(got, [["house/lamp/set", '{"state":"ON"}']]);
 	await outside.endAsync();
+	await h.close();
+});
+
+test("secrets: asked of the owner by pine, or named from .env; a yes without the value is not a yes", async (t) => {
+	const tg = await fakeTelegram();
+	t.after(() => tg.close());
+	const h = await harness({ pine: { http: { port: 0 } }, files: { ".env": `MY_BOT_TOKEN=${TOKEN}\n` }, agents: { main: {} } });
+	const asked: any[] = [];
+	h.pine.bus.subscribe("approval/requested", (e) => void asked.push(e.payload));
+	const api = (id: string, body: unknown) => fetch(`http://127.0.0.1:${h.pine.http!.port}/approvals/${id}`, { method: "POST", headers: { authorization: `Bearer ${h.pine.token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then(async (res) => ({ status: res.status, body: await res.json() }));
+	const run = (tools: any[]) => h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools }]), ...owner });
+
+	// A plain yes cannot stand in for the value, from the API or from anywhere else.
+	const first = run([call("add_source", { name: "tg", type: "telegram", description: "x", options: { apiBase: tg.apiBase } })]);
+	await until(() => asked.length === 1);
+	const refused = await api(asked[0].id, { allow: true });
+	assert.equal(refused.status, 400);
+	assert.match(refused.body.error, /this request needs you to enter token: answer it in the terminal UI/);
+	assert.equal(h.pine.approvals.decide(asked[0].id, true, "test"), false);
+	// What is typed is checked like anything else: something that is no token is turned down, and nothing is written.
+	assert.deepEqual((await api(asked[0].id, { allow: true, values: { token: "hunter2-hunter2" } })).body, { decided: true });
+	assert.match((await first).text, /that is not a bot token/);
+	assert.ok(!fs.readFileSync(path.join(h.home, ".env"), "utf8").includes("hunter2"));
+	assert.ok(!JSON.stringify(h.pine.bus.query({ limit: 200 })).includes("hunter2"), "what was typed is in no event");
+
+	// One that is in .env already is given by name: nothing is asked, and the entry keeps the name.
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		const r = e.payload as any;
+		h.pine.approvals.decide(r.id, true, "test", false, Object.fromEntries((r.inputs ?? []).map((i: any) => [i.name, "broker-password-1"])));
+	});
+	let r = await run([call("add_source", { name: "named", type: "telegram", description: "x", options: { token: "${MY_BOT_TOKEN}", apiBase: tg.apiBase } }), call("add_source", { name: "typo", type: "telegram", description: "x", options: { token: "${NO_SUCH_NAME}" } })]);
+	assert.match(h.toolResults().at(-2)!, /Added the event source "named"/);
+	assert.match(h.toolResults().at(-1)!, /there is no NO_SUCH_NAME in pine's \.env file\. Your owner adds a line NO_SUCH_NAME=\.\.\. to .*\.env, or you leave "token" out and pine asks them for it/);
+	assert.equal(asked.at(-1).inputs, undefined, "nothing to type when it is there already");
+	assert.equal(JSON.parse(fs.readFileSync(path.join(h.home, "agents", "main", "agent.json"), "utf8")).sources.named.token, "${MY_BOT_TOKEN}");
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("remove_source", { name: "named" })] }]), ...owner });
+	assert.match(fs.readFileSync(path.join(h.home, ".env"), "utf8"), /MY_BOT_TOKEN=/, "a name the owner put there stays when the source goes");
+
+	// An optional secret is asked for when the agent says one is needed; anything else cannot be asked for this way.
+	r = await run([call("add_source", { name: "broker", type: "mqtt", description: "x", options: { url: "mqtt://127.0.0.1:1", topics: "a/#", username: "u" }, ask: ["password"] }), call("add_source", { name: "broker2", type: "mqtt", description: "x", options: { topics: "a/#" }, ask: ["url"] })]);
+	assert.deepEqual(asked.find((a) => /"broker"/.test(a.summary)).inputs.map((i: any) => i.name), ["password"]);
+	assert.match(h.toolResults().at(-1)!, /"ask" is for the secret options of a mqtt source \(password\), not for url/);
+	assert.ok(!r.text.includes("there is no"));
+	await h.close();
+});
+
+test("tui: a secret is typed into the dialog without being shown, and never appears in the conversation", async (t) => {
+	const tg = await fakeTelegram();
+	t.after(() => tg.close());
+	const h = await harness({ pine: { main: "main", http: { port: 0 } }, agents: { main: {} } });
+	const term = new FakeTerminal(120, 34);
+	const app = new PineTui({ client: new Client(`http://127.0.0.1:${h.pine.http!.port}`, h.pine.token), terminal: term, mode: "test" });
+	t.after(() => app.stop());
+	await app.start();
+	const text = () => app.screen().join("\n");
+	const sees = (what: string | RegExp) => until(() => (typeof what === "string" ? text().includes(what) : what.test(text())), 4000, `the screen to show ${what}\n${text()}`);
+	const seen: string[] = [];
+	const watch = setInterval(() => seen.push(text()), 20);
+	t.after(() => clearInterval(watch));
+
+	term.type(mockMsg([{ tools: [call("add_source", { name: "telegram", type: "telegram", description: "my Telegram", options: { apiBase: tg.apiBase }, note: "Answer briefly." })] }]));
+	term.type(["\r"]);
+	await sees("Approval needed, and something only you have");
+	await sees("token: the bot's token, which @BotFather gives");
+	await sees("Type or paste it here. It is not shown, goes into pine's .env file");
+	// Enter with nothing typed does not say yes, and letters are part of the value, not shortcuts.
+	term.type(["\r"]);
+	await sleep(40);
+	assert.equal(h.pine.approvals.pending().length, 1);
+	term.type("abd");
+	await sees("> •••");
+	term.type(["\x15"]); // ctrl+u: start over
+	term.paste(` ${TOKEN}\n`);
+	await sees(`> ${"•".repeat(TOKEN.length)}`);
+	term.type(["\r"]);
+	await sees(/Added the event source "telegram"/);
+	await until(() => h.pine.sources.list().find((s) => s.name === "telegram")?.running, 4000, "the source to run");
+	assert.ok(fs.readFileSync(path.join(h.home, ".env"), "utf8").includes(`PINE_SOURCE_TELEGRAM_MAIN_TOKEN=${TOKEN}`));
+	seen.push(text());
+	assert.ok(!seen.some((screen) => screen.includes(TOKEN)), "the token was on screen at no point");
+	assert.ok(!JSON.stringify(h.mock.state.requests.map((q: any) => q.body)).includes(TOKEN), "and the model never saw it");
+
+	// Left for later, the question can be reopened with /approve; a plain yes is not offered for it.
+	term.type(mockMsg([{ tools: [call("add_source", { name: "second", type: "telegram", description: "x", options: { apiBase: tg.apiBase } })] }]));
+	term.type(["\r"]);
+	await sees("Approval needed, and something only you have");
+	term.type(["\x1b"]);
+	await until(() => !text().includes("Approval needed, and something only you have"));
+	await sees("it needs something only you have");
+	await sleep(300);
+	term.type("/approve");
+	term.type(["\r"]);
+	await sees("Approval needed, and something only you have");
+	term.type(["\x1b"]);
+	await sleep(300);
+	term.type("/deny");
+	term.type(["\r"]);
+	await sees(/denied/);
+	await app.stop();
 	await h.close();
 });

@@ -98,7 +98,7 @@ export class Client {
 	setMode = (agent: string, mode: string, anyway?: string) => this.post<{ mode: string }>(`/agents/${agent}/mode`, { mode, session: anyway, anyway: anyway !== undefined });
 	setModel = (agent: string, model: string) => this.post<{ model: string }>(`/agents/${agent}/model`, { model });
 	approvals = () => this.get<any[]>("/approvals");
-	decide = (id: string, allow: boolean, always = false) => this.post<{ decided: boolean }>(`/approvals/${id}`, { allow, always });
+	decide = (id: string, allow: boolean, always = false, values?: Record<string, string>) => this.post<{ decided: boolean }>(`/approvals/${id}`, { allow, always, values });
 	emit = (topic: string, payload: unknown) => this.post<{ id: number }>("/events", { topic, payload });
 	state = (pattern = "#") => this.get<Array<{ key: string; value: unknown }>>(`/state?key=${encodeURIComponent(pattern)}`);
 

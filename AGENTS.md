@@ -104,6 +104,9 @@ These are invariants. A change that breaks one needs a test that shows why it is
    Anything a source holds should be registered with `source.secret()` so it is redacted from
    events and logs. A secret an agent passes to `add_source` was typed into a conversation
    first: `SourceHost.add` redacts it from then on and scrubs it from stored events and tasks.
+   The way that avoids this is the default: a tool leaves the secret out, the approval request
+   lists it under `inputs`, and the owner's answer brings the value straight to the tool
+   (`ApprovalDecision.values`, never in an event). A new tool that needs a secret does the same.
 7. **A source that sends decides where to.** Telegram sends only to the owner's chat; MQTT
    publishes only to `publish` topics. Do not move those checks into routes, prompts or the
    `send` tool. There is one way to connect pine to something outside, in or out: a source

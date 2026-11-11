@@ -29,7 +29,7 @@ export const type: SourceType = {
 	sends: 'a Telegram message to your owner: {"text": "..."}',
 	options: Type.Object(
 		{
-			token: Type.String({ description: "the bot's token, as @BotFather gives it (123456789:AA...)", secret: true }),
+			token: Type.String({ description: "the bot's token, which @BotFather gives when a bot is made with /newbot (123456789:AA...)", secret: true }),
 			allow: Type.Optional(Type.Array(Type.Number(), { description: "Telegram user ids that may talk to the bot. Leave out unless your owner gave you their id: the bot is then paired, which means the first account that writes to it is shown to your owner in pine to confirm" })),
 			approvals: Type.Optional(Type.Boolean({ description: "also send approval requests to the owner there, with buttons to answer them. Default true" })),
 			apiBase: Type.Optional(Type.String({ description: "address of a Bot API server of your own, instead of https://api.telegram.org" })),
@@ -37,7 +37,8 @@ export const type: SourceType = {
 		{ additionalProperties: false },
 	),
 	plan(o) {
-		if (!/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(o.token))) throw new Error("that is not a bot token. @BotFather gives one that looks like 123456789:AAH... when a bot is created with /newbot");
+		// Without a token yet (the owner is about to be asked for it) there is nothing to check.
+		if (o.token !== undefined && !/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(o.token))) throw new Error("that is not a bot token. @BotFather gives one that looks like 123456789:AAH... when a bot is created with /newbot");
 		if (o.apiBase !== undefined) {
 			let url: URL;
 			try {
@@ -135,7 +136,8 @@ export default async function telegram(source: SourceApi): Promise<void> {
 		source.on("approval/requested", async (e) => {
 			const r = e.payload as any;
 			const chat = ownerChat();
-			if (chat === undefined) return;
+			// A question the owner answers by typing a secret belongs on their own machine, not in a chat.
+			if (chat === undefined || r.inputs?.length) return;
 			const always = r.remember ? [{ text: `Always: ${truncate(String(r.remember), 30)}`, callback_data: `ap:${r.id}:2` }] : [];
 			const msg = await send(chat, `Approval needed\nAgent: ${r.agent}${r.task ? ` (task #${r.task})` : ""}\nAction: ${truncate(String(r.summary), 1200)}\nWhy you are asked: ${r.why}`, { reply_markup: { inline_keyboard: [[{ text: "Allow", callback_data: `ap:${r.id}:1` }, ...always, { text: "Deny", callback_data: `ap:${r.id}:0` }]] } });
 			if (msg?.message_id) asked.set(r.id, msg.message_id);

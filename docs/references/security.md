@@ -316,6 +316,13 @@ may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/
   its environment, so child processes do not inherit them.
 - Known secret values (everything in `.env`, bot tokens, the control token) are replaced with
   `[redacted]` in events, outgoing messages and log lines.
+- A secret does not have to pass through a model to be set up. Agents are told never to ask for
+  one; a tool that needs one leaves it out, and you type it into pine's own dialog, from where
+  it goes to the daemon and into `.env`. One that is in `.env` already is used by its name. A
+  model that runs somewhere else never receives it either way.
+- If you write a secret into a conversation anyway and an agent stores it, it is redacted from
+  then on and removed from the stored events and tasks. That conversation's history and the
+  model have still seen it: change such a secret if the model is not yours.
 - `pine check` reports configuration files other users can read.
 
 ### 7. Limits against runaway behaviour

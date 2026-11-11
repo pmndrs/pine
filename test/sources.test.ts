@@ -561,15 +561,15 @@ test("sources: a type says what it takes, add_source works from that; a file mas
 	let r = await run([{ text: "ok" }]);
 	const tool = JSON.stringify(h.mock.state.requests.at(-1).body.tools.find((t: any) => (t.function?.name ?? t.name) === "add_source"));
 	assert.ok(tool.includes("- folder: a folder: reports every new or changed file in it") && tool.includes("mask: only files whose name matches"));
-	assert.ok(tool.includes("- mqtt: an MQTT broker") && tool.includes("url (required): address of the broker") && tool.includes("password: password, access code or token"));
-	assert.ok(tool.includes("- bell: a bell: says a word again and again. Options: word (required): what it says; pin: its pin code"));
+	assert.ok(tool.includes("- mqtt: an MQTT broker") && tool.includes("url (required): address of the broker") && tool.includes('password (a secret: name it in \\"ask\\" if one is needed): password, access code or token') && tool.includes("never ask your owner to write one into the conversation"));
+	assert.ok(tool.includes("- bell: a bell: says a word again and again. Options: word (required): what it says; pin (a secret: name it in \\\"ask\\\" if one is needed): its pin code"));
 	assert.ok(!tool.includes("- mute:"));
 	assert.ok(h.logs.some((l) => l.includes('source type mute') && l.includes('exports no "type"')));
 
 	// The owner's own type: checked by its schema and by its own plan, its secret kept out of the configuration, and it runs.
 	r = await run([{ tools: [call("add_source", { name: "door", type: "bell", options: { word: "dingdongdingdong" }, description: "x" }), call("add_source", { name: "door", type: "bell", options: { word: "ding", pin: "4711-4711", loud: true }, description: "x" }), call("add_source", { name: "door", type: "bell", options: { word: "ding", pin: "4711-4711" }, description: "the door bell", note: "say who is there", throttle: "1h" })] }]);
 	assert.match(h.toolResults().at(-3)!, /the word is too long for a bell/);
-	assert.match(h.toolResults().at(-2)!, /these options do not fit a bell source: there is no option loud\. It takes: word \(required\): what it says; pin: its pin code/);
+	assert.match(h.toolResults().at(-2)!, /these options do not fit a bell source: there is no option loud\. It takes: word \(required\): what it says; pin \(a secret: name it in "ask" if one is needed\): its pin code/);
 	assert.match(r.text, /Added the event source "door" \(bell\)\. Subscribed to door \(agent\)/);
 	assert.equal(asked.length, 0, "its plan said that it opens nothing");
 	assert.deepEqual(file().sources.door, { type: "bell", description: "the door bell", word: "ding", pin: "${PINE_SOURCE_DOOR_MAIN_PIN}" });

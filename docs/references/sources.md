@@ -195,11 +195,13 @@ Event `tick`: `{ scheduled, ...payload }`. A timer is yours, so its events are t
 A Telegram bot: you write to it from wherever you are, and the agent that subscribed answers
 there. It is how you reach your agents when you are away, and how they reach you.
 
-> Watch Telegram: here is the bot's token, 123456789:AAH... You are my assistant there, and
-> what you want to tell me while I am away goes to that chat.
+> Watch Telegram. You are my assistant there, and what you want to tell me while I am away
+> goes to that chat.
 
-The agent calls `add_source` with the token, you confirm, and it tells you the one remaining
-step: open the bot in Telegram and write anything to it. pine then asks you, in the terminal UI
+The agent calls `add_source`. The dialog you confirm has a field for the bot's token: you type
+or paste it there, where it is not shown and does not pass through the agent or its model (see
+"Secrets" below). Then the agent tells you the one remaining step: open the bot in Telegram and
+write anything to it. pine then asks you, in the terminal UI
 and not in Telegram, whether that account may speak as you, naming it. After your yes it is the
 only account the bot listens to. Nobody else gets an answer, and nothing is ever sent to anyone
 else.
@@ -336,9 +338,22 @@ that conversation is removed. Who may do what is in [setup.md](setup.md).
 
 ### Secrets
 
-An option that is a password or a token (an MQTT broker's password, a webhook's secret, an FTP
-drop's password) never ends up in `pine.json` or an `agent.json`. When an agent sets the source
-up, pine puts the value into `.env` under a name of its own and writes only the reference:
+An option that is a password or a token (a bot's token, an MQTT broker's password, a webhook's
+secret) is not the agent's to handle, and you never have to write one into a conversation.
+There are two ways it gets to pine, and neither passes through the agent or its model:
+
+- **pine asks you.** The agent leaves the secret out of its call. The dialog you confirm then
+  has a field for it: type or paste it, it is shown as dots, and enter saves it. A required
+  secret is asked for by itself; an optional one (a broker that wants a password) when the
+  agent says one is needed. A yes without the value is not accepted, from the UI, the command
+  line or the API, and such a question is never forwarded to Telegram.
+- **It is in `.env` already.** Add a line `MY_BOT_TOKEN=...` to `~/.pine/.env` yourself and
+  tell the agent the name. It passes `"${MY_BOT_TOKEN}"`, pine checks that the name exists and
+  that the value fits, and the entry keeps the name. The agent cannot read `.env` and has no
+  reason to try.
+
+Either way the value never ends up in `pine.json` or an `agent.json`. One that you typed into
+the dialog goes into `.env` under a name of pine's own, and only the reference is written:
 
 ```jsonc
 // agents/main/agent.json
@@ -351,11 +366,11 @@ up, pine puts the value into `.env` under a name of its own and writes only the 
 PINE_SOURCE_PRINTER_MAIN_PASSWORD=12345678
 ```
 
-A password or token you tell the agent ("the access code is 12345678") is passed on in the tool
-call and stored this way. From then on it is redacted, and pine also takes it out of the event
-log and the task list, where your message had put it before anyone knew it was a secret. It
-stays in that conversation's own history, which the model has already read. The dialog you
-confirm names the broker and the user, not the password. A webhook's secret and an FTP drop's password are made by pine when you give none, and the agent
+Every agent is told not to ask for secrets. If you write one into the conversation anyway ("the
+access code is 12345678"), the agent can pass it on and it is stored the same way. From then on
+it is redacted, and pine also takes it out of the event log and the task list, where your
+message had put it. It stays in that conversation's own history, and the model has read it,
+which is the reason for the dialog. The dialog names the broker and the user, not the password. A webhook's secret and an FTP drop's password are made by pine when you give none, and the agent
 is told where you find them (the `.env` entry's name), not what they are. Removing the source
 removes its `.env` entries.
 

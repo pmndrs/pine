@@ -256,7 +256,12 @@ export class HttpServer {
 			}
 			if (parts[0] === "agents" && parts[2] === "reset" && parts.length === 3) return send(200, { reset: await this.manager.resetSession(parts[1], body.session) });
 			if (parts[0] === "tasks" && parts[2] === "cancel" && parts.length === 3) return send(200, { cancelled: this.manager.cancel(Number(parts[1])) });
-			if (parts[0] === "approvals" && parts.length === 2) return send(200, { decided: this.approvals.decide(parts[1], body.allow === true, "api", body.always === true) });
+			if (parts[0] === "approvals" && parts.length === 2) {
+				const values = body.values && typeof body.values === "object" && !Array.isArray(body.values) ? (body.values as Record<string, string>) : undefined;
+				const missing = body.allow === true ? this.approvals.missing(parts[1], values) : [];
+				if (missing.length) throw new HttpError(400, `this request needs you to enter ${missing.join(", ")}: answer it in the terminal UI, where it is typed without being shown`);
+				return send(200, { decided: this.approvals.decide(parts[1], body.allow === true, "api", body.always === true, values) });
+			}
 			if (url.pathname === "/state") {
 				if (typeof body.key !== "string") throw new HttpError(400, "key required");
 				this.state.set(body.key, body.value ?? null, { source: "api" });

@@ -263,6 +263,11 @@ export interface ApprovalRequest {
 	expires: number;
 	/** What "always" would cover for the rest of the conversation, e.g. "all home-link tools". Absent: the question is asked every time. */
 	remember?: string;
+	/**
+	 * Values only the owner has and that must not pass through a model: a password, a token. The
+	 * owner types them where the question is shown. A yes without them is not a yes.
+	 */
+	inputs?: Array<{ name: string; label: string }>;
 }
 
 export interface ApprovalDecision {
@@ -270,6 +275,8 @@ export interface ApprovalDecision {
 	by: string;
 	/** Allowed, and not to be asked again in this conversation. */
 	always?: boolean;
+	/** What the owner typed for the request's `inputs`. Never published as an event. */
+	values?: Record<string, string>;
 }
 
 /** Human-in-the-loop gate. Requests are events; anything that can reach the owner may answer them. */
@@ -288,29 +295,37 @@ export class Approvals {
 	request(r: Omit<ApprovalRequest, "id" | "expires">, signal?: AbortSignal): Promise<ApprovalDecision> {
 		const req: ApprovalRequest = { ...r, summary: truncate(r.summary, 1500), id: crypto.randomBytes(4).toString("hex"), expires: Date.now() + this.timeoutMs };
 		return new Promise((resolve) => {
-			const finish = (allow: boolean, by: string, always = false) => {
+			const finish = (allow: boolean, by: string, always = false, values?: Record<string, string>) => {
 				const entry = this.open.get(req.id);
 				if (!entry) return;
 				clearTimeout(entry.timer);
 				this.open.delete(req.id);
 				const remembered = allow && always && req.remember !== undefined;
+				// What the owner typed goes to whoever asked, and nowhere else: not into this event.
 				this.bus.publish("approval/decided", { id: req.id, allow, by, agent: req.agent, tool: req.tool, always: remembered || undefined, remember: remembered ? req.remember : undefined }, { source: "approvals" });
-				resolve({ allow, by, always: remembered });
+				resolve({ allow, by, always: remembered, values: allow ? values : undefined });
 			};
 			const timer = setTimeout(() => finish(false, "timeout"), this.timeoutMs);
 			timer.unref?.();
-			this.open.set(req.id, { req, resolve: ({ allow, by, always }) => finish(allow, by, always), timer });
+			this.open.set(req.id, { req, resolve: ({ allow, by, always, values }) => finish(allow, by, always, values), timer });
 			signal?.addEventListener("abort", () => finish(false, "aborted"), { once: true });
 			this.log.info(`approval ${req.id} requested: ${req.agent} wants ${req.tool} (${req.why})`);
 			this.bus.publish("approval/requested", req, { source: "approvals" });
 		});
 	}
 
-	/** Returns false when the id is unknown or already answered. */
-	decide(id: string, allow: boolean, by: string, always = false): boolean {
+	/** The fields of an open request that a yes has to come with and that `values` does not have. */
+	missing(id: string, values?: Record<string, string>): string[] {
+		return (this.open.get(id)?.req.inputs ?? []).filter((i) => !String(values?.[i.name] ?? "").trim()).map((i) => i.name);
+	}
+
+	/** Returns false when the id is unknown or already answered, or when a yes lacks what the request asks the owner to type. */
+	decide(id: string, allow: boolean, by: string, always = false, values?: Record<string, string>): boolean {
 		const entry = this.open.get(id);
 		if (!entry) return false;
-		entry.resolve({ allow, by, always });
+		if (allow && this.missing(id, values).length) return false;
+		const wanted = new Set((entry.req.inputs ?? []).map((i) => i.name));
+		entry.resolve({ allow, by, always, values: values ? Object.fromEntries(Object.entries(values).filter(([k]) => wanted.has(k)).map(([k, v]) => [k, String(v).trim()])) : undefined });
 		return true;
 	}
 

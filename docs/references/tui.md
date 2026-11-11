@@ -224,7 +224,14 @@ dialog opens over the conversation with the agent, the tool and its arguments, a
 | `d` or `n` | Deny |
 | `esc` | Decide later; the status line keeps reminding you, and `/approve` or `/deny` answer it |
 
+When the action needs something only you have (a bot's token, a device's password), the dialog
+has a field for it. Type or paste it: it is shown as dots, goes into pine's `.env` and is
+never seen by the agent or its model. `enter` saves and allows, `tab` moves between fields,
+`ctrl+u` empties one, `esc` leaves it for later, and `/approve` opens the dialog again. The
+letter keys are part of what you type there, so `a` and `d` are not shortcuts in this dialog.
+
 If Telegram is set up, the same request arrives there too; whichever answer comes first counts.
+A request with a field to fill in is not sent to Telegram.
 
 ## How answers are drawn
 

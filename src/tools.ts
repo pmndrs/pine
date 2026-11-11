@@ -185,9 +185,10 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 		return v === "local" && inMain ? "agent" : v;
 	};
 	/** Ask the owner. They see `summary` and `why` and say yes or no. */
-	const confirm = (tool: string, summary: string, why: string, signal: AbortSignal | undefined) => {
+	/** Put something to the owner. With `inputs` they also type values that must not pass through a model, which come back in the decision. */
+	const confirm = (tool: string, summary: string, why: string, signal: AbortSignal | undefined, inputs?: Array<{ name: string; label: string }>) => {
 		const r = run();
-		return r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool, summary, why }, signal));
+		return r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool, summary, why, ...(inputs?.length ? { inputs } : {}) }, signal));
 	};
 	const careful = () => (live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : "");
 	const whoIs = (scope: "local" | "agent" | "global") => (scope === "global" ? "ALL agents" : scope === "agent" ? `agent ${agent.id} (all its conversations)` : `this conversation of ${agent.id} only`);
@@ -311,7 +312,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 			defineTool({
 				name: "add_source",
 				label: "Add event source",
-				description: `Set up a new event source and subscribe to it, when your owner asks you to watch or react to something that no existing source covers: a folder ("watch ~/Scans", "tell me when a pdf lands in my downloads"), a time ("every morning at seven"), a device or service. Pick the type and pass its options; your owner confirms it where that is needed. Types and their options:\n${host.typeList().map((t) => `- ${t.name}: ${t.summary}. Options: ${describeOptions(t.options)}`).join("\n")}`,
+				description: `Set up a new event source and subscribe to it, when your owner asks you to watch or react to something that no existing source covers: a folder ("watch ~/Scans", "tell me when a pdf lands in my downloads"), a time ("every morning at seven"), a device or service. Pick the type and pass its options; your owner confirms it where that is needed. Passwords, tokens and keys are not yours to handle: never ask your owner to write one into the conversation, and do not go looking for one. Leave a secret option out and pine asks your owner for it in a dialog of its own, where it is typed without being shown and stored without passing through you. If your owner says it is already in pine's .env file under a name, pass "\${NAME}" as its value. Types and their options:\n${host.typeList().map((t) => `- ${t.name}: ${t.summary}. Options: ${describeOptions(t.options)}`).join("\n")}`,
 				parameters: Type.Object({
 					name: Type.String({ description: "Short name for it: lowercase letters, digits, - and _ (for example scans, morning, printer)" }),
 					type: Type.String({ description: `One of: ${host.typeList().map((t) => t.name).join(", ")}` }),
@@ -321,30 +322,32 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					note: Type.Optional(Type.String({ description: "What is to be done when it reports something. With a note the subscription is made right away, and the note is shown with every event. Leave out to only set the source up" })),
 					throttle: Type.Optional(Type.String({ description: 'After one event, ignore the source for this long, e.g. "5m". Default "10s"' })),
 					own: Type.Optional(Type.Boolean({ description: "true only if your owner said this is their own device or folder that nobody else can put content into. Its events are then trusted like their messages. Default false" })),
+					ask: Type.Optional(Type.Array(Type.String(), { description: 'Names of optional secret options that are needed here (a broker that wants a password: ["password"]). pine asks your owner for each. A required secret is asked for without being named' })),
 				}),
 				execute: async (_id, p, signal) => {
 					run();
 					const type = String(p.type);
 					const scope = subScope(p.scope);
 					// The type itself checks the options and says what the source would do; nothing is written yet.
-					const plan = host.propose(agent.id, p.name, type, p.options, scope === "global");
+					let plan = host.propose(agent.id, p.name, type, p.options, scope === "global", p.ask ?? []);
+					const needs = plan.needs;
 					const facts = [...plan.does];
 					// Set up for this conversation alone: other conversations do not see it, and it goes when this one is removed.
-					const entry: Record<string, unknown> = { type, description: p.description, ...(scope === "local" ? { session: here() } : {}), ...plan.options };
-					if (p.own || plan.owner) {
-						entry.trust = "owner";
-						if (!plan.owner) facts.push("treat what it reports like your own messages (full tools when it wakes the agent)");
-					}
+					if (p.own && !plan.owner) facts.push("treat what it reports like your own messages (full tools when it wakes the agent)");
 					// A source for all agents lives in pine.json; one for this agent or this conversation in its agent.json.
 					const owner = scope === "global" ? undefined : agent.id;
 					// Asked whenever it opens something new (a folder elsewhere, a connection, a port), is to be
 					// trusted, is for everyone, or the conversation is not one to take at its word.
-					const ask = Boolean(plan.opens || p.own || scope === "global" || live.tainted || live.mode() === "manual");
+					const ask = Boolean(needs.length || plan.opens || p.own || scope === "global" || live.tainted || live.mode() === "manual");
 					if (ask) {
 						const summary = `add event source "${p.name}" (${type}) for ${whoIs(scope)}${p.note ? ", and subscribe to it" : ""}\nIt will: ${facts.join("; ")}.${p.note ? `\nNote: ${p.note}` : ""}`;
-						const decision = await confirm("add_source", summary, `this adds a source of events to pine's configuration${careful()}`, signal);
+						const decision = await confirm("add_source", summary, `this adds a source of events to pine's configuration${careful()}`, signal, needs);
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you wanted to set up.`);
+						// What the owner typed is checked by the type like anything else, and goes from here into .env.
+						if (needs.length) plan = host.propose(agent.id, p.name, type, { ...(typeof p.options === "object" && p.options ? p.options : {}), ...decision.values }, scope === "global");
 					}
+					const entry: Record<string, unknown> = { type, description: p.description, ...(scope === "local" ? { session: here() } : {}), ...plan.options };
+					if (p.own || plan.owner) entry.trust = "owner";
 					const made = host.add(owner, p.name, entry, plan.read, plan.secrets);
 					if (plan.read) await manager.refreshSessions([agent.id]);
 					const extra = plan.tell ? ` ${plan.tell}` : "";

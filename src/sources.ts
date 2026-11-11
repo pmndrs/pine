@@ -5,6 +5,7 @@ import { EXT, loadConfig, type PineConfig, rawSubscriptions, type RouteConfig, t
 import crypto from "node:crypto";
 import os from "node:os";
 import { Value } from "typebox/value";
+import { parseEnv } from "node:util";
 import { setEnv, unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
 import type { SourcePlan, SourceType } from "./source-types.ts";
@@ -75,6 +76,15 @@ export interface SourceApi {
 }
 
 export type PineSource = (source: SourceApi) => void | Promise<void>;
+
+/** What pine's .env holds, read when asked: an entry the owner just added counts at once. */
+function envFile(home: string): Record<string, string> {
+	try {
+		return parseEnv(fs.readFileSync(path.join(home, ".env"), "utf8")) as Record<string, string>;
+	} catch {
+		return {};
+	}
+}
 
 /** An error a webhook handler throws to answer with that HTTP status. */
 export function refuse(status: number, message: string): Error {
@@ -203,7 +213,7 @@ export class SourceHost {
 	 * checked against the schema the type exposes, then the type itself says what it would do.
 	 * Nothing is written.
 	 */
-	propose(agentId: string, name: string, typeName: string, raw: unknown, forAll = false): SourcePlan & { secrets: string[] } {
+	propose(agentId: string, name: string, typeName: string, raw: unknown, forAll = false, ask: string[] = []): SourcePlan & { secrets: string[]; needs: Array<{ name: string; label: string }> } {
 		const agent = this.cfg.agents[agentId];
 		if (!agent) throw new Error(`unknown agent "${agentId}"`);
 		const known = this.typeList();
@@ -218,11 +228,33 @@ export class SourceHost {
 			}
 		}
 		if (!options || typeof options !== "object" || Array.isArray(options)) throw new Error(`"options" must be an object, for example ${JSON.stringify(example(type.options))}`);
+		// A secret is not the agent's to give: one that is required and missing, or that the agent
+		// names in `ask`, the owner types into pine's own dialog. Until then it is simply not there.
+		const props: Record<string, any> = (type.options as any).properties ?? {};
+		const secretKeys = Object.keys(props).filter((k) => props[k]?.secret === true);
+		const unknownAsk = ask.filter((k) => !secretKeys.includes(k));
+		if (unknownAsk.length) throw new Error(`"ask" is for the secret options of a ${typeName} source (${secretKeys.join(", ") || "it has none"}), not for ${unknownAsk.join(", ")}`);
+		options = { ...options };
+		for (const k of secretKeys) if (options[k] === "" || options[k] === null) delete options[k];
+		const needs = secretKeys.filter((k) => options[k] === undefined && (ask.includes(k) || ((type.options as any).required ?? []).includes(k))).map((k) => ({ name: k, label: `${k}: ${props[k].description ?? "a secret"}` }));
+		// One that is in pine's .env already is given by name; its value is looked up here, for the type to check, and never shown.
+		const refs: Record<string, string> = {};
+		for (const k of secretKeys) {
+			const m = typeof options[k] === "string" ? /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(options[k]) : null;
+			if (!m) continue;
+			const value = envFile(this.cfg.home)[m[1]];
+			if (!value) throw new Error(`there is no ${m[1]} in pine's .env file. Your owner adds a line ${m[1]}=... to ${path.join(this.cfg.home, ".env")}, or you leave "${k}" out and pine asks them for it`);
+			refs[k] = options[k];
+			options[k] = value;
+		}
 		const wrong = [...Value.Errors(type.options, options)]
 			.flatMap((e: any) => {
 				if (e.keyword === "boolean") return [];
 				if (e.keyword === "additionalProperties") return [`there is no option ${(e.params?.additionalProperties ?? []).join(", ")}`];
-				if (e.keyword === "required") return [`${(e.params?.requiredProperties ?? []).join(", ")} is missing`];
+				if (e.keyword === "required") {
+					const absent = ((e.params?.requiredProperties ?? []) as string[]).filter((k) => !needs.some((n) => n.name === k));
+					return absent.length ? [`${absent.join(", ")} is missing`] : [];
+				}
 				return [`${String(e.instancePath ?? "").replace(/^\//, "") || "options"} ${e.message}`];
 			})
 			.slice(0, 6);
@@ -238,8 +270,10 @@ export class SourceHost {
 			envName: (option: string) => this.envName(name, forAll ? undefined : agent.id, option),
 		};
 		const plan = type.plan ? type.plan(options, setup) : { options, does: [`start a ${typeName} source with ${JSON.stringify(redact(type.options, options))}`], opens: true };
-		const secrets = Object.entries<any>((type.options as any).properties ?? {}).filter(([key, schema]) => schema?.secret === true && typeof plan.options[key] === "string" && plan.options[key]).map(([key]) => key);
-		return { ...plan, secrets };
+		// What came from .env stays there: the entry keeps the name, not the value.
+		plan.options = { ...plan.options, ...refs };
+		const secrets = Object.entries<any>(props).filter(([key, schema]) => schema?.secret === true && typeof plan.options[key] === "string" && plan.options[key] && !refs[key]).map(([key]) => key);
+		return { ...plan, secrets, needs };
 	}
 
 	async start(): Promise<void> {
@@ -729,7 +763,8 @@ export function describeOptions(schema: any): string {
 	const required: string[] = schema?.required ?? [];
 	const props = Object.entries<any>(schema?.properties ?? {});
 	if (!props.length) return "no options";
-	return props.map(([key, p]) => `${key}${required.includes(key) ? " (required)" : ""}: ${p.description ?? p.type ?? "a value"}`).join("; ");
+	// A secret is never the agent's to ask for or to pass on.
+	return props.map(([key, p]) => (p.secret === true ? `${key} (a secret${required.includes(key) ? ", required: leave it out and pine asks your owner for it" : `: name it in "ask" if one is needed`}): ${p.description ?? "a secret"}` : `${key}${required.includes(key) ? " (required)" : ""}: ${p.description ?? p.type ?? "a value"}`)).join("; ");
 }
 
 /** The required options with placeholder values, to show what a call looks like. */

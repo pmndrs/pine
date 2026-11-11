@@ -586,32 +586,54 @@ type ApprovalAnswer = "allow" | "always" | "deny" | "later";
 /** Modal question for one approval request. */
 class ApprovalDialog implements Component {
 	private req: any;
-	private done: (answer: ApprovalAnswer) => void;
+	private done: (answer: ApprovalAnswer, values?: Record<string, string>) => void;
 	private choice = 0;
 	private options: Array<{ answer: ApprovalAnswer; label: string }>;
 	private buttons: Array<{ row: number; from: number; to: number; answer: ApprovalAnswer }> = [];
+	/**
+	 * Values the request needs from the owner and that no model may see: a password, a token. They
+	 * are typed here without being shown, and go from this dialog straight to the daemon.
+	 */
+	private fields: Array<{ name: string; label: string; value: string }>;
+	private field = 0;
 
-	constructor(req: any, done: (answer: ApprovalAnswer) => void) {
+	constructor(req: any, done: (answer: ApprovalAnswer, values?: Record<string, string>) => void) {
 		this.req = req;
 		this.done = done;
-		this.options = [
-			{ answer: "allow", label: "Allow once (a)" },
-			// Only where the daemon offers it: not for actions that are configured to ask every time.
-			...(req.remember ? [{ answer: "always" as const, label: "Always here (s)" }] : []),
-			{ answer: "deny", label: "Deny (d)" },
-			{ answer: "later", label: "Later (esc)" },
-		];
+		this.fields = (Array.isArray(req.inputs) ? req.inputs : []).map((i: any) => ({ name: String(i.name), label: String(i.label ?? i.name), value: "" }));
+		this.options = this.fields.length
+			? [
+					{ answer: "allow", label: "Save and allow (enter)" },
+					{ answer: "deny", label: "Deny" },
+					{ answer: "later", label: "Later (esc)" },
+				]
+			: [
+					{ answer: "allow", label: "Allow once (a)" },
+					// Only where the daemon offers it: not for actions that are configured to ask every time.
+					...(req.remember ? [{ answer: "always" as const, label: "Always here (s)" }] : []),
+					{ answer: "deny", label: "Deny (d)" },
+					{ answer: "later", label: "Later (esc)" },
+				];
+	}
+
+	private answer(answer: ApprovalAnswer): void {
+		if (answer !== "allow" || !this.fields.length) return this.done(answer);
+		// A yes needs every value: go to the first one that is still empty.
+		const empty = this.fields.findIndex((f) => !f.value.trim());
+		if (empty >= 0) return void (this.field = empty);
+		this.done("allow", Object.fromEntries(this.fields.map((f) => [f.name, f.value.trim()])));
 	}
 
 	invalidate(): void {}
 
 	handleMouse(e: any) {
 		const b = this.buttons.find((x) => e.y === x.row && e.x >= x.from && e.x < x.to);
-		if (b && e.type === "click" && e.button === "left") this.done(b.answer);
-		return { handled: true };
+		if (b && e.type === "click" && e.button === "left") this.answer(b.answer);
+		return { handled: true, render: true };
 	}
 
 	handleInput(data: string): void {
+		if (this.fields.length) return this.typed(data);
 		const n = this.options.length;
 		if (data === "a" || data === "y") return this.done("allow");
 		if (data === "s" && this.req.remember) return this.done("always");
@@ -622,10 +644,29 @@ class ApprovalDialog implements Component {
 		else if (matchesKey(data, "enter")) return this.done(this.options[this.choice].answer);
 	}
 
+	/** Keys while a value is being typed: every printable key is part of the value, so there are no letter shortcuts. */
+	private typed(data: string): void {
+		const f = this.fields[this.field];
+		const paste = data.match(/\x1b\[200~([\s\S]*?)\x1b\[201~/);
+		if (paste) return void (f.value += paste[1].replace(/[\r\n\t]/g, "").trim());
+		if (matchesKey(data, "escape")) return this.done("later");
+		if (matchesKey(data, "enter")) return this.answer("allow");
+		if (matchesKey(data, "tab") || matchesKey(data, "down")) this.field = (this.field + 1) % this.fields.length;
+		else if (matchesKey(data, "shift+tab") || matchesKey(data, "up")) this.field = (this.field + this.fields.length - 1) % this.fields.length;
+		else if (matchesKey(data, "backspace")) f.value = f.value.slice(0, -1);
+		else if (matchesKey(data, "ctrl+u")) f.value = "";
+		else if (data.length === 1 && data >= " " && data !== "\x7f") f.value += data;
+	}
+
 	render(width: number): string[] {
 		const inner = Math.max(20, width - 4);
+		const inputs = this.fields.flatMap((f, i) => [
+			...wrapTextWithAnsi(c.bold(f.label), inner),
+			// Never shown: a dot for each character, so that you see it arrive.
+			`${i === this.field ? c.accent(">") : " "} ${c.yellow("•".repeat(Math.min(f.value.length, inner - 6)))}${i === this.field ? c.inverse(" ") : ""}`,
+		]);
 		const body = [
-			c.bold(c.yellow("Approval needed")),
+			c.bold(c.yellow(this.fields.length ? "Approval needed, and something only you have" : "Approval needed")),
 			"",
 			`${c.gray("agent ")} ${this.req.agent}${this.req.task ? ` ${c.gray(`(task #${this.req.task})`)}` : ""}`,
 			`${c.gray("action")} ${c.bold(String(this.req.tool))}`,
@@ -633,6 +674,7 @@ class ApprovalDialog implements Component {
 			"",
 			...wrapTextWithAnsi(c.gray(`Why you are asked: ${this.req.why}`), inner),
 			...(this.req.remember ? wrapTextWithAnsi(c.gray(`"Always here" stops asking about ${this.req.remember} in this conversation.`), inner) : []),
+			...(inputs.length ? ["", ...inputs, ...wrapTextWithAnsi(c.gray("Type or paste it here. It is not shown, goes into pine's .env file, and never reaches the agent or its model."), inner)] : []),
 			"",
 		];
 		// The buttons, wrapped onto a second line in a narrow window. Their places are kept for clicks:
@@ -1817,10 +1859,10 @@ export class PineTui {
 
 	private ask(tab: Tab, req: any): void {
 		if (this.dialog || tab !== this.active) return;
-		const dialog = new ApprovalDialog(req, (answer) => {
+		const dialog = new ApprovalDialog(req, (answer, values) => {
 			this.closeDialog();
 			if (answer === "later") return; // the status line keeps saying that an approval is open
-			void this.client.decide(req.id, answer !== "deny", answer === "always").catch((e) => this.flash(errText(e)));
+			void this.client.decide(req.id, answer !== "deny", answer === "always", values).catch((e) => this.flash(errText(e)));
 		});
 		const handle = this.tui.showOverlay(dialog, { anchor: "center", width: "76%", minWidth: 40 });
 		handle.focus();
@@ -1843,6 +1885,9 @@ export class PineTui {
 		const pending = await this.client.approvals();
 		const target = id || (pending.length === 1 ? pending[0].id : "");
 		if (!target) return this.flash(pending.length ? `several requests wait: ${pending.map((p) => p.id).join(", ")}` : "nothing waits for approval");
+		// One that needs a value from you is answered in its dialog, where the value is typed without being shown.
+		const req = pending.find((p) => p.id === target);
+		if (allow && req?.inputs?.length) return this.ask(this.active, req);
 		const r = await this.client.decide(target, allow, always);
 		if (!r.decided) this.flash("that request was already answered");
 	}
@@ -1865,7 +1910,7 @@ export class PineTui {
 		if (ns === "approval") {
 			if (e.topic === "approval/requested") {
 				const tab = this.tabFor(p) ?? this.active;
-				const card = this.say(tab, `${c.yellow("⚠ approval needed")} ${c.bold(p.tool)} ${c.gray(short(oneLine(String(p.summary ?? "")), 120))}\n${c.gray(`  ${p.why} · /approve${p.remember ? ", /approve always" : ""} or /deny`)}`);
+				const card = this.say(tab, `${c.yellow("⚠ approval needed")} ${c.bold(p.tool)} ${c.gray(short(oneLine(String(p.summary ?? "")), 120))}\n${c.gray(`  ${p.why} · ${p.inputs?.length ? "it needs something only you have: /approve opens the dialog to enter it" : `/approve${p.remember ? ", /approve always" : ""}`} or /deny`)}`);
 				tab.approvals.set(p.id, { card, req: p });
 				this.ask(tab, p);
 			} else if (e.topic === "approval/decided") {

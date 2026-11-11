@@ -218,7 +218,7 @@ are JSON with `Content-Type: application/json`.
 | `POST /subscribe` `{ source, note?, ... }`, `POST /unsubscribe` `{ source }` | The subscription of all agents (written to `pine.json`) |
 | `POST /agents/<id>/close` `{ session }` | A conversation's tab was closed in a UI: ends what it was subscribed to on its own. The conversation itself is kept |
 | `POST /tasks/<id>/cancel` | Cancel |
-| `POST /approvals/<id>` `{ allow, always? }` | Answer an approval |
+| `POST /approvals/<id>` `{ allow, always?, values? }` | Answer an approval. A request that lists `inputs` (a token, a password) is only allowed together with `values: { <name>: "..." }`; the terminal UI has a field for them |
 | `POST /state` `{ key, value }` | Write state; `null` deletes |
 | `POST /hook/<name>` | Webhook: a hook from `http.hooks` ([events.md](events.md)) or a running `webhook` source ([sources.md](sources.md)). No token; each has its own secret |
 
