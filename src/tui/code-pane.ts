@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { type Component, ScrollView, truncateToWidth, visibleWidth, VStack, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { TranscriptEntry } from "../types.ts";
-import { errText } from "../util.ts";
+import { errText, programName, since } from "../util.ts";
 import type { Client } from "./client.ts";
 import { highlightCode } from "./highlight.ts";
 import { halfBlocks, isImageFile, prepare } from "./picture.ts";
@@ -12,8 +12,8 @@ import { c } from "./theme.ts";
 // and what the agent's tool calls printed. It only shows; nothing in it changes a file or reaches
 // a model. Everything is read through the control API, so it works the same on an attached daemon.
 
-export type PaneView = "changes" | "files" | "output";
-export const PANE_VIEWS: PaneView[] = ["changes", "files", "output"];
+export type PaneView = "changes" | "files" | "output" | "running";
+export const PANE_VIEWS: PaneView[] = ["changes", "files", "output", "running"];
 
 /** The conversation a pane shows. */
 export interface PaneTarget {
@@ -51,6 +51,10 @@ interface State {
 	calls?: Call[];
 	/** The call whose output is shown. */
 	call?: { task: number; n: number };
+	/** What the conversation's commands left running. */
+	programs?: Awaited<ReturnType<Client["programs"]>>;
+	/** A program that was just asked to stop: shown as stopping until it is gone from the list. */
+	stopping?: Set<number>;
 }
 
 const tilde = (p: string) => (p === os.homedir() ? "~" : p.startsWith(`${os.homedir()}/`) ? `~${p.slice(os.homedir().length)}` : p);
@@ -228,6 +232,11 @@ export class CodePane {
 				s.dirs = dirs;
 				s.root = root;
 				if (s.file) s.file.rows = file;
+			} else if (s.view === "running") {
+				const programs = await this.client.programs(t.agent, t.session);
+				if (turn !== this.turn) return;
+				s.programs = programs;
+				if (s.stopping) for (const id of [...s.stopping]) if (!programs.some((p) => p.id === id)) s.stopping.delete(id);
 			} else {
 				const tasks = (await this.client.history(t.agent, t.session, 8)).filter((x) => x.depth === 0).reverse();
 				const calls: Call[] = [];
@@ -289,6 +298,7 @@ export class CodePane {
 		else if (s.error) rows.push({ text: c.red(s.error), wrap: true });
 		else if (s.view === "changes") this.changesRows(s, rows);
 		else if (s.view === "files") this.filesRows(s, rows);
+		else if (s.view === "running") this.runningRows(s, rows);
 		else this.outputRows(s, rows);
 		this.rows.rows = rows;
 		this.redraw();
@@ -340,6 +350,37 @@ export class CodePane {
 		};
 		walk("", 0);
 		if (!rows.length) rows.push({ text: c.gray("This folder is empty.") });
+	}
+
+	/** A server or another program that the conversation's commands started and that is still there, each with a way to stop it. */
+	private runningRows(s: State, rows: Row[]): void {
+		if (!s.programs) return void rows.push({ text: c.gray(s.loading ?? "") });
+		if (!s.programs.length) return void rows.push({ text: c.gray("Nothing is running. A server or another program that this conversation's commands start and leave running is listed here, and can be stopped from here."), wrap: true });
+		for (const p of s.programs) {
+			const stopping = s.stopping?.has(p.id);
+			rows.push({ text: `${stopping ? c.yellow("●") : c.green("●")} ${c.bold(plain(programName(p.command, 200)))}`, wrap: true });
+			rows.push({ text: c.gray(`  ${[p.ports.length ? `port ${p.ports.join(", ")}` : "", `running for ${since(p.seconds)}`, p.processes > 1 ? `${p.processes} processes` : ""].filter(Boolean).join(" · ")}`) });
+			if (stopping) rows.push({ text: c.gray("  stopping …") });
+			else rows.push({ text: `  ${c.red("■ stop")}`, run: () => void this.stopProgram(p.id) });
+			rows.push({ text: "" });
+		}
+	}
+
+	private async stopProgram(id: number): Promise<void> {
+		const t = this.target();
+		const s = this.state;
+		if (!t || !s) return;
+		(s.stopping ??= new Set()).add(id);
+		this.build();
+		try {
+			await this.client.stopProgram(t.agent, t.session, id);
+		} catch (e) {
+			s.stopping.delete(id);
+			s.error = errText(e);
+		}
+		// It ends a moment after it was asked to.
+		this.touch();
+		setTimeout(() => void this.load(false), 2500).unref?.();
 	}
 
 	private outputRows(s: State, rows: Row[]): void {
@@ -395,7 +436,7 @@ export class CodePane {
 		const where = s?.root ? tilde(s.root) : "";
 		const ch = s?.view === "changes" ? s.changes : undefined;
 		// What is asked for first comes first; the folder's name is what gets cut when the pane is narrow.
-		const info = [...(ch?.repo ? [`${ch.branch || "no branch"}`, ch.files.length ? `${ch.files.length}${ch.more ? "+" : ""} changed` : "clean"] : []), ...(s?.view === "output" && s.calls ? [`${s.calls.length} tool call${s.calls.length === 1 ? "" : "s"}`] : []), where].filter(Boolean).join(" · ");
+		const info = [...(ch?.repo ? [`${ch.branch || "no branch"}`, ch.files.length ? `${ch.files.length}${ch.more ? "+" : ""} changed` : "clean"] : []), ...(s?.view === "output" && s.calls ? [`${s.calls.length} tool call${s.calls.length === 1 ? "" : "s"}`] : []), ...(s?.view === "running" && s.programs ? [s.programs.length ? `${s.programs.length} running` : "nothing running"] : []), where].filter(Boolean).join(" · ");
 		return [truncateToWidth(text, width), truncateToWidth(` ${c.gray(info)}`, width), c.gray("─".repeat(width))];
 	}
 }

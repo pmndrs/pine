@@ -80,14 +80,33 @@ when no folder is open. In a terminal of 100 columns or more it takes half the w
 | **Changes** | What differs from the last commit: changed (`M`), added (`A`), new (`+`), deleted (`D`) and renamed (`R`) files with the lines added and removed, and the branch | on a file shows its diff, added lines green and removed ones red; `‹ back` returns to the list |
 | **Files** | The folder as a tree | on a folder opens or closes it; on a file shows its text with line numbers and colours, or a picture as a picture |
 | **Output** | Every tool call of the conversation's last 8 messages, newest first: the tool, what it was called with, how long it took | on a call shows everything it printed, not only the first lines the conversation shows |
+| **Running** | What the conversation's commands started and left running: a development server, a watcher. Each with its command, the ports it listens on and how long it has run | on `■ stop` ends it |
 
 The pane follows the agent: when a tool call finishes, what is shown is read again, so a diff
 grows while the agent edits. `↻` reads it again by hand, `×` closes the pane. The wheel scrolls
 whichever side the pointer is over. Whether the pane was open is remembered for the next start.
 
-`/code changes`, `/code files` and `/code output` open it on that view; `/code off` closes it.
+`/code changes`, `/code files`, `/code output` and `/code running` open it on that view;
+`/code off` closes it.
 
-The pane only shows. It changes no file, runs no command of the project and sends nothing to a
+### What an agent left running
+
+An agent that works on a web page starts its development server and leaves it running
+(`npm run dev &`). pine notes every command's process group and so knows what is still there
+when a command has ended, whatever the agent says about it. For each conversation:
+
+- **Running** in the code pane lists it, and `■ stop` ends it (asked first, ended two seconds
+  later if it is still there).
+- The agent is told in its next message what it left running and on which ports, and has
+  `stop_program` to end one. Ask it: "stop the servers you started".
+- Resetting or removing the conversation stops what it left running. Quitting pine does not:
+  the programs are listed again at the next start.
+
+A program that detaches itself completely (a daemon that starts a session of its own) is not
+found this way. On Linux, in the workspace scope, nothing outlives its command in the first
+place; a server there is started by an agent with the scope `account`.
+
+Apart from that stop, the pane only shows. It changes no file, runs no command of the project and sends nothing to a
 model. Long lines wrap. A file is shown up to 256 KB, a diff up to 200 000 characters, a tool's
 output up to 200 000 characters and 4000 lines; binary files are named, not shown. Changes
 lists the first 300 files, and Files shows up to 500 entries of a folder.

@@ -40,17 +40,34 @@ Who gets what:
 
 Three ways, all ending in the same entry in `pine.json` (for everyone) or an `agent.json`:
 
-**Ask an agent.** "Connect this MCP server: https://mcp.example.com/mcp". The agent calls
-`add_mcp_server`; you get an approval dialog with the name, the URL and who gets it. Said just
+**Ask an agent.** "Connect this MCP server: https://mcp.example.com/mcp", or "look at
+example.com and install their MCP server". The agent calls `add_mcp_server` with the server's
+URL, or for a local server with the command that starts it (`npx -y @example/mcp@latest`); you
+get an approval dialog with the name, the URL or the command, and who gets it. Said just
 like that, it is for the conversation you are in: only that conversation has the server's
 tools, and the server is removed with the conversation (in an agent's main conversation it is
 the agent's, in all its conversations). Say "for you as an agent" to keep it for the agent from
 any conversation, and ask the **main agent** for "all agents": only it can add or remove a
 server for everyone. `remove_mcp_server` takes a server out again. See [setup.md](setup.md).
 If you allow it, the server is written to the configuration and its tools are there from your
-next message, without a restart. This works for remote servers (an https URL) only: a local
-server is a program that runs with your rights, and that stays something you add yourself. The
-question comes in every mode, bypass included, because it changes pine itself.
+next message, without a restart. The question comes in every mode, bypass included, because
+it changes pine itself.
+
+A **local server** is a program that somebody else wrote and that keeps running while the agent
+works. One that an agent adds therefore runs inside the sandbox of the agent that uses it
+(`"sandboxed": true` in its entry): it reaches what that agent's shell reaches and nothing
+more. For the main agent that is your account and the network, with your home folder; for
+another agent its workspace, its private home folder and the network. pine's home stays closed
+to it either way, and it gets nothing of the daemon's environment. The dialog shows the exact
+command and says which of the two it is. Read the command: it is what will run. The command is
+one program with its arguments; shell operators (`&&`, a pipe, `$(...)`) are refused. Where
+the machine has no sandbox, an agent cannot add a local server at all.
+
+If a local server needs a sign-in, its documentation names a command for it (often the same
+command with `login` at the end). The agent runs that in its shell and gives you the link it
+prints. If it needs a key or token in its environment, the agent names the variable
+(`secrets`, for example `EXAMPLE_API_KEY`) and never the key: the dialog has a field for it,
+you type it there, and pine keeps it in `.env` and takes it out again with the server.
 
 Your yes makes it a server of yours: using it does not mark the conversation as having read
 outside content. It is written with `"approve": "tainted"`, which only matters after the
@@ -126,13 +143,16 @@ and the keys pine adds (besides `agents` and `enabled` from the table at the top
 | Key | Meaning |
 |---|---|
 | `pine` | Use a server that ships with pine (`"web"`, `"browser"` or `"commands"`), configured through `options`. |
+| `sandboxed` | For a local server: `true` runs its program inside the sandbox of the agent that uses it, with that agent's home folder and environment, instead of as a process of yours. Written by `add_mcp_server` for every local server an agent adds. Add it to a server of your own to hold it the same way; take it out only if you trust the program with your account and pine's home. |
 | `session` | In an `agent.json` only, written by `add_mcp_server`: the one conversation the server was added for. Other conversations of the agent do not get it, and it is removed with that conversation. |
 | `taints` | `true` when the server returns content written by others (web pages, mail, tickets, chat). A session that calls it becomes tainted. Default `false`, `true` for the bundled `web` and `browser`. |
 | `approve` | `"always"`: every call needs your approval, each time (except in bypass mode, where nothing asks). `"tainted"`: once the session has seen outside content, the server's tools that act need approval (its read-only tools do not), and you can answer "always in this conversation"; use it for servers that change things or send things out. Default `"never"`. |
 
 Each session starts its own copy of a local server and stops it when the session closes. A
-local server is a normal process of yours: it is not sandboxed, and what it can reach, agents
-can reach through it. Give it the narrowest credentials that do the job.
+local server that you added yourself (`pine mcp add <name> -- <command>`, or an entry you
+wrote) is a normal process of yours: it is not sandboxed, and what it can reach, agents can
+reach through it. Give it the narrowest credentials that do the job, or set `"sandboxed": true`.
+One that an agent added is sandboxed from the start.
 
 pi's `mcp.json` files are not read. The daemon gives pi a folder of its own (`data/pi`) and
 agent sessions load no MCP configuration file, so servers you set up for your own interactive
@@ -217,14 +237,18 @@ Playwright MCP server with a guard around it.
 
 The tools appear as `mcp__browser__browser_navigate`, `..._snapshot`, `..._click`, `..._type`,
 `..._fill_form`, `..._press_key`, `..._select_option`, `..._hover`, `..._wait_for`, `..._find`,
-`..._tabs`, `..._navigate_back`, `..._handle_dialog`, `..._close`. A page is read as a
-snapshot: a text outline in which every element has a reference the click and type tools take.
+`..._tabs`, `..._navigate_back`, `..._handle_dialog`, `..._close`, `..._take_screenshot`,
+`..._console_messages`. A page is read as a snapshot: a text outline in which every element has
+a reference the click and type tools take. To see what a page looks like, the agent takes a
+screenshot, which a model that can see pictures gets as a picture; to see why a page it built
+does not work, it reads the page's console messages.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `headed` | `false` | Show the browser window, so you can watch. |
 | `profile` | none | A folder for a persistent profile: cookies and logins survive. Without it every session starts clean. |
-| `tools` | `"core"` | `"core"`: the fourteen tools above. `"all"`: everything Playwright offers that is not blocked. Or a list of names. |
+| `images` | `true` | `false`: a screenshot comes back without its picture. Set it for a model that cannot see pictures. |
+| `tools` | `"core"` | `"core"`: the sixteen tools above. `"all"`: everything Playwright offers that is not blocked. Or a list of names. |
 | `block` | `[]` | Further tool names to withhold. |
 | `allowHosts`, `denyHosts` | none | Limit where the browser may go. Subdomains are included. |
 | `allowPrivate` | `false` | Allow every address on this computer and your own network, without asking. Leave it off: one local address at a time is allowed by answering a question, see "Local addresses" below. |

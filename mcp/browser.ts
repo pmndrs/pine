@@ -15,7 +15,7 @@
 // Everything a browser returns is outside content; pine marks sessions that use it as tainted.
 //
 // options: {
-//   headed?, profile?, tools?: "core" | "all" | string[], block?: string[],
+//   headed?, profile?, tools?: "core" | "all" | string[], block?: string[], images?,
 //   allowHosts?, denyHosts?, allowPrivate?, browser?, executablePath?, caps?, viewport?, extraArgs?
 // }
 import { spawn } from "node:child_process";
@@ -36,6 +36,8 @@ interface BrowserOptions {
 	profile?: string;
 	tools?: "core" | "all" | string[];
 	block?: string[];
+	/** false: a screenshot comes back without its picture. For a model that cannot see. Default true. */
+	images?: boolean;
 	allowHosts?: string[];
 	denyHosts?: string[];
 	allowPrivate?: boolean;
@@ -57,6 +59,8 @@ export const ALWAYS_BLOCKED = ["browser_run_code_unsafe", "browser_file_upload",
 export const CORE_TOOLS = [
 	"browser_navigate", "browser_navigate_back", "browser_snapshot", "browser_find", "browser_click", "browser_type", "browser_fill_form",
 	"browser_press_key", "browser_select_option", "browser_hover", "browser_wait_for", "browser_tabs", "browser_handle_dialog", "browser_close",
+	// To look at a page the way a person does, and to see why it does not work: an agent that builds a page needs both.
+	"browser_take_screenshot", "browser_console_messages",
 ];
 
 export function toolAllowed(name: string, o: Pick<BrowserOptions, "tools" | "block">): boolean {
@@ -191,7 +195,7 @@ if (import.meta.main) {
 		"--ignore-roots",
 		"--file-paths", "absolute",
 		"--block-service-workers",
-		"--image-responses", "omit",
+		"--image-responses", o.images === false ? "omit" : "allow",
 		...(o.headed ? [] : ["--headless"]),
 		...(o.profile ? ["--user-data-dir", o.profile] : ["--isolated"]),
 		// Playwright's own Chromium build by default; "chrome" or "msedge" use an installed browser.

@@ -327,6 +327,11 @@ export class SourceHost {
 	}
 
 	/** The name a secret option of a source gets in .env. */
+	/** A value the owner typed into a dialog is a secret from here on: kept out of events and logs. */
+	keepOut(values: string[]): void {
+		this.redactor.add(values.filter(Boolean));
+	}
+
 	private envName(name: string, agentId: string | undefined, option: string): string {
 		return `PINE_SOURCE_${[name, ...(agentId ? [agentId] : []), option].join("_").replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}`;
 	}

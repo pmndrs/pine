@@ -47,7 +47,7 @@ Everything in the two bars reacts to a click.
 | A `↳ ... ▸ open` line in the conversation | A tab with that sub-agent's or delegated task's work |
 | The conversation name next to it | This agent's conversations, and "+ new conversation" |
 | The folder next to it (`no folder`, or a path) | The folder this conversation works in: none, where pine was started, one in use elsewhere, or one you pick. See [coding.md](coding.md) |
-| `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output. In the pane: its three views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
+| `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output, and what the agent left running. In the pane: its four views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
 | The model | The models you have credentials for |
 | `reasoning <level>` | How much the model thinks before answering: off, minimal, low, medium, high, xhigh, max |
 | The mode (`auto`, `manual`, `bypass`) | The three modes |
@@ -158,7 +158,7 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/pin`, `/unpin` | Keep this conversation however long it is unused, or let it go again |
 | `/reset` | Forget this conversation and start fresh (also clears "has seen outside content") |
 | `/folder [path\|none]` | Open a folder of yours for this conversation: the agent's tools start there and may read and change it. `none` closes it again; without an argument, a list. See [coding.md](coding.md) |
-| `/code [changes\|files\|output\|off]` | Open the code pane beside the conversation, on that view; without an argument it opens and closes |
+| `/code [changes\|files\|output\|running\|off]` | Open the code pane beside the conversation, on that view; without an argument it opens and closes |
 | `/stop` | Stop what the agent is doing |
 | `/model [provider/id]` | Switch the agent's model. Without an argument, a list to search and pick from; or type a few letters after it: `/model deepseek` |
 | `/reasoning [level]` | Set how much the model thinks before answering; without an argument, choose from a list. Saved like the model. A model that cannot reason ignores it |

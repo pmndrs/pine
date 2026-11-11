@@ -75,7 +75,8 @@ const asShipped = { defaults: { scope: undefined } };
 
 test("auto mode, main agent: the owner's whole account without a question, and a program one command started is stopped by the next", mac, async (t) => {
 	const dir = elsewhere(t);
-	const h = await harness({ pine: asShipped, agents: { main: {}, helper: {} } });
+	const tools = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+	const h = await harness({ pine: asShipped, agents: { main: { agent: { tools } }, helper: { agent: { tools } } } });
 	assert.equal(sandboxScope(h.pine.cfg, h.pine.cfg.agents.main), "account");
 	assert.equal(sandboxScope(h.pine.cfg, h.pine.cfg.agents.helper), "workspace");
 	const asked = answering(h, () => false);
@@ -97,6 +98,8 @@ test("auto mode, main agent: the owner's whole account without a question, and a
 				],
 			},
 			{ tools: [call("bash", { command: `kill $(cat ${dir}/pid) && echo stopped; sleep 0.1; kill -0 $(cat ${dir}/pid) 2>/dev/null || echo gone` })] },
+			// "~" is the owner's home for every file tool, as it is in a command.
+			{ tools: [call("read", { path: `~/${path.basename(dir)}/notes.txt` }), call("ls", { path: `~/${path.basename(dir)}` }), call("grep", { pattern: "ELSEWHERE", path: `~/${path.basename(dir)}` }), call("bash", { command: `cat ~/${path.basename(dir)}/notes.txt` })] },
 		]),
 		...owner,
 	});
@@ -113,16 +116,19 @@ test("auto mode, main agent: the owner's whole account without a question, and a
 	assert.match(first[5], /not accessible to agents/);
 	assert.ok(!first[6].includes("sk-mock") && refused.test(first[6]), first[6]);
 	assert.match(first[7], /pine's own code, which agents cannot change/);
-	const kill = h.toolResults().at(-1)!;
+	const kill = h.toolResults().at(-5)!;
 	assert.ok(kill.includes("stopped") && kill.includes("gone"), kill);
+	const home = h.toolResults().slice(-4);
+	assert.ok(home[0].includes("ELSEWHERE-CONTENT") && home[1].includes("notes.txt") && home[2].includes("ELSEWHERE-CONTENT") && home[3].includes("ELSEWHERE-CONTENT"), home.join(" | "));
 	assert.equal(asked.length, 0);
 	const note = notesOf(h.mock.state.requests[0])[0];
 	assert.ok(note.includes("reach your owner's whole user account and the network") && !note.includes("inside your workspace"), note);
 	assert.equal(audit(h.pine.cfg).filter((n) => /whole account/.test(n)).length, 0, "how pine comes is not a security note");
 
 	// Another agent stays in its workspace, unless the owner gives it the account too.
-	await h.pine.agents.run({ agent: "helper", prompt: mockMsg([{ tools: [call("read", { path: path.join(dir, "notes.txt") })] }]), ...owner });
-	assert.match(h.toolResults().at(-1)!, /outside the paths this agent may read/);
+	await h.pine.agents.run({ agent: "helper", prompt: mockMsg([{ tools: [call("read", { path: path.join(dir, "notes.txt") }), call("ls", { path: `~/${path.basename(dir)}` })] }]), ...owner });
+	assert.match(h.toolResults().at(-2)!, /outside the paths this agent may read/);
+	assert.match(h.toolResults().at(-1)!, /outside the paths this agent may read.*request_access/, "said the same way, and how to ask");
 	await h.close();
 
 	const wide = await harness({ pine: asShipped, agents: { main: { agent: { sandbox: { scope: "workspace" } } }, helper: { agent: { sandbox: { scope: "account" } } } }, start: false });
@@ -193,6 +199,28 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 	await until(() => h.pine.tasks.list({ status: "done" }).some((x) => x.kind === "event"));
 	assert.match(h.toolResults().at(-1)!, /outside the paths this agent may read/);
 	assert.equal(asked.length, 3);
+	await h.close();
+});
+
+test("auto mode, main agent: no answer to the question about the account is not a no", mac, async (t) => {
+	const dir = elsewhere(t);
+	const h = await harness({ pine: { ...asShipped, security: { approvalTimeout: "80ms" } }, agents: { main: { agent: { mcp: { feed } } } } });
+	const asked: any[] = [];
+	let answer: boolean | undefined;
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		if (answer !== undefined) h.pine.approvals.decide((e.payload as any).id, answer, "test");
+	});
+	const read = { tools: [call("bash", { command: `cat ${dir}/notes.txt` })] };
+	// The owner is away: each command waits, runs in the workspace, and the question stays open.
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("mcp__feed__echo", { text: "x" })] }, read, read]), ...owner });
+	assert.equal(asked.length, 2);
+	assert.ok(h.toolResults().slice(-2).every((r) => !r.includes("ELSEWHERE-CONTENT")));
+	// Back at the keyboard: one yes, and it holds.
+	answer = true;
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([read, read]), ...owner });
+	assert.equal(asked.length, 3);
+	assert.ok(h.toolResults().slice(-2).every((r) => r.includes("ELSEWHERE-CONTENT")));
 	await h.close();
 });
 

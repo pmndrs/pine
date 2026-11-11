@@ -26,6 +26,12 @@ export interface McpServerConfig {
 	taints?: boolean;
 	/** When calls need the owner's approval. Default "never" ("tainted" for servers flagged sensitive by the docs). */
 	approve?: "never" | "tainted" | "always";
+	/**
+	 * A local server (`command`) that runs inside the sandbox of the agent that uses it, so that it
+	 * reaches what that agent's shell reaches and no more. Written by add_mcp_server: a program an
+	 * agent proposed is never run with the daemon's own rights. One the owner adds runs as they do.
+	 */
+	sandboxed?: boolean;
 	/** An agent's own servers only: the one conversation that gets it. Written by add_mcp_server for a server added for a conversation; it is removed with that conversation. */
 	session?: string;
 	[key: string]: unknown;
@@ -499,8 +505,8 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			model: d.model,
 			thinking: d.thinking ?? "off",
 			mode: d.mode ?? "auto",
-			bashTimeoutSec: d.bashTimeoutSec ?? 300,
-			taskTimeoutSec: d.taskTimeoutSec ?? 1800,
+			bashTimeoutSec: d.bashTimeoutSec ?? 900,
+			taskTimeoutSec: d.taskTimeoutSec ?? 7200,
 			idleMs: parseDuration(d.idleMs ?? "15m"),
 			settings: d.settings ?? {},
 			scope: d.scope === "workspace" || d.scope === "account" ? d.scope : undefined,
@@ -637,7 +643,7 @@ const BUNDLED: Record<string, { file: string; taints: boolean }> = {
 
 /** Turn a pine MCP entry into what pi's registerMcpServer() accepts. */
 export function toPiMcp(name: string, server: McpServerConfig, extraOptions: Record<string, unknown> = {}): Record<string, unknown> {
-	const { agents: _a, pine, options, taints: _t, approve: _ap, session: _s, ...rest } = server;
+	const { agents: _a, pine, options, taints: _t, approve: _ap, session: _s, sandboxed: _sb, ...rest } = server;
 	if (!pine) return { exposure: "direct", ...rest };
 	const bundled = BUNDLED[pine];
 	if (!bundled) throw new Error(`mcp.${name}: unknown bundled server "${pine}" (have: ${Object.keys(BUNDLED).join(", ")})`);

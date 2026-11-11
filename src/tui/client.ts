@@ -79,6 +79,8 @@ export class Client {
 	renameSession = (agent: string, session: string, to: string) => this.post<{ session: string }>(`/agents/${agent}/rename`, { session, to });
 	pinSession = (agent: string, session: string, pinned: boolean) => this.post<{ pinned: boolean }>(`/agents/${agent}/pin`, { session, pinned });
 	folder = (agent: string, session: string) => this.get<{ folder?: string; workspace: string }>(`/agents/${agent}/folder?session=${encodeURIComponent(session)}`);
+	programs = (agent: string, session: string) => this.get<Array<{ id: number; command: string; processes: number; ports: number[]; seconds: number }>>(`/agents/${agent}/programs?session=${encodeURIComponent(session)}`);
+	stopProgram = (agent: string, session: string, id: number) => this.post<{ stopped: boolean }>(`/agents/${agent}/programs/stop`, { session, id });
 	folders = (agent: string) => this.get<Array<{ session: string; folder: string }>>(`/agents/${agent}/folders`);
 	setFolder = (agent: string, session: string, folder: string | null) => this.post<{ folder?: string }>(`/agents/${agent}/folder`, { session, folder });
 	changes = (agent: string, session: string) => this.get<{ root: string; repo: boolean; branch?: string; files: Array<{ path: string; status: string; added?: number; removed?: number }>; more: boolean }>(`/agents/${agent}/view/changes?session=${encodeURIComponent(session)}`);

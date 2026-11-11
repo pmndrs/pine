@@ -104,7 +104,18 @@ export const isOpen = (v: SandboxVariant | boolean): v is "open" | "open-restric
 const PINE_CODE = realish(PINE_ROOT);
 
 /** Why a file tool may not touch `target`, or undefined when it may. */
-export function checkPath(roots: Roots, kind: "read" | "write", target: string, cwd: string, variant: SandboxVariant | boolean): string | undefined {
+/**
+ * "~" in a path a model gave a file tool: the owner's home folder, in every scope. pi's read,
+ * write and edit take it that way, so the check and the other file tools must as well, or a
+ * path would be judged as one file and opened as another. (An agent in the workspace scope
+ * reaches its own private home by its full path.)
+ */
+export function tilde(target: string): string {
+	return target === "~" ? os.homedir() : target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
+}
+
+export function checkPath(roots: Roots, kind: "read" | "write", given: string, cwd: string, variant: SandboxVariant | boolean): string | undefined {
+	const target = tilde(given);
 	const p = realish(path.isAbsolute(target) ? target : path.join(cwd, target));
 	const restricted = variant === true || variant === "restricted" || variant === "open-restricted";
 	if (roots.secrets.some((s) => isInside(s, p))) return `${target} is not accessible to agents`;

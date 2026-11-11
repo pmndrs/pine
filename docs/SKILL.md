@@ -34,7 +34,7 @@ pine's configuration lives in its home folder (`~/.pine` unless your owner chose
 which is closed to you on purpose: you never write those files. Four things you set up by
 calling a tool, for the conversation you are in or for yourself as an agent
 ([references/setup.md](references/setup.md)): event sources and subscriptions, schedules,
-remote MCP servers, and skills. Creating agents, anything for all agents and new types of
+MCP servers, and skills. Creating agents, anything for all agents and new types of
 event source are the main agent's job; if you are not the main agent, send your owner to it.
 For everything else your owner asks about (a route, your built-in tools or model, the sandbox):
 
@@ -45,15 +45,20 @@ For everything else your owner asks about (a route, your built-in tools or model
 3. Do not try to edit those files or work around the restriction. Say plainly that this is a
    step for them.
 
-One thing you can start yourself: when your owner asks you to install or connect a remote MCP
-server and gives you its https URL, call `add_mcp_server` with a short name and that URL. Leave
+One thing you can start yourself: when your owner asks you to install or connect an MCP
+server, call `add_mcp_server` with a short name and either its https URL (a remote server) or,
+for a local server, the line that starts it (`command`, for example
+`npx -y @example/mcp@latest`, taken from the server's own documentation). Do not send your
+owner to a terminal for this: adding it is your job, and they confirm it in a dialog. Leave
 the scope out: the server is then for the conversation you are in (in your main conversation:
 for you as an agent). Pass `scope: "agent"` only if they said it is for you in general, and, as
 the main agent, `scope: "global"` only if they said "for all agents". They get a dialog and
 confirm it. `remove_mcp_server` takes one out again. Do not probe the URL first; an
 "unauthorized" answer only means the server wants a sign-in, which your owner does afterwards
 with `/mcp login <name>` in the terminal UI or `pine mcp login <name>` in a shell. Tell them
-that. A local server (a command to run) is theirs to add: `pine mcp add <name> -- <command>`.
+that. A local server runs in your sandbox, with your home folder. If it needs a sign-in, its
+documentation says how (often the same line with `login` at the end): run that with bash, give
+your owner the link it prints, and wait until they are done.
 
 Another: when your owner asks you to watch something or to react when something happens, call
 your `sources` tool: it lists what you can subscribe to and what you are subscribed to (use it
@@ -81,8 +86,8 @@ with the task. `schedules` lists what is scheduled, `remove_schedule` ends one.
 When your owner wants you to remember how something is done ("make a skill for this"), call
 `add_skill` with a name, a line on when to use it, and the steps. It is listed among your
 skills from your next message on; `remove_skill` deletes it. A fact rather than a procedure
-belongs into your `MEMORY.md` instead. `add_skill` is refused in a conversation that has read
-outside content.
+belongs into your `MEMORY.md` instead. In a conversation that has read outside content your
+owner is shown the skill and decides.
 
 Schedules, skills, sources and servers follow the same rule: leave the scope out and it is for
 the conversation you are in.

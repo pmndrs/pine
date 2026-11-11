@@ -206,9 +206,10 @@ account and the network is exactly what such a text wants. So:
 - The conversation drops to the workspace scope at that moment.
 - The first shell command, or file outside the workspace, puts one question to you: keep your
   whole account and the network in this conversation? A **yes** keeps it until the conversation
-  is reset or the daemon restarts, and its shell is not asked about again. Anything else (a no,
-  no answer in time) leaves the conversation in its workspace; the agent is told, and it can
-  ask again with a reason (`request_access` with `account: true`) or for one path.
+  is reset or the daemon restarts, and its shell is not asked about again. A **no** leaves the
+  conversation in its workspace; the agent is told, and it can ask again with a reason
+  (`request_access` with `account: true`) or for one path. No answer in time is not a no: that
+  one call runs in the workspace, and the question comes again with the next.
 - Also after a yes, a conversation that has read outside content cannot change what is read into
   the agent's prompt (`AGENTS.md`, `SOUL.md`, `MEMORY.md`, a repository's hooks in its
   workspace): what it read must not become what it is told next time.
@@ -392,8 +393,9 @@ What no mode opens:
 
 - pine's home: configuration, `.env`, credentials, the database, other agents' folders.
   Agents never write there. What they may set up goes through tools that check what they are
-  given and write only that ([setup.md](setup.md)): a remote MCP server (`add_mcp_server`, which
-  asks you in every mode with the name and URL), event sources and subscriptions, and, for the
+  given and write only that ([setup.md](setup.md)): an MCP server (`add_mcp_server`, which
+  asks you in every mode with the name and the URL or command; a local server added this way
+  runs inside the agent's sandbox, not with the daemon's rights), event sources and subscriptions, and, for the
   main agent alone, a new agent (`create_agent`, which always asks you and shows its
   instructions). Only the main agent can set anything up for all agents. Runs with the reduced
   tool set (layer 2) have none of these tools, and a proposal from a conversation that has read
@@ -489,8 +491,9 @@ calls for it, so it is guarded like the instruction files:
 
 - Skills lie in pine's home, where an agent can read its own and write none. `add_skill`
   writes them; an agent's shell and file tools cannot.
-- `add_skill` refuses in a conversation that has read outside content, in every mode, without
-  asking you: text from a web page must not become a standing instruction.
+- In a conversation that has read outside content `add_skill` always asks you, in every mode
+  and for every scope, and shows the instructions: text from a web page must not become a
+  standing instruction without your having read it.
 - A skill for all agents is the main agent's to add, and you see its description and
   instructions before it exists. So does one an agent adds for itself from a side conversation.
   In manual mode you see every skill before it exists.

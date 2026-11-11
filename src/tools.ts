@@ -2,18 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type AgentConfig, effectiveMcp, mainAgentId, PINE_ROOT } from "./config.ts";
+import { type AgentConfig, effectiveMcp, mainAgentId, PINE_ROOT, sandboxScope } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
 import type { AgentManager, Live, Profile } from "./agents.ts";
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
-import { addServer, removeServer, validateServer } from "./mcp-config.ts";
+import { addServer, mcpEnvName, removeServer, splitCommand, validateServer } from "./mcp-config.ts";
+import { setEnv } from "./env-file.ts";
 import { isInside, realish } from "./security.ts";
 import { type Part, pineManual, showRead, showSearch } from "./manual.ts";
 import { checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions } from "./sources.ts";
 import { localTime } from "./timers.ts";
-import { errText, matchesAny, parseDuration, safeName, truncate } from "./util.ts";
+import { errText, matchesAny, parseDuration, programName, safeName, since, truncate } from "./util.ts";
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
@@ -137,6 +138,25 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 		);
 	}
 
+	if (live.trust === "owner" && profile.tools.includes("bash")) {
+		tools.push(
+			defineTool({
+				name: "stop_program",
+				label: "Stop program",
+				description: "Stop a program that one of your commands left running in this conversation, such as a development server. Without an id: list what is running. A pine-note tells you the ids. Use it when your owner asks you to stop or close what you started, and when a server is no longer needed.",
+				parameters: Type.Object({ id: Type.Optional(Type.Number({ description: "The id of the program, from the list" })) }),
+				execute: async (_id, p) => {
+					run();
+					const list = () => manager.programs.list(live.perm);
+					const show = (all: ReturnType<typeof list>) => (all.length ? all.map((x) => `- id ${x.id}: ${programName(x.command)}${x.ports.length ? `, port ${x.ports.join(", ")}` : ""}, running for ${since(x.seconds)}`).join("\n") : "Nothing that your commands started is running in this conversation.");
+					if (p.id === undefined) return ok(show(list()));
+					if (!manager.programs.stop(live.perm, p.id)) throw new Error(`there is no running program with the id ${p.id} in this conversation.\n${show(list())}`);
+					return ok(`Stopped the program ${p.id}.`);
+				},
+			}),
+		);
+	}
+
 	if (live.trust === "owner" && live.sandboxed) {
 		tools.push(
 			defineTool({
@@ -193,7 +213,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 	};
 	/** Ask the owner. They see `summary` and `why` and say yes or no. */
 	/** Put something to the owner. With `inputs` they also type values that must not pass through a model, which come back in the decision. */
-	const confirm = (tool: string, summary: string, why: string, signal: AbortSignal | undefined, inputs?: Array<{ name: string; label: string }>) => {
+	const confirm = (tool: string, summary: string, why: string, signal: AbortSignal | undefined, inputs?: Array<{ name: string; label: string; secret?: boolean }>) => {
 		const r = run();
 		return r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool, summary, why, ...(inputs?.length ? { inputs } : {}) }, signal));
 	};
@@ -471,35 +491,65 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 			defineTool({
 				name: "add_mcp_server",
 				label: "Add MCP server",
-				description: `Propose a remote MCP server (an https URL) to be added to pine: for this conversation, for yourself as an agent${isMain ? ", or for all agents" : ""}. Your owner sees the proposal and decides; you cannot add it without them. Use it when your owner asks you to install or connect an MCP server.${isMain ? "" : ` A server for all agents is the main agent's to add (${mainId}).`}`,
+				description: `Propose an MCP server to be added to pine: a remote one (its https URL) or a local one (the command that starts it, for example "npx -y some-package"). It is added for this conversation, for yourself as an agent${isMain ? ", or for all agents" : ""}. Your owner sees the proposal and decides; you cannot add it without them. Use it when your owner asks you to install or connect an MCP server: do not tell them to type a command instead.${isMain ? "" : ` A server for all agents is the main agent's to add (${mainId}).`}`,
 				parameters: Type.Object({
 					name: Type.String({ description: "Short name: lowercase letters, digits and _ (for example home_link). Tools will appear as mcp__<name>__<tool>" }),
-					url: Type.String({ description: "The server's https URL" }),
+					url: Type.Optional(Type.String({ description: "For a remote server: its https URL" })),
+					command: Type.Optional(Type.String({ description: 'For a local server: the program and its arguments, as its documentation gives them, for example "npx -y @example/mcp@latest". One program, no shell operators' })),
+					secrets: Type.Optional(Type.Array(Type.String(), { description: 'For a local server that needs a key or token: the NAMES of the environment variables it reads them from, as its documentation gives them (for example ["EXAMPLE_API_KEY"]). Never a value: pine asks your owner to type each one' })),
 					description: Type.Optional(Type.String({ description: "One sentence on what the server offers" })),
 					scope: Type.Optional(Type.String({ description: `Who gets it. ${serverScope}` })),
 				}),
 				execute: async (_id, p, signal) => {
 					run();
+					if (!p.url === !p.command) throw new Error("give either url (a remote server) or command (a local one)");
+					const secrets = [...new Set(p.secrets ?? [])];
+					if (secrets.length && !p.command) throw new Error("secrets are for a local server (command). A remote server signs in by itself: add it, and your owner signs in with /mcp login");
+					for (const name of secrets) if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name)) throw new Error(`"${truncate(name, 40)}" is not the name of an environment variable. Give the name the server reads (like EXAMPLE_API_KEY), never the key itself`);
 					const scope = scopeOf(p.scope, "add MCP servers");
 					const target = scope === "global" ? undefined : agent.id;
+					const argv = p.command ? splitCommand(p.command) : [];
+					if (p.command && !argv.length) throw new Error("the command is empty");
+					// A local server runs in the sandbox of the agent that uses it. Where that sandbox is
+					// missing, nothing would hold the program, so it is the owner's to add.
+					if (p.command && agent.sandbox.enabled && !live.sandboxed) throw new Error(`a local server has to run in your sandbox, and this machine has none. Your owner can add it themselves with: pine mcp add ${p.name} -- ${p.command}`);
 					// The owner confirms the server, so its results are theirs, not a stranger's: it does not
 					// taint a conversation. Its tools that act (not the ones that only read) still ask once
 					// in a conversation that has read outside content, e.g. a web page.
-					const server = { url: p.url, ...(p.description ? { description: p.description } : {}), approve: "tainted" as const, ...(scope === "local" ? { session: here() } : {}) };
+					const server = { ...(p.command ? { command: argv[0], ...(argv.length > 1 ? { args: argv.slice(1) } : {}), sandboxed: true } : { url: p.url }), ...(p.description ? { description: p.description } : {}), approve: "tainted" as const, ...(scope === "local" ? { session: here() } : {}) };
 					if (p.name in cfg.mcp || Object.values(cfg.agents).some((a) => p.name in a.mcp)) throw new Error(`a server named "${p.name}" exists already; pick another name`);
 					validateServer(cfg, p.name, server, target);
-					const summary = `add MCP server "${p.name}" for ${whoIs(scope)}\n${p.url}${p.description ? `\n${p.description}` : ""}`;
-					const why = `adding a server changes pine's configuration; it will be able to offer tools to ${scope === "global" ? "every agent" : scope === "agent" ? "this agent" : "this conversation"}${careful()}`;
+					const reach = scope === "global" ? "It runs in the sandbox of each agent that uses it and reaches what that agent's shell reaches, with the network" : `It runs in the sandbox of ${agent.id} and reaches what its shell reaches (${sandboxScope(cfg, agent) === "account" ? "your whole account" : "its workspace"}), with the network`;
+					const summary = `add MCP server "${p.name}" for ${whoIs(scope)}\n${p.command ? `a program on this computer: ${argv.join(" ")}\n${reach}` : p.url}${secrets.length ? `\nIt needs ${secrets.join(", ")}, which you type here; pine keeps ${secrets.length === 1 ? "it" : "them"} in its .env file` : ""}${p.description ? `\n${p.description}` : ""}`;
+					const why = `adding a server changes pine's configuration; it will be able to offer tools to ${scope === "global" ? "every agent" : scope === "agent" ? "this agent" : "this conversation"}${p.command ? ", and its program runs while they work" : ""}${careful()}`;
 					// Asked in every mode, bypass included: this is a change to pine itself.
-					const decision = await confirm("add_mcp_server", summary, why, signal);
-					if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner they can add it themselves with: pine mcp add ${p.name} ${p.url}`);
+					// A key never passes through the model: the owner types it into the dialog, and it goes
+					// from there into .env. The entry only names it.
+					const decision = await confirm("add_mcp_server", summary, why, signal, secrets.map((name) => ({ name, label: `${name} (the server reads it from its environment)`, secret: true })));
+					if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner they can add it themselves with: pine mcp add ${p.name} ${p.command ? `-- ${p.command}` : p.url}`);
+					const kept: Record<string, string> = {};
+					const named: Record<string, string> = {};
+					const given: Record<string, string> = {};
+					for (const name of secrets) {
+						const env = mcpEnvName(p.name, target, name);
+						kept[env] = String(decision.values?.[name] ?? "");
+						named[name] = `\${${env}}`;
+						given[name] = kept[env];
+					}
 					try {
-						addServer(cfg, p.name, server, target);
+						manager.sources?.keepOut(Object.values(kept));
+						setEnv(cfg.home, kept);
+						addServer(cfg, p.name, secrets.length ? { ...server, env: named } : server, target);
+						// What runs gets the keys themselves; what is written has their names.
+						if (secrets.length) (target ? cfg.agents[target].mcp : cfg.mcp)[p.name] = { ...server, env: given };
 					} catch (e) {
 						throw new Error(`could not be added: ${errText(e)}`);
 					}
 					await manager.refreshSessions(target ? [target] : undefined);
-					return ok(`Your owner confirmed it. Added "${p.name}" for ${whose(scope)}. Its tools are available from your next message on; their names start with ${mcpNamespace(p.name)}__ (look at your tool list for the exact names, do not guess them). If the server requires sign-in, they stay missing until your owner signs in: /mcp login ${p.name} in the terminal UI, or "pine mcp login ${p.name}" in a shell. Tell them that.`);
+					const signIn = p.command
+						? `If the server needs a sign-in, its documentation names the command for it (often the same command with "login" at the end). Run that in your shell, give your owner the link it prints, and wait for them.`
+						: `If the server requires sign-in, they stay missing until your owner signs in: /mcp login ${p.name} in the terminal UI, or "pine mcp login ${p.name}" in a shell. Tell them that.`;
+					return ok(`Your owner confirmed it. Added "${p.name}" for ${whose(scope)}. Its tools are available from your next message on; their names start with ${mcpNamespace(p.name)}__ (look at your tool list for the exact names, do not guess them). ${signIn}`);
 				},
 			}),
 			defineTool({
@@ -619,7 +669,6 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				}),
 				execute: async (_id, p, signal) => {
 					run();
-					if (live.tainted) throw new Error("This conversation has read outside content, and a skill is part of your instructions: it cannot be written from here. Tell your owner; in a conversation that has read nothing from outside they can ask you again.");
 					const scope = scopeOf(p.scope, "add skills");
 					const skill = checkSkill({ name: p.name, description: p.description, instructions: p.instructions, files: p.files }, agent.workspace);
 					const dir = skillDir(cfg, agent, scope, here(), skill.name);
@@ -628,14 +677,16 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const there = seen.find((x) => x.name === skill.name && realish(x.dir) !== realish(dir));
 					if (there) throw new Error(`a skill named "${skill.name}" exists already${there.managed ? ` (${there.scope === "global" ? "for all agents" : there.scope === "agent" ? "an agent's own" : "one conversation's own"})` : ", set up by your owner"}; pick another name${there.managed ? ", or remove that one first" : ""}`);
 					const replaces = seen.some((x) => x.name === skill.name);
-					// Its own thing needs no question; what reaches beyond this conversation does.
-					if (scope === "global" || (scope === "agent" && !inMain) || live.mode() === "manual") {
+					// Its own thing needs no question; what reaches beyond this conversation does. And a
+					// skill is part of what the agent is told: from a conversation that has read outside
+					// content it is always put to the owner, with its instructions, like a schedule is.
+					if (live.tainted || scope === "global" || (scope === "agent" && !inMain) || live.mode() === "manual") {
 						const summary = `${replaces ? "replace" : "add"} the skill "${skill.name}" for ${whoIs(scope)}
 ${skill.description}${skill.copy.length ? `
 With ${skill.copy.length} file${skill.copy.length === 1 ? "" : "s"} from ${p.files}` : ""}
 Instructions:
 ${truncate(skill.instructions, 1200)}`;
-						const decision = await confirm("add_skill", summary, `a skill becomes part of what ${scope === "global" ? "every agent" : "this agent"} is told, in ${scope === "local" ? "this conversation" : "all its conversations"}`, signal);
+						const decision = await confirm("add_skill", summary, `a skill becomes part of what ${scope === "global" ? "every agent" : "this agent"} is told, in ${scope === "local" ? "this conversation" : "all its conversations"}${careful()}`, signal);
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what the skill was for.`);
 					}
 					writeSkill(dir, skill);

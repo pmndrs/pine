@@ -137,6 +137,8 @@ the example home, `pine init` copies the files you do not have yet and overwrite
 
 ## Commands
 
+What you type in a shell. Every command is the `pine` program with a word after it.
+
 | Command | What it does |
 |---|---|
 | `pine`, `pine tui` | The terminal UI; starts a daemon inside if none is running |
@@ -210,6 +212,7 @@ are JSON with `Content-Type: application/json`.
 | `POST /agents/<id>/remove` `{ session }` | Remove a conversation for good, with its history and what was set up for it alone. Not the main one, and not while it is working |
 | `GET /ui/tabs`, `POST /ui/tabs` `{ tabs, active, code? }` | The tabs the terminal UI has open (`tabs` is a list of `{ agent, session }`) and whether its code pane was open, kept so that it opens the same way next time |
 | `GET /agents/<id>/folder?session=`, `GET /agents/<id>/folders`, `POST /agents/<id>/folder` `{ session, folder }` | The folder a conversation works in; every conversation of the agent that has one; open a folder for a conversation (`folder: null` closes it). Refused for pine's home, pine's program and other agents' workspaces, and while the conversation is working |
+| `GET /agents/<id>/programs?session=`, `POST /agents/<id>/programs/stop` `{ session, id }` | What a conversation's commands left running (command, ports, how long), and stopping one of them. Only a program of that conversation can be stopped. |
 | `GET /agents/<id>/view/changes?session=`, `/view/diff?session=&path=`, `/view/tree?session=&path=`, `/view/file?session=&path=` | What the code pane shows of a conversation's folder (or of the agent's workspace): what git says changed, one file's diff, what is in a folder, a file's text. Read-only, and nothing outside that folder |
 | `POST /agents/<id>/model` `{ model }` | Switch an agent's model and save it in its `agent.json` |
 | `POST /agents/<id>/thinking` `{ level }` | Set an agent's reasoning level and save it in its `agent.json` |
@@ -268,7 +271,7 @@ are JSON with `Content-Type: application/json`.
 | A task fails with a connection error | The model server is down or `baseUrl` is wrong. `curl <baseUrl>/models` should answer. |
 | A task fails after minutes with a timeout | The model stopped streaming (`limits.modelStreamIdleMs`) or took too long to start (`limits.modelHeadersTimeoutMs`); raise them for a slow model. |
 | The agent says a file is "not permitted" | It is outside what the agent reaches. The main agent has your whole account (`sandbox.scope`), but not in a conversation that has read outside content unless you said yes to the question; other agents have their workspace. An agent can ask you with `request_access`; to open a folder for good, use `sandbox.read` / `sandbox.write`. |
-| The agent cannot stop a program it started (`kill: Operation not permitted`) | In the workspace scope every command has a sandbox of its own and cannot signal what an earlier one started. An agent with the scope `account` can. Otherwise stop it yourself. |
+| The agent cannot stop a program it started (`kill: Operation not permitted`) | In the workspace scope every command has a sandbox of its own and cannot signal what an earlier one started. The agent's `stop_program` tool works in every scope, and so does `■ stop` under Running in the code pane. |
 | `git` complains about identity | In the workspace scope the agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
 | A command needs the network | `sandbox.network: true` for that agent, or better a `commands` tool for that one command. |
 | Telegram bot does not react | `pine sources`: is the `telegram` source running, and is a conversation subscribed? A new bot waits to be paired: write to it, and type the code it sends you into the question in the terminal UI (`pine sources` says whom it listens to). Otherwise another program polls the same bot token. |

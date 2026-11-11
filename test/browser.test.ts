@@ -15,6 +15,7 @@ test("browser: tools that run code or read local files are never offered", () =>
 	assert.ok(ALWAYS_BLOCKED.includes("browser_run_code_unsafe") && ALWAYS_BLOCKED.includes("browser_file_upload"));
 	assert.ok(toolAllowed("browser_navigate", {}) && toolAllowed("browser_snapshot", {}) && CORE_TOOLS.includes("browser_click"));
 	assert.equal(toolAllowed("browser_evaluate", {}), false, "not in the core set");
+	assert.ok(toolAllowed("browser_take_screenshot", {}) && toolAllowed("browser_console_messages", {}), "an agent that builds a page can look at it and see why it fails");
 	assert.equal(toolAllowed("browser_evaluate", { tools: "all" }), true);
 	assert.equal(toolAllowed("browser_evaluate", { tools: "all", block: ["browser_evaluate"] }), false);
 	assert.equal(toolAllowed("browser_click", { tools: ["browser_navigate"] }), false);

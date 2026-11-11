@@ -47,6 +47,7 @@ src/
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
   router.ts         routes: filter, debounce, set / publish / call / agent
   timers.ts         the scheduler: cron, intervals and one-offs; a schedule with a task wakes an agent
+  programs.ts       what a conversation's commands left running: found by process group, listed, stopped
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   http.ts           control API and webhooks
   limiter.ts        model slots with priority
@@ -93,7 +94,9 @@ These are invariants. A change that breaks one needs a test that shows why it is
    (`add_schedule`, `remove_schedule`); the main
    agent also has `create_agent` and `add_source_type`. Each validates its input, writes only
    the entry it is for, and asks the owner where `docs/references/setup.md` says so. A server
-   is a remote URL, never a command. Global scope, agent creation and new source types are
+   is a remote URL, or a command that runs inside the sandbox of the agent that uses it
+   (`sandboxed`, set by `add_mcp_server` and wrapped where the session registers it): never a
+   program with the daemon's rights or environment, and never through a shell. Global scope, agent creation and new source types are
    refused to every agent but the main one. Removing something must leave things as they were
    before it was added. A new kind of thing an agent can set up follows the same scopes and
    wording (`scopeOf`, `forWhom`, `whoIs` in `src/tools.ts`), not rules of its own.
@@ -103,7 +106,8 @@ These are invariants. A change that breaks one needs a test that shows why it is
    has handled outside content cannot write any of them (`isOwnFile` in `src/security.ts`).
    Skills are instructions too, and need no configuration entry: where the folder lies says
    whom it is for (`src/skills.ts`). They are written by `add_skill` into pine's home, which
-   the agent reads and cannot write, and `add_skill` refuses in a tainted conversation.
+   the agent reads and cannot write, and in a tainted conversation `add_skill` always puts
+   the skill to the owner with its instructions, as `add_schedule` does with a task.
 2. **File access is enforced by the OS, not by a path check.** (What the OS enforces depends on
    the mode, the agent's scope and what the conversation has read: `live.variant()` picks the
    normal, restricted or open profile for each call, and access the owner granted with
@@ -183,6 +187,14 @@ These are invariants. A change that breaks one needs a test that shows why it is
    code pane: every path is resolved and must stay inside the folder, and `git` runs behind
    `helperArgv()` without write access or network and with everything a repository's
    configuration could make it start turned off. Keep new git calls on that `git()` helper.
+
+12. **What an agent left running is found by the daemon, not reported by the agent.** Every
+   shell command notes its process group before its sandbox starts (`Programs.note`, fixed
+   text that runs with the daemon's rights: nothing an agent wrote goes into it), in a file in
+   pine's home that no agent can write. A program is one of a conversation's when its group is
+   on that conversation's list and the shell that led the group is gone. `stop` ends only such
+   a group, for the control API and for the agent's `stop_program` alike: never a process id
+   somebody names.
 
 ## pi behaviours pine depends on
 

@@ -27,7 +27,7 @@ is about what agents can do.
 | An event source (folder, MQTT, web address, command, webhook, FTP, Telegram) | any agent (`add_source`) | any agent, when you say so | **only the main agent** |
 | A subscription to a source | any agent (`subscribe`) | any agent, when you say so | **only the main agent** |
 | A schedule | any agent (`add_schedule`) | any agent, when you say so | **only the main agent** |
-| A remote MCP server | any agent (`add_mcp_server`) | any agent, when you say so | **only the main agent** |
+| An MCP server, remote or local | any agent (`add_mcp_server`) | any agent, when you say so | **only the main agent** |
 | A skill | any agent (`add_skill`) | any agent, when you say so | **only the main agent** |
 | A new agent | | | **only the main agent** (`create_agent`) |
 | A new type of event source (a program) | | | **only the main agent** (`add_source_type`), you confirm every time |
@@ -60,7 +60,7 @@ difference between the first two: the main conversation is the agent.
 
 | An agent wants to | You are asked |
 |---|---|
-| Add an MCP server | Always, in every mode. The dialog names the server, its URL and who gets it. |
+| Add an MCP server | Always, in every mode. The dialog names the server, its URL or its command, and who gets it. For a command it also says what the program will reach. |
 | Add a source that opens something new (a folder outside its workspace, a broker, a port), is to be trusted as yours, or is for all agents | Yes, with what it will do in plain words. A folder inside its own workspace is not asked about. |
 | Subscribe the conversation it is in | No. |
 | Subscribe the agent as such from another conversation, or all agents | Yes. Deny it if you meant this conversation only. |
@@ -79,9 +79,10 @@ difference between the first two: the main conversation is the agent.
 In manual mode, and in a conversation that has read outside content, the questions that are
 otherwise skipped are asked too (ending a subscription: in manual mode only).
 
-Two things are not asked but refused in a conversation that has read outside content, because
-what they write is read back as instructions or runs as a program: `add_skill` and
-`add_source_type`. Start a new conversation for them.
+In a conversation that has read outside content two things are stricter, because what they
+write is read back as instructions or runs as a program. `add_skill` always asks, whoever the
+skill is for, and shows its instructions. `add_source_type` is refused: start a new
+conversation for it.
  Runs with the
 reduced tool set, which outside events start through a route or a subscription marked
 `separate`, have none of these tools, and neither have sub-agents.
@@ -102,8 +103,10 @@ reduced tool set, which outside events start through a route or a subscription m
 | `add_schedule` `name` `task` + one of `cron`, `every`, `at`, `in` [`scope`] | Does the task at set times, every so often, or once. One that happens once removes itself. |
 | `remove_schedule` `name` | Ends a schedule. |
 | **MCP servers** | |
-| `add_mcp_server` `name` `url` [`description`] [`scope`] | Proposes a remote MCP server (https). A local one, a program that runs with your rights, is yours to add: `pine mcp add`. |
+| `add_mcp_server` `name` `url` or `command` [`secrets`] [`description`] [`scope`] | Proposes an MCP server: a remote one by its https `url`, or a local one by the line that starts it (one program with its arguments, nothing else). A local one runs inside the sandbox of the agent that uses it. `secrets` names the keys it needs; you type them into the dialog. See [mcp.md](mcp.md). |
 | `remove_mcp_server` `name` | Takes a server out again. |
+| **Programs** | |
+| `stop_program` [`id`] | Stops a program that one of the conversation's commands left running, such as a development server. Without `id` it lists them. Never asks: it only ends what the agent started. See [coding.md](coding.md). |
 | **Skills** | |
 | `add_skill` `name` `description` `instructions` [`files`] [`scope`] | Writes a skill; the same name in the same place replaces it. `files` is a folder in the agent's workspace whose contents go along. |
 | `remove_skill` `name` | Deletes a skill in pine's own skill folders (`skills/`, `agents/<id>/skills/`, a conversation's), also one you put there by hand. A skill in a folder named under `skills` in a configuration file is yours to remove. |

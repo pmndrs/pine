@@ -81,8 +81,8 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `defaults.thinking` | `off` | Reasoning level for models that can reason: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
 | `defaults.mode` | `auto` | `manual`, `auto` or `bypass`: how much agents do without asking. See [security.md](security.md). |
 | `defaults.scope` | not set | How far the shell and file tools of agents reach that do not say themselves (`sandbox.scope`): `workspace` or `account`. Not set: `account` for the main agent, `workspace` for all others. Set it to `workspace` to keep every agent in its own folders. |
-| `defaults.bashTimeoutSec` | `300` | Longest a shell command may run. The model cannot raise it. |
-| `defaults.taskTimeoutSec` | `1800` | Longest a task may run before it is aborted. |
+| `defaults.bashTimeoutSec` | `900` | Longest a shell command may run (15 minutes: a build, an install). The model cannot raise it. A server or another program that should keep running is started in the background. |
+| `defaults.taskTimeoutSec` | `7200` | Longest a task may run before it is aborted (two hours). |
 | `defaults.idleMs` | `15m` | A live session without work is closed after this (and resumed from disk later). |
 | `defaults.settings` | `{}` | pi settings applied to every agent, for example `{ "compaction": { "reserveTokens": 8000 } }`. |
 | `limits.maxConcurrentRuns` | `2` | Model slots: how many runs talk to the model server at once. Match it to the server's parallel slots. |

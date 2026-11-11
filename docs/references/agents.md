@@ -326,8 +326,9 @@ A name is used once among everything that would stand beside the skill, so no co
 ever has two skills of one name.
 
 A skill is part of what an agent is told, like its `AGENTS.md`. It is therefore written by
-pine, in pine's home where the agent reads but does not write, and never from a conversation
-that has read outside content: there `add_skill` refuses. What is a fact and not a way of
+pine, in pine's home where the agent reads but does not write. From a conversation that has
+read outside content it is never written without you: `add_skill` then shows you the skill's
+instructions and waits for your answer, whoever it is for. What is a fact and not a way of
 doing something belongs into the agent's `MEMORY.md`.
 
 ### Put it there yourself

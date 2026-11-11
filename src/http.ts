@@ -126,6 +126,11 @@ export class HttpServer {
 					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 					return send(200, { folder: this.manager.folderOf(parts[1], q.get("session") ?? "main"), workspace: this.cfg.agents[parts[1]].workspace });
 				}
+				// What a conversation's commands left running, for a UI to show and to stop.
+				if (parts[0] === "agents" && parts[2] === "programs" && parts.length === 3) {
+					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+					return send(200, this.manager.programsOf(parts[1], q.get("session") ?? "main"));
+				}
 				if (parts[0] === "agents" && parts[2] === "folders" && parts.length === 3) {
 					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 					return send(200, this.manager.folders(parts[1]));
@@ -256,6 +261,10 @@ export class HttpServer {
 				} catch (e) {
 					throw new HttpError(409, errText(e));
 				}
+			}
+			if (parts[0] === "agents" && parts[2] === "programs" && parts[3] === "stop" && parts.length === 4) {
+				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+				return send(200, { stopped: this.manager.stopProgram(parts[1], String(body.session ?? "main"), Number(body.id)) });
 			}
 			if (parts[0] === "agents" && parts[2] === "reset" && parts.length === 3) return send(200, { reset: await this.manager.resetSession(parts[1], body.session) });
 			if (parts[0] === "tasks" && parts[2] === "cancel" && parts.length === 3) return send(200, { cancelled: this.manager.cancel(Number(parts[1])) });

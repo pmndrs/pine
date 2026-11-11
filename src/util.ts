@@ -125,3 +125,23 @@ export function openInSystem(target: string): void {
 		.on("error", () => {})
 		.unref();
 }
+
+/** "vite --port 5173" from "node /Users/x/project/node_modules/.bin/vite --port 5173": what a person would call it. */
+export function programName(command: string, max = 60): string {
+	const words = command.trim().split(/\s+/);
+	const base = (w: string) => w.split("/").pop() || w;
+	// An interpreter in front of a script says less than the script.
+	if (words.length > 1 && /^(node|bun|deno|python[\d.]*|ruby|sh|bash|zsh)$/.test(base(words[0])) && !words[1].startsWith("-")) words.shift();
+	words[0] = base(words[0]);
+	const text = words.join(" ");
+	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** "12 s", "5 min", "2 h 10 min": how long something has been running. */
+export function since(seconds: number): string {
+	if (seconds < 60) return `${seconds} s`;
+	if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+	const h = Math.floor(seconds / 3600);
+	const m = Math.floor((seconds % 3600) / 60);
+	return m ? `${h} h ${m} min` : `${h} h`;
+}

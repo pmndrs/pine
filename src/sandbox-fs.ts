@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { bin } from "./security.ts";
+import { bin, tilde } from "./security.ts";
 
 /**
  * File tools whose every read and write happens inside the agent's sandbox.
@@ -111,7 +111,8 @@ export function sandboxedFileTools(fs: SandboxFs, enabled: string[]): any[] {
 		const r = await sandboxExec(fs, ["/bin/test", "-w", file]);
 		if (r.code !== 0) throw explain(file, "Permission denied");
 	};
-	const resolve = (p: string | undefined) => path.resolve(fs.cwd, p && p.length ? p : ".");
+	// "~" is the owner's home, as pi's read, write and edit take it.
+	const resolve = (p: string | undefined) => path.resolve(fs.cwd, tilde(p && p.length ? p : "."));
 	const tools: Record<string, () => any> = {
 		read: () =>
 			createReadToolDefinition(fs.cwd, {

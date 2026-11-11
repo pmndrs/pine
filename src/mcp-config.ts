@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type McpServerConfig, mcpTaints, type PineConfig, toPiMcp } from "./config.ts";
+import { unsetEnv } from "./env-file.ts";
 
 /** Change a JSON configuration file in place, keeping what is not touched (including ${NAME} placeholders). */
 export function editJson(file: string, change: (json: any) => void): void {
@@ -30,6 +31,34 @@ export function validateServer(cfg: PineConfig, name: string, server: McpServerC
 }
 
 /**
+ * A command line as its program and arguments. No shell reads it, so what only a shell would act
+ * on is refused instead of being handed to the program as text.
+ */
+export function splitCommand(line: string): string[] {
+	const out: string[] = [];
+	let cur = "";
+	let quote = "";
+	let open = false;
+	for (const ch of line.trim()) {
+		if (quote) {
+			if (ch === quote) quote = "";
+			else cur += ch;
+		} else if (ch === '"' || ch === "'") {
+			quote = ch;
+			open = true;
+		} else if (/\s/.test(ch)) {
+			if (cur || open) out.push(cur);
+			cur = "";
+			open = false;
+		} else if ("|&;<>`$()".includes(ch)) throw new Error(`a server is one program with its arguments. "${ch}" means something to a shell only, and no shell runs this; leave it out`);
+		else cur += ch;
+	}
+	if (quote) throw new Error("a quote in the command is not closed");
+	if (cur || open) out.push(cur);
+	return out;
+}
+
+/**
  * Add or replace an MCP server: in pine.json for everyone, or in one agent's agent.json. The file
  * and the loaded configuration are both updated; sessions pick the server up when they next start.
  */
@@ -42,14 +71,26 @@ export function addServer(cfg: PineConfig, name: string, server: McpServerConfig
 	(agentId ? cfg.agents[agentId].mcp : cfg.mcp)[name] = server;
 }
 
+/** The name under which a key of a server's environment is kept in .env. */
+export function mcpEnvName(server: string, agentId: string | undefined, variable: string): string {
+	return `PINE_MCP_${[server, ...(agentId ? [agentId] : []), variable].join("_").replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}`;
+}
+
 export function removeServer(cfg: PineConfig, name: string, agentId?: string): boolean {
 	const target = agentId ? cfg.agents[agentId]?.mcp : cfg.mcp;
 	if (!target || !(name in target)) return false;
+	const kept: string[] = [];
 	editJson(fileFor(cfg, agentId), (json) => {
+		// The keys pine put into .env for it go too. One the owner wrote there under a name of their own stays.
+		for (const value of Object.values(json.mcp?.[name]?.env ?? {})) {
+			const m = typeof value === "string" ? /^\$\{(PINE_MCP_[A-Z0-9_]+)\}$/.exec(value) : null;
+			if (m) kept.push(m[1]);
+		}
 		delete json.mcp?.[name];
 		// Nothing is left behind: an empty list of servers is no entry at all.
 		if (json.mcp && !Object.keys(json.mcp).length) delete json.mcp;
 	});
+	unsetEnv(cfg.home, kept);
 	delete target[name];
 	return true;
 }
