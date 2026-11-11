@@ -61,8 +61,25 @@ Sets everything up: the browser the web tools drive, and your user folder (`~/.p
 pine init
 ```
 
+Checks the setup: validates the configuration, lists each agent with its model, tools and MCP
+servers, and prints security notes if something is open that should not be.
+
+```bash
+pine check
+```
+
+Opens the terminal UI. If no daemon is running, it starts one inside and stops it when you quit.
+
 ```bash
 pine
+```
+
+Runs the daemon alone, without the UI, so agents keep reacting to events with no terminal
+open. `pine` then attaches to it. To have it start at login, see
+[operations.md](docs/references/operations.md).
+
+```bash
+pine start
 ```
 
 That is a home in `~/.pine` with one agent, `main`, and the terminal UI talking to it. Out of
@@ -74,9 +91,8 @@ pine login opencode-go
 ```
 
 `pine login anthropic` and `pine login openai-codex` use a Claude or ChatGPT subscription; a
-local llama-server goes into `~/.pine/models.json`. To run pine without the UI, as a service:
-`pine start`. See [operations.md](docs/references/operations.md) and
-[tui.md](docs/references/tui.md).
+local llama-server goes into `~/.pine/models.json`. See
+[operations.md](docs/references/operations.md) and [tui.md](docs/references/tui.md).
 
 To work on a project, start it in that folder. The agent gets that folder for the
 conversation, and `▤ code` (or `ctrl+g`) opens a pane with git changes and diffs, the files and
