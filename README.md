@@ -57,7 +57,7 @@ This is a small daemon that runs AI agents. Yes, you've heard that before. Some 
    web addresses         │           │
    commands · etc        │           │
  schedules ────────────► │           │
-   at set times · once   └─────┬─────┘
+   repeating · once      └─────┬─────┘
                                │  delegate ──► other agents
                                │  subagent ──► parallel copies
                                ▼
