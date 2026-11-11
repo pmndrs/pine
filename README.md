@@ -20,7 +20,7 @@
 npm install -g @pmndrs/pine
 ```
 
-> [!CAUTION]
+> [!IMPORTANT]
 > Until now this is macos, linux and docker only, due to some TUI specifics and sandboxing. Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
 
 This is a small daemon that runs AI agents _reactively_. Some things it does very differently:
