@@ -22,7 +22,7 @@ PINE of course also handles regular chat, coding, tasks and orchestration. Agent
 - **Self-discovery:** A built-in BM25 instruction MCP lets agents look up any API or internal detail on demand, without carrying docs in context.
 - **A CLI that feels like a desktop app:** Tabs, buttons, scroll regions, inline images and video, and drag-and-drop with thumbnails. Works in Kitty-protocol terminals like Ghostty, with fallbacks for older ones.
 - **Built in:** Computer use, web browsing, coding tools, diffs and git.
-- **Orchestration:** Agents can delegate, create sub-agents in parallel. A pinned tab is persistent. Name it, give it instructions, chat with it or subscribe it to events.
+- **Orchestration:** Agents can delegate, create sub-agents in parallel. A pinned tab simply persists an agent and its task. Name it, give it instructions, chat with it or subscribe it to events.
 
 > [!IMPORTANT]
 > pine runs on macOS and Linux (see [Linux](#linux) for Ubuntu and Docker). Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
