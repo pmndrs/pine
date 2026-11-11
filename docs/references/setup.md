@@ -6,12 +6,16 @@ tools. What an agent may set up, it sets up by calling a tool. The tool checks w
 asks you where that matters, and writes exactly the lines that are needed; when the thing is
 removed, those lines go again and nothing is left behind (no empty lists, no stale access).
 
-Three things reach an agent from outside its conversation, and all three are set up the same
+Four things reach an agent from outside its conversation, and all four are set up the same
 way, with the same three scopes:
 
 - **Events**: what happens elsewhere wakes the agent ([sources.md](sources.md)).
+- **Schedules**: the time wakes the agent, with a task ([events.md](events.md)).
 - **MCP servers**: tools the agent can call ([mcp.md](mcp.md)).
 - **Skills**: how something is done, written down once ([agents.md](agents.md)).
+
+The main agent can set each of them up for one conversation, for itself, or for all agents.
+Every other agent can do so for one conversation or for itself.
 
 You can still edit the files yourself, and the `pine` command changes them for you. This page
 is about what agents can do.
@@ -20,8 +24,9 @@ is about what agents can do.
 
 | What | For one conversation | For the agent | For all agents |
 |---|---|---|---|
-| An event source (folder, timer, MQTT, web address, command, webhook, FTP, Telegram) | any agent (`add_source`) | any agent, when you say so | **only the main agent** |
+| An event source (folder, MQTT, web address, command, webhook, FTP, Telegram) | any agent (`add_source`) | any agent, when you say so | **only the main agent** |
 | A subscription to a source | any agent (`subscribe`) | any agent, when you say so | **only the main agent** |
+| A schedule | any agent (`add_schedule`) | any agent, when you say so | **only the main agent** |
 | A remote MCP server | any agent (`add_mcp_server`) | any agent, when you say so | **only the main agent** |
 | A skill | any agent (`add_skill`) | any agent, when you say so | **only the main agent** |
 | A new agent | | | **only the main agent** (`create_agent`) |
@@ -41,8 +46,8 @@ trying.
 | **agent** | Every conversation of that agent. A subscription wakes its main conversation. | Until it is removed. |
 | **global** | Every agent. | Until the main agent or you remove it. |
 
-"Connect this server", "watch that folder", "subscribe to it", "make a skill for this", said in
-any conversation, means that conversation. An agent passes a wider scope only when you say so in so many words ("for
+"Connect this server", "watch that folder", "subscribe to it", "remind me at five", "make a
+skill for this", said in any conversation, means that conversation. An agent passes a wider scope only when you say so in so many words ("for
 you as an agent", "always"; "for all agents"). In an agent's main conversation there is no
 difference between the first two: the main conversation is the agent.
 
@@ -51,14 +56,16 @@ difference between the first two: the main conversation is the agent.
 | An agent wants to | You are asked |
 |---|---|
 | Add an MCP server | Always, in every mode. The dialog names the server, its URL and who gets it. |
-| Add a source that opens something new (a folder outside its workspace, a broker, a port), is to be trusted as yours, or is for all agents | Yes, with what it will do in plain words. A timer, or a folder inside its own workspace, is not asked about. |
+| Add a source that opens something new (a folder outside its workspace, a broker, a port), is to be trusted as yours, or is for all agents | Yes, with what it will do in plain words. A folder inside its own workspace is not asked about. |
 | Subscribe the conversation it is in | No. |
 | Subscribe the agent as such from another conversation, or all agents | Yes. Deny it if you meant this conversation only. |
 | End a subscription of its own agent | No. |
+| Schedule something for the conversation it is in, or for itself from its main conversation | No. |
+| Schedule something for the agent from another conversation, or for all agents | Yes, with the times and the task. |
 | Add or replace a skill for the conversation it is in, or for itself from its main conversation | No. Its instructions are its own to write, as its `AGENTS.md` is. |
 | Add or replace a skill for the agent from another conversation, or for all agents | Yes. The dialog shows the description and the instructions. |
-| Remove a server, a source or a skill that is the conversation's own | No. |
-| Remove a server, a source or a skill of the agent (from another conversation than its main one) or of all agents | Yes. |
+| Remove a server, a source, a schedule or a skill that is the conversation's own | No. |
+| Remove a server, a source, a schedule or a skill of the agent (from another conversation than its main one) or of all agents | Yes. |
 | Create an agent | Always. The dialog shows its id, description, model, tools and instructions. |
 | Register a new type of event source | Always, in every mode. The dialog says that it is a program, how long it is, what it imports and where the file is. |
 
@@ -83,6 +90,10 @@ reduced tool set, which outside events start through a route or a subscription m
 | `send` `source` [`text`] [`data`] | Sends something out through a source that can send (Telegram, MQTT). |
 | `remove_source` `name` | Stops a source, unsubscribes everyone from it and deletes it. For a watched folder, the read access that came with it goes too. |
 | `add_source_type` `name` `file`, `remove_source_type` `name` | Main agent only. Registers a module the agent wrote as a new type of source, or takes one out. |
+| **Schedules** | |
+| `schedules` | Lists what is scheduled for the agent and when each is next due. |
+| `add_schedule` `name` `task` + one of `cron`, `every`, `at`, `in` [`scope`] | Does the task at set times, every so often, or once. One that happens once removes itself. |
+| `remove_schedule` `name` | Ends a schedule. |
 | **MCP servers** | |
 | `add_mcp_server` `name` `url` [`description`] [`scope`] | Proposes a remote MCP server (https). A local one, a program that runs with your rights, is yours to add: `pine mcp add`. |
 | `remove_mcp_server` `name` | Takes a server out again. |
@@ -126,18 +137,19 @@ These are the only entries the tools make. A thing made for one conversation car
 conversation's name as `session`, which is how pine knows whose it is and when to remove it.
 
 ```jsonc
-// agents/main/agent.json after: a server for the agent, a source and a subscription for the conversation "taxes"
+// agents/main/agent.json after: a server and a schedule for the agent, a source and a subscription for the conversation "taxes"
 {
   "description": "Your main agent",
   "mcp": { "notes": { "url": "https://mcp.example.com/mcp", "approve": "tainted" } },
   "sources": { "scans": { "type": "folder", "description": "what the scanner saves", "session": "taxes", "dir": "/Users/me/Scans" } },
   "sandbox": { "read": ["/Users/me/Scans"] },
-  "subscribe": [{ "source": "scans", "note": "Say which document arrived.", "session": "taxes" }]
+  "subscribe": [{ "source": "scans", "note": "Say which document arrived.", "session": "taxes" }],
+  "schedules": [{ "name": "brief", "cron": "30 7 * * 1-5", "task": "Prepare the morning brief." }]
 }
 ```
 
 Remove the conversation "taxes" and the source, the subscription and the read access are gone;
-the file is as it was before, with the server left. Rename the conversation and the entries
+the file is as it was before, with the server and the schedule left. Rename the conversation and the entries
 follow its new name.
 
 A skill needs no entry at all. Where its folder lies says whom it is for:
@@ -156,7 +168,7 @@ for.
 
 ## What stays yours
 
-An agent's built-in tools, model, its sandbox settings, routes and schedules, local MCP
+An agent's built-in tools, model, its sandbox settings, routes, local MCP
 servers, source types you write yourself, and removing agents: these are changed in the files
 or with the `pine` command, and most need a restart. See [configuration.md](configuration.md),
 [agents.md](agents.md), [mcp.md](mcp.md) and [sources.md](sources.md).

@@ -39,12 +39,12 @@ src/
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
   skills.ts         skills by tool call: where one lies says whom it is for (all agents, an agent, a conversation)
   source-types.ts   what a source type module declares: summary, options schema, plan()
-  sources/          the built-in source types: folder, mqtt, webhook, ftp, timer, telegram, http, command
+  sources/          the built-in source types: folder, mqtt, webhook, ftp, telegram, http, command
   watching.ts       what the polling types share: picking a value, line differences, a page's text
   env-file.ts       sets and removes entries in .env (secrets of sources that agents set up)
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
   router.ts         routes: filter, debounce, set / publish / call / agent
-  timers.ts         schedules (cron and intervals)
+  timers.ts         the scheduler: cron, intervals and one-offs; a schedule with a task wakes an agent
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   http.ts           control API and webhooks
   limiter.ts        model slots with priority
@@ -70,10 +70,11 @@ These are invariants. A change that breaks one needs a test that shows why it is
 1. **Nothing an agent can write is ever executed or trusted by the daemon.** Agents write only
    to their workspace, their sandbox home and temp. Extensions, `agent.json` and
    `pine.json` live elsewhere in pine's home, which the sandbox closes. Agents change
-   configuration only through the setup tools in `src/tools.ts`. There are three things an
+   configuration only through the setup tools in `src/tools.ts`. There are four things an
    agent can be given, each with the same three scopes (a conversation, the agent, all agents):
    events (`add_source`, `remove_source`, `subscribe`, `unsubscribe`), MCP servers
-   (`add_mcp_server`, `remove_mcp_server`) and skills (`add_skill`, `remove_skill`); the main
+   (`add_mcp_server`, `remove_mcp_server`), skills (`add_skill`, `remove_skill`) and schedules
+   (`add_schedule`, `remove_schedule`); the main
    agent also has `create_agent` and `add_source_type`. Each validates its input, writes only
    the entry it is for, and asks the owner where `docs/references/setup.md` says so. A server
    is a remote URL, never a command. Global scope, agent creation and new source types are
@@ -94,12 +95,15 @@ These are invariants. A change that breaks one needs a test that shows why it is
    tools run through `sandbox-exec` with the profile from `sandboxProfile()`. `checkPath()` only
    produces a clear error early; do not rely on it. Never add a tool that reads or writes files in
    the daemon process on a path the model chose.
-3. **Trust comes from where an event entered, never from what it says.** Out of the box four
+3. **Trust comes from where an event entered, never from what it says.** Out of the box three
    things publish `trust: "owner"`: a Telegram account the owner paired in pine (or listed), the
-   authenticated control API, a schedule, and a `timer` source. Everything else is `untrusted`
+   authenticated control API, and a schedule. Everything else is `untrusted`
    unless the configuration opts in (`trust` on a route or on a source). A source type may vouch
    for its sender (`owner` in its plan), which the owner is told before confirming. `audit()`
-   reports the opt-ins on routes and on sources other than timers and Telegram. Children
+   reports the opt-ins on routes and on sources other than Telegram. A schedule acts in the
+   owner's name, so one made from a tainted conversation is always put to the owner with its
+   task (`add_schedule`). Time is the scheduler's business (`src/timers.ts`): there is no timer
+   source, and nothing else should fire on a clock of its own. Children
    inherit the weaker trust (`AgentManager.submit`).
 4. **Untrusted runs get their capabilities by registration.** Tools and MCP servers that the
    untrusted profile does not list are not registered in that session at all, and the session

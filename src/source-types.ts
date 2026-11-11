@@ -3,8 +3,8 @@ import type { TSchema } from "typebox";
 // A source type is a module: its default export starts a source, and its `type` export says what
 // such a source is and which options it takes. That description is all an agent's add_source tool
 // knows about the type: it offers the type with these options, checks what it is given against the
-// schema, and lets the type say what the set-up would do. pine's own types (folder, timer, mqtt,
-// webhook, ftp) and the ones you register under "sourceTypes" in pine.json are described the same way.
+// schema, and lets the type say what the set-up would do. pine's own types (folder, mqtt, webhook,
+// ftp, telegram, http, command) and the ones you register under "sourceTypes" in pine.json are described the same way.
 
 /** What setting a source up would mean, worked out before anything is written. */
 export interface SourcePlan {

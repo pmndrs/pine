@@ -83,7 +83,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 | Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output | [references/coding.md](references/coding.md) |
 | Install it, start it, use the CLI, run it at login, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
-| Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, new agents, new source types | [references/setup.md](references/setup.md) |
+| Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types | [references/setup.md](references/setup.md) |
 | Add an agent, give it a workspace, tools and a persona; delegation, sub-agents, sessions, shared state | [references/agents.md](references/agents.md) |
 | Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras, timers; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
 | Write rules for events yourself: set state, publish, single model calls, schedules, debounce | [references/events.md](references/events.md) |
@@ -149,7 +149,8 @@ pine start
 | event | One record in the log: topic, payload, source, trust, cause |
 | topic | Slash-separated name, matched with `+` (one level) and `#` (the rest) |
 | route | A rule in `pine.json` that reacts to topics |
-| source | A named thing that reports events from outside: a folder, an MQTT broker, a webhook, an FTP drop, a timer. It runs only while something is subscribed to it |
+| source | A named thing that reports events from outside: a folder, an MQTT broker, a web address, a webhook, an FTP drop. It runs only while something is subscribed to it |
+| schedule | Something done at a time: at set times, every so often, or once. With a task it wakes an agent to do it |
 | subscription | A conversation of an agent listens to a source: each event arrives there as a message and wakes the agent |
 | task | One piece of work for one agent; has a status, a result and statistics |
 | session | A conversation of one agent with history. The manual also says "conversation". Named ones are kept until removed (unused ones after `limits.conversationDays`); `new` is one-off |

@@ -392,9 +392,9 @@ export function audit(cfg: PineConfig): string[] {
 	}
 	if (cfg.http && !["127.0.0.1", "localhost", "::1"].includes(cfg.http.host)) out.push(`http listens on ${cfg.http.host}; anyone who can reach it and knows the token controls every agent. Prefer loopback plus a tunnel.`);
 	for (const [name, h] of Object.entries(cfg.http?.hooks ?? {})) if (!h.secret) out.push(`http hook "${name}" has no secret; anyone who can reach the port can publish ${h.topic}`);
-	// A source whose events count as the owner's words: fine for a clock or a paired Telegram account, a risk for anything others can feed.
+	// A source whose events count as the owner's words: fine for a paired Telegram account, a risk for anything others can feed.
 	for (const [where, sources] of [["pine.json", cfg.sources] as const, ...Object.values(cfg.agents).map((a) => [`agent ${a.id}`, a.sources] as const)]) {
-		for (const [name, s] of Object.entries(sources)) if (s.trust === "owner" && !["timer", "telegram"].includes(s.type ?? "")) out.push(`${where}: what the source "${name}" (${s.type ?? "custom"}) reports is treated as coming from you; whoever can feed it gets an agent's full tool set`);
+		for (const [name, s] of Object.entries(sources)) if (s.trust === "owner" && s.type !== "telegram") out.push(`${where}: what the source "${name}" (${s.type ?? "custom"}) reports is treated as coming from you; whoever can feed it gets an agent's full tool set`);
 	}
 	// A source type is a program inside the daemon, whoever wrote it.
 	for (const [name, file] of Object.entries(cfg.sourceTypes)) out.push(`source type "${name}": ${file} runs inside pine with your rights, outside any sandbox`);

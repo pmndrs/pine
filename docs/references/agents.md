@@ -76,9 +76,9 @@ Its system prompt is put together from, in this order:
    After them the instruction files of a folder opened for the conversation, and any files in
    `context`.
 4. Its skills: one line each; the agent reads a skill's file when it needs it. One skill is
-   always there: `pine`, this manual. An agent asked for a schedule or another model reads it
-   and tells you what to put into which file; an event source, an MCP server or a skill it sets
-   up itself by tool call ([setup.md](setup.md)).
+   always there: `pine`, this manual. An agent asked for another model or a route reads it
+   and tells you what to put into which file; an event source, a schedule, an MCP server or a
+   skill it sets up itself by tool call ([setup.md](setup.md)).
 5. A `<pine>` block: who the agent is, which agents it can delegate to, which MCP servers it
    has. It only changes when the configuration does.
 

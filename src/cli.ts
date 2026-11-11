@@ -4,6 +4,7 @@ import path from "node:path";
 import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig } from "./config.ts";
 import { audit } from "./security.ts";
 import { allSkills, listSkills } from "./skills.ts";
+import { whenText } from "./timers.ts";
 import { expandHome } from "./util.ts";
 
 const HELP = `pine - PI neural engine
@@ -58,6 +59,7 @@ Event sources
 MCP servers
   pine mcp list                   configured servers, who gets them, and whether they connect
   pine skills                     every skill: whom it is for and where it lies
+  pine schedules                  what is scheduled: for whom, when, and the task
   pine mcp add <name> <https-url> [--agent id] [--taints] [--approve always|tainted] [--timeout seconds]
   pine mcp add <name> [--agent id] -- <command> [args...]
   pine mcp remove <name> [--agent id]
@@ -205,7 +207,7 @@ async function installBrowser(): Promise<number> {
 	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
 }
 
-const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "mcp", "mode", "reset", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
+const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "mcp", "mode", "reset", "schedules", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
 
 /** Whether a first argument means a folder to open: something written as a path, or the name of a folder here that is not a command. */
 function folderArgument(word: string | undefined, cwd = process.cwd()): string | undefined {
@@ -305,6 +307,16 @@ async function main(): Promise<void> {
 	}
 
 	if (cmd === "mcp") return mcpCommand(cfg, process.argv.slice(process.argv.indexOf("mcp") + 1), out);
+
+	if (cmd === "schedules") {
+		const list = [...cfg.schedules.map((s) => ({ s, whom: s.task ? "all agents" : `event ${s.topic} only` })), ...Object.values(cfg.agents).flatMap((a) => a.schedules.map((s) => ({ s, whom: s.session ? `conversation ${s.session} of ${a.id}` : `agent ${a.id}` })))];
+		if (!list.length) return out("nothing is scheduled. An agent schedules something when you ask it to (\"every morning at seven ...\", \"remind me at five\"), or write it under \"schedules\"; see docs/references/events.md");
+		for (const { s, whom } of list) {
+			out(`${s.name}  ${whom}  ${whenText(s)}`);
+			if (s.task) out(`    ${s.task}`);
+		}
+		return;
+	}
 
 	if (cmd === "skills") {
 		const list = allSkills(cfg);

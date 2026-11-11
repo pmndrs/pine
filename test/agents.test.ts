@@ -327,7 +327,7 @@ test("against a server with a prompt cache, every turn after the first reads alm
 });
 
 test("conversations stay until they are removed or unused for too long; pinned, open and listening ones stay; a new name keeps everything", async () => {
-	const h = await harness({ pine: { sources: { clock: { type: "timer", every: "1h" } } }, agents: { main: {} } });
+	const h = await harness({ pine: { sources: { clock: { type: "command", run: "true", every: "1h" } } }, agents: { main: {} } });
 	const say = (session: string, prompt: string) => h.pine.agents.run({ agent: "main", prompt, session, ...owner });
 	const names = () => h.pine.agents.conversations("main").map((x) => x.session).sort();
 	const dir = (name: string) => path.join(h.home, "agents", "main", "sessions", name);

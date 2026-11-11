@@ -1,8 +1,9 @@
 # Events, routes and schedules
 
-> To let an agent react to a folder, a device, a web request or a clock, you usually do not
-> need this page: configure a [source](sources.md) and have the agent subscribe. Routes are for
-> rules of your own: setting state, chaining events, single model calls.
+> To let an agent react to a folder, a device or a web request, you usually do not need this
+> page: ask it, or configure a [source](sources.md) and have the agent subscribe. To have it do
+> something at a time, ask it too: see "Schedules" below. Routes are for rules of your own:
+> setting state, chaining events, single model calls.
 
 ## Topics
 
@@ -20,9 +21,9 @@ Where events come from:
 | Source | Topics | Trust |
 |---|---|---|
 | Webhook `POST /hook/<name>` | `hook/<name>` (or the hook's `topic`) | untrusted |
-| Event sources ([sources.md](sources.md)) | `source/<name>/<event>`, or `source/<name>@<agent>/<event>` for an agent's own | untrusted; owner for a `timer`, for a paired `telegram` account, and for a source marked `"trust": "owner"` |
+| Event sources ([sources.md](sources.md)) | `source/<name>/<event>`, or `source/<name>@<agent>/<event>` for an agent's own | untrusted; owner for a paired `telegram` account, and for a source marked `"trust": "owner"` |
 | `pine emit`, `POST /events` | whatever you name | owner |
-| Schedules | `timer/<name>` | owner |
+| Schedules | `timer/<name>`, or `timer/<name>@<agent>` for an agent's own | owner |
 | Agents (`publish_event`) | topics in the agent's `publish` list | owner, or untrusted if the run was restricted |
 | pine | `agent/...`, `state/...`, `approval/...`, `pine/...` | untrusted |
 
@@ -144,29 +145,78 @@ is that the run has fewer tools (see [security.md](security.md)).
 
 ## Schedules
 
+A schedule is something that happens because of the time: again and again, or once. It is the
+fourth thing an agent can be given by asking, next to event sources, MCP servers and skills,
+and it has the same three scopes ([setup.md](setup.md)).
+
+### Ask the agent
+
+> Every weekday at seven, check my mail and tell me on Telegram what matters.
+
+> Remind me at five to call the dentist.
+
+> In twenty minutes, look whether the build is through.
+
+The agent calls `add_schedule` with a name, the time and the task in its own words. When it is
+time, it is woken with that task, also when you are not there, and does it. What it starts
+counts as your wish: the agent has its usual tools, and nothing is marked as outside content.
+
+| Said | Who is woken | You are asked |
+|---|---|---|
+| in a side conversation | That conversation; the schedule goes when the conversation is removed | No |
+| in the agent's main conversation, or "as an agent" | The agent's main conversation | Only from a side conversation |
+| "all agents" | Every agent, each in its main conversation. Only the main agent can do this | Yes |
+
+In a conversation that has read outside content you are asked in every case, and the dialog
+shows the task: what a web page says must not become something that is done every hour.
+
+| Tool | |
+|---|---|
+| `schedules` | What is scheduled for this agent, in which conversation, and when each is next due. |
+| `add_schedule` `name` `task` + one of `cron`, `every`, `at`, `in` [`scope`] | Schedules it. `cron`: set times; `every`: an interval, at least a minute; `at`: once, at a local time (`2026-12-24 17:00`); `in`: once, after this long (`20m`). |
+| `remove_schedule` `name` | Ends one. This conversation's own goes without a question. |
+
+A schedule that happens once removes itself when it has fired. One that was due while pine was
+not running is done when pine starts again, and the agent is told that it comes late. `pine
+schedules` lists everything that is scheduled.
+
+### In the files
+
 ```json
 "schedules": [
-  { "name": "morning", "cron": "30 7 * * 1-5", "payload": { "what": "morning brief" } },
-  { "name": "printer-check", "every": "10m" },
-  { "name": "backup-report", "cron": "0 9 * * *", "catchUp": true }
+  { "name": "brief", "cron": "30 7 * * 1-5", "task": "Prepare the morning brief and send it to me on Telegram." },
+  { "name": "dentist", "at": "2026-11-12T17:00", "task": "Remind me to call the dentist." },
+  { "name": "printer-check", "every": "10m" }
 ]
 ```
 
+In an `agent.json` this is that agent's schedule (add `"session": "<conversation>"` for one
+conversation, otherwise its main one). In `pine.json` a schedule with a task wakes every
+agent; one without a task only publishes an event.
+
 | Key | Meaning |
 |---|---|
-| `name` | Required. The event is published on `timer/<name>` unless `topic` says otherwise. |
+| `name` | Required. Lowercase letters, digits, `-` and `_`. The event is published on `timer/<name>` (`timer/<name>@<agent>` for an agent's own) unless `topic` says otherwise. |
 | `cron` | Five fields, local time: minute, hour, day of month, month, day of week (0 or 7 is Sunday). Lists, ranges and steps work: `*/15 8-18 * * 1-5`. |
-| `every` | A fixed interval instead of `cron`. |
+| `every` | A fixed interval instead. |
+| `at` | Once, at this local time. The entry is removed when it has fired. |
+| `task` | What the agent is to do. Required in an `agent.json`. |
+| `session` | In an `agent.json`: the conversation that is woken. Default: the main one. |
 | `payload` | Fields added to the event's payload (`name`, `scheduled` are always there). |
-| `catchUp` | Fire once at startup if a cron time passed while the daemon was down. |
+| `catchUp` | Fire once at startup if a cron time passed while the daemon was down. Default: `true` with a task, `false` without. |
 
-A schedule only publishes an event. Pair it with a route:
+### Schedules and routes
+
+Every schedule also publishes an event, trusted as yours, so a route can act on it. For a
+schedule without a task that is all it does:
 
 ```json
-{ "on": "timer/morning", "agent": "main", "session": "new",
-  "prompt": "Prepare the morning brief: calendar, open tasks, anything the house agent recorded overnight. Reply NO_REPLY if there is nothing worth reading.",
-  "reply": { "topic": "out/source/telegram" } }
+{ "on": "timer/printer-check", "call": { "prompt": "..." } }
 ```
+
+A route is the way to do something other than an agent's turn at a time: set state, publish,
+or one model call without tools. For "wake the agent and let it do this", give the schedule a
+task instead; no route is needed.
 
 ## Webhooks
 

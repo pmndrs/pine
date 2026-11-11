@@ -41,8 +41,8 @@ refusing; it limits what a run can do, by where its input came from.
 ### 2. Where content came from decides what it may do
 
 Every event carries `trust`. It is `owner` only when the content came through a channel that
-authenticated you: an allow-listed Telegram user, the control API, a schedule or a timer source
-you wrote. Everything else is `untrusted`.
+authenticated you: an allow-listed Telegram user, the control API, or a schedule (one you
+wrote, or one an agent made at your wish). Everything else is `untrusted`.
 
 A task started by an untrusted event runs with the agent's `untrusted` profile:
 
@@ -247,7 +247,7 @@ safe:
 - An agent can set up a source itself (`add_source`), but only in a conversation with you, and
   you confirm everything that opens something new: a folder outside its workspace (which it may
   then also read), a connection, a port, a source for all agents, a source to be trusted as
-  yours. Only a timer or a folder in its own workspace goes through without a question, and
+  yours. Only a folder in its own workspace goes through without a question, and
   not in a conversation that has read outside content or in manual mode. A secret that pine
   makes (a webhook's secret, an FTP drop's password) is not shown to the model: the agent is
   told the name of its `.env` entry. A password you tell the agent passes through the tool call
@@ -333,7 +333,21 @@ hand (`sourceTypes` in `pine.json`) or through the main agent's `add_source_type
 Read the file before you confirm. Nothing else stands between that module and your account.
 `pine check` lists every registered source type with the file it runs.
 
-### 7. Skills are instructions
+### 7. Schedules act in your name
+
+What a schedule starts counts as your wish: the agent is woken with its usual tools, and
+nothing is marked as outside content. So a schedule must really be your wish:
+
+- An agent schedules for the conversation it is in, or for itself from its main conversation,
+  without a question. For itself from a side conversation, or for all agents (the main agent
+  only), you are asked.
+- In a conversation that has read outside content you are asked in every case, in every mode,
+  and you see the task: a sentence on a web page must not turn into something done every hour.
+- An interval an agent sets is at least a minute.
+- A schedule is an entry in pine's configuration, which agents cannot write. `pine schedules`
+  and the agent's `schedules` tool show all of them with their tasks.
+
+### 8. Skills are instructions
 
 A skill is read into an agent's prompt (its name and description) and followed when a task
 calls for it, so it is guarded like the instruction files:
@@ -348,7 +362,7 @@ calls for it, so it is guarded like the instruction files:
 - Files are copied as files. A link in the folder that is to go along is refused, so a skill
   cannot be made to carry a file from outside the workspace.
 
-### 8. Outputs check for themselves
+### 9. Outputs check for themselves
 
 Whatever asks, the Telegram source sends only to your own chat, and the MQTT source publishes
 only to topics on its `publish` list. In a conversation that has read outside content, the
@@ -356,7 +370,7 @@ only to topics on its `publish` list. In a conversation that has read outside co
 may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/`, `pine/`,
 `state/`, `timer/`).
 
-### 9. Secrets
+### 10. Secrets
 
 - Secrets live in `.env`. pine fills them into the configuration and does not put them into
   its environment, so child processes do not inherit them.
@@ -371,7 +385,7 @@ may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/
   model have still seen it: change such a secret if the model is not yours.
 - `pine check` reports configuration files other users can read.
 
-### 10. Limits against runaway behaviour
+### 11. Limits against runaway behaviour
 
 Delegation depth and loops, event hops, queue length per agent, task and shell time limits,
 prompt size for untrusted events, webhook rate. All in [configuration.md](configuration.md).
@@ -431,7 +445,7 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
 ## Checklist
 
 1. `pine check` shows "No security notes", or you know why each note is there.
-2. Every webhook has a secret, and `pine check` names no source whose reports count as yours unless it should (a timer and a paired Telegram account are not listed).
+2. Every webhook has a secret, and `pine check` names no source whose reports count as yours unless it should (a paired Telegram account is not listed).
 3. `.env`, `pine.json`, `models.json` are mode 600; the home is 700.
 4. No agent has `"sandbox": false`, `"trustWorkspace": true` or `"mode": "bypass"` in its configuration.
 5. Web and browser tools are on an agent whose workspace holds nothing private.

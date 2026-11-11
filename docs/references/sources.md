@@ -45,7 +45,7 @@ scans", or `pine unsubscribe main scans`.
 ```json
 "sources": {
   "<name>": {
-    "type": "folder | mqtt | webhook | ftp | timer | telegram | http | command",
+    "type": "folder | mqtt | webhook | ftp | telegram | http | command",
     "description": "one line, shown to agents and in listings",
     "...": "the options of the type, see below"
   }
@@ -57,7 +57,7 @@ scans", or `pine unsubscribe main scans`.
 | `type` | | One of the built-in types below, or a type of your own registered under `sourceTypes` (see "A source type of your own"). Or `use` instead: the path of a module, for a one-off. |
 | `description` | | What it reports. Agents choose what to subscribe to by this line, so write it for them. |
 | `agents` | all | In `pine.json` only: the agents that may subscribe, e.g. `["house"]`. |
-| `trust` | `"untrusted"` (`"owner"` for `timer`) | Who its events speak for. See "Trust" below. |
+| `trust` | `"untrusted"` | Who its events speak for. See "Trust" below. |
 | `start` | `"subscribed"` | `"always"` runs it from start even without a subscriber, for [routes](events.md) that use its events. |
 | `enabled` | `true` | `false` keeps the entry but nobody can subscribe. |
 | `session` | | In an `agent.json` only, written by `add_source`: the one conversation the source was set up for. Other conversations do not see it, and it is removed with that conversation. |
@@ -75,6 +75,9 @@ like the built-in ones.
 Events are published as `source/<name>/<event>`, or `source/<name>@<agent>/<event>` for an
 agent's own source. They are in the event log (`pine events --topic 'source/#'`) like all
 others, and routes can match them.
+
+What should happen at a time ("every morning at seven", "remind me at five") is not a source
+but a schedule: [events.md](events.md), "Schedules".
 
 ## The built-in types
 
@@ -173,22 +176,6 @@ Event `upload`: `{ file, path, size, from, images? }`. `file` is the name the de
 It speaks plain FTP, as these devices do, so the password crosses your network unencrypted. It
 only receives: nothing can be listed, read, changed or deleted through it, and every file lands
 under a name of pine's choosing in the source's own folder. Set the device to passive mode.
-
-### timer
-
-A clock.
-
-```json
-"morning": { "type": "timer", "cron": "0 7 * * 1-5", "description": "every working day at seven" }
-```
-
-| Option | |
-|---|---|
-| `cron` | Five fields, local time: minute hour day-of-month month day-of-week. |
-| `every` | An interval instead: `"15m"`, `"2h"`. |
-| `payload` | Extra fields to put into each event. |
-
-Event `tick`: `{ scheduled, ...payload }`. A timer is yours, so its events are trusted by default.
 
 ### telegram
 
@@ -400,7 +387,7 @@ Every agent has these tools for it:
 |---|---|
 | `sources` | Lists the sources it can use and what is subscribed: this conversation, the agent, all agents, its other conversations. "What are you subscribed to?" always has an answer. |
 | `subscribe`, `unsubscribe` | For a source that exists. |
-| `add_source` | Sets up a new source and subscribes to it in one step: "watch my project folder", "wake up every morning at seven", "listen to the printer". The source runs at once, without a restart. |
+| `add_source` | Sets up a new source and subscribes to it in one step: "watch my project folder", "tell me when the price drops", "listen to the printer". The source runs at once, without a restart. |
 | `remove_source` | Deletes a source for good, with its subscriptions. |
 | `add_source_type`, `remove_source_type` | Only the main agent: brings a new kind of source into pine, or takes it out. See "A source type of your own". |
 
@@ -434,7 +421,7 @@ The type checks them. An option it does not have, a missing one or a wrong kind 
 answered with what the type takes, before anything is written or you are asked anything. The
 type also says what the source would do, and whether that is something new:
 
-- A timer, or a folder inside the agent's own workspace: nothing new is opened, so no question
+- A folder inside the agent's own workspace: nothing new is opened, so no question
   (except in manual mode, or in a conversation that has read outside content).
 - A folder elsewhere, an MQTT broker, a web address, a command, a webhook, an FTP drop, anything
   for all agents, or a source whose events are to be trusted as yours: you get a dialog that says exactly what will
@@ -587,7 +574,7 @@ conversation: actions that send information out or act on the world ask you firs
 mode is paused.
 
 `"trust": "owner"` on a source says: this is my own device or schedule, and nobody else can
-make it say things. Its events then leave no mark. Use it for a timer (the default there), a
+make it say things. Its events then leave no mark. Use it for a
 printer on your own network, a broker with a password. Do not use it for a webhook that carries
 text written by other people (issue titles, mail subjects), whatever the secret.
 

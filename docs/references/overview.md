@@ -9,7 +9,7 @@
  │ mqtt       broker subscription │──►│  topic · payload · trust     │      │ any OpenAI-style │
  │ folder     new files           │   │        │                     │      │ endpoint         │
  │ http       webhooks, API       │   │        ▼                     │      └────────▲─────────┘
- │ timers     cron, intervals     │   │  routes and subscriptions    │               │
+ │ schedules  cron, once, again   │   │  routes and subscriptions    │               │
  └────────────────────────────────┘   │   when · debounce · throttle │               │ model slots
              ▲                        │        │                     │               │ (priority queue)
              │                        │        ├─ set state          │               │
@@ -78,9 +78,10 @@ A route names topic patterns and what to do. It can do several things at once, c
 Most events should stop at 1 or 2. See [events.md](events.md).
 
 The common case needs no route: an agent subscribes to an event source (a folder, an MQTT
-device, a webhook, an FTP drop, a timer), and each event the source reports arrives in the
+device, a web address, a webhook, an FTP drop), and each event the source reports arrives in the
 subscribed conversation as a message and starts a turn. A source that nobody is subscribed to
-is not running. See [sources.md](sources.md).
+is not running. See [sources.md](sources.md). For something to be done at a time, the agent
+makes a schedule, which wakes it with the task ([events.md](events.md)).
 
 ## Tasks, sessions, slots
 

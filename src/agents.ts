@@ -23,6 +23,7 @@ import { editJson, removeServer } from "./mcp-config.ts";
 import { fetchToFile } from "./net.ts";
 import { sandboxedFileTools, sandboxExec, sniffImage } from "./sandbox-fs.ts";
 import type { SourceHost } from "./sources.ts";
+import type { Scheduler } from "./timers.ts";
 import { pineTools } from "./tools.ts";
 import { Type } from "typebox";
 import type { ContextUse, ImageRef, PineEvent, ReplyTarget, Task, TaskKind, TaskResult, TaskStatus, TranscriptEntry, Trust } from "./types.ts";
@@ -41,7 +42,7 @@ const contextOf = (session: any): ContextUse | undefined => {
 
 /** Tools that only look. In manual mode everything else waits for approval. */
 // The last ones change pine's setup and ask the owner themselves, each where it matters.
-const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "create_agent"];
+const LOOK_ONLY = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "schedules", "add_schedule", "remove_schedule", "create_agent"];
 /** From this many characters on, an agent is reminded to tidy its MEMORY.md. */
 const MEMORY_LONG = 6000;
 
@@ -77,7 +78,7 @@ const BASE_PROMPT = `You are an agent in pine, a system that runs several AI age
 
 <limits>
 - Your shell and file tools work inside your workspace and a private home folder. The rest of the computer, including pine's own configuration, is closed to you. When a tool call is refused, do not look for a way around it: say what you could not do.
-- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove remote MCP servers (add_mcp_server, remove_mcp_server), and write down how something is done as a skill (add_skill, remove_skill); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. {{ROLE}} Everything else (your built-in tools, your model) your owner changes in pine's home folder, followed by a restart: read the "pine" skill and explain the steps for them to take.
+- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove remote MCP servers (add_mcp_server, remove_mcp_server), write down how something is done as a skill (add_skill, remove_skill), and do things at set times (add_schedule, remove_schedule); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. {{ROLE}} Everything else (your built-in tools, your model) your owner changes in pine's home folder, followed by a restart: read the "pine" skill and explain the steps for them to take.
 - Passwords, tokens and keys are not yours to handle. Never ask your owner to write one into the conversation, and do not look for one in files: a tool that needs one gets it from your owner through pine's own dialog, or by its name in pine's .env file.
 - Some actions need your owner's approval. If one is not approved, do not retry it: report what you wanted to do and why.
 </limits>
@@ -189,6 +190,8 @@ export class AgentManager {
 	private log: Logger;
 	/** Event sources and subscriptions. Set by the daemon once both exist. */
 	sources?: SourceHost;
+	/** Set by the daemon once the scheduler exists. */
+	schedules?: Scheduler;
 	private modelRuntime!: ModelRuntime;
 	private lives = new Map<string, Live>();
 	private creating = new Map<string, Promise<Live>>();
@@ -674,7 +677,7 @@ export class AgentManager {
 		const days = this.cfg.limits.conversationDays;
 		const list = this.tasks.sessions(agentId).map((s) => {
 			const base = s.session.replace(/~u$/, "");
-			const stays = base === "main" || pinned.includes(`${agentId}:${s.session}`) || open.includes(s.session) || agent.subscribe.some((x) => x.session === base) || !(days > 0);
+			const stays = base === "main" || pinned.includes(`${agentId}:${s.session}`) || open.includes(s.session) || agent.subscribe.some((x) => x.session === base) || agent.schedules.some((x) => x.session === base) || !(days > 0);
 			return { ...s, pinned: pinned.includes(`${agentId}:${s.session}`), open: open.includes(s.session), expires: stays ? undefined : s.last + days * 86_400_000, folder: this.folderOf(agentId, s.session) };
 		});
 		return [...list.filter((s) => s.pinned), ...list.filter((s) => !s.pinned)];
@@ -703,6 +706,7 @@ export class AgentManager {
 		const servers = own ? Object.entries(agent.mcp).filter(([, s]) => s.session === keys[0]).map(([name]) => name) : [];
 		for (const name of servers) removeServer(this.cfg, name, agentId);
 		if (own) dropConversationSkills(agent, keys[0]);
+		if (own) this.schedules?.closeSession(agentId, keys[0]);
 		let removed = false;
 		const root = path.join(agent.dir, "sessions");
 		for (const key of keys) {
@@ -763,6 +767,7 @@ export class AgentManager {
 		this.saveUiTabs(ui.tabs.map((t) => (t.agent === agentId && t.session === from ? { agent: agentId, session: b } : t)), ui.active);
 		await this.sources?.renameSession(agentId, a, b);
 		renameConversationSkills(agent, a, b);
+		this.schedules?.renameSession(agentId, a, b);
 		const servers = Object.entries(agent.mcp).filter(([, s]) => s.session === a);
 		if (servers.length) {
 			editJson(path.join(agent.dir, "agent.json"), (json) => {

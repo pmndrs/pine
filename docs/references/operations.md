@@ -160,6 +160,7 @@ the example home, `pine init` copies the files you do not have yet and overwrite
 | `pine mode <agent> [manual\|auto\|bypass]` | Show or change an agent's mode until the daemon restarts |
 | `pine mcp list` | MCP servers, who gets them, whether they connect |
 | `pine skills` | Every skill: whom it is for (all agents, an agent, one conversation) and where it lies |
+| `pine schedules` | What is scheduled: for whom, when, and the task |
 | `pine mcp add <name> <url>`, `pine mcp add <name> -- <command...>` | Add a remote or a local server. `--agent <id>` for one agent |
 | `pine mcp remove <name> [--agent <id>]` | Remove a server from `pine.json`, or from that agent's `agent.json` |
 | `pine mcp login <name>`, `pine mcp logout <name>` | Sign in to a remote server through the browser, or forget its tokens |
@@ -270,8 +271,8 @@ are JSON with `Content-Type: application/json`.
 | `SOUL.md`, `AGENTS.md`, `MEMORY.md` | The same three names in the agent's workspace, read into its prompt and written by the agent |
 | `USER.md` | One `USER.md` in pine's home for all agents, kept by the main agent |
 | `IDENTITY.md`, `TOOLS.md`, daily memory files | Not read by pine. Fold what matters into `SOUL.md`, `AGENTS.md` or `MEMORY.md`; other notes are ordinary files in the workspace |
-| Cron jobs | A `timer` source the agent subscribes to, or `schedules` plus a route |
-| Heartbeat | A `timer` source with `every`, subscribed with a note that ends in "reply NO_REPLY if nothing needs attention" |
+| Cron jobs | A schedule: ask the agent ("every morning at seven ..."), or write it under `schedules` with a `task` |
+| Heartbeat | Usually not needed: an event source wakes the agent when something happens, and looking again and again (`http`, `command`) costs no model turn. For a real one, a schedule with `every` whose task ends in "reply NO_REPLY if nothing needs attention" |
 | `/hooks/*` mappings | A `webhook` source the agent subscribes to, or `http.hooks` plus a route |
 | Managed extensions that watch something and message Telegram themselves | An event source the agent subscribes to (a folder, an FTP drop, MQTT), and the `send` tool for what it reports to you on Telegram. The agent then knows what happened |
 | Skills | Skills, same format |

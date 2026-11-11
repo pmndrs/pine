@@ -598,10 +598,12 @@ test("tui: a sub-agent's work opens in a tab of its own, while it runs and after
 });
 
 test("tui: an event from a subscribed source arrives in the conversation the agent subscribed in", async () => {
-	const t = await open({ pine: { sources: { clock: { type: "timer", every: "1s", description: "a tick every second" } } }, agents: { main: {} } });
+	// A source of the test's own that reports by itself, again and again.
+	const CLOCK = `export default function (source: any) {\n\tconst timer = setInterval(() => source.emit("tick", { scheduled: new Date().toISOString() }), 400);\n\tsource.onStop(() => clearInterval(timer));\n}\n`;
+	const t = await open({ pine: { sources: { clock: { use: "./sources/clock.ts", trust: "owner", description: "a tick every second" } } }, files: { "sources/clock.ts": CLOCK }, agents: { main: {} } });
 	await t.sees("type a message");
 	await t.send("/sources");
-	await t.sees(/clock timer idle · a tick every second/);
+	await t.sees(/clock custom idle · a tick every second/);
 	await t.send("/subscribe clock say tock");
 	await t.sees("main is subscribed to clock (running). Each event arrives in its main conversation, here, and wakes it.");
 	// The tick shows up here as an event, not as something typed, and the agent answers it here.

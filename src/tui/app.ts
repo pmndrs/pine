@@ -1219,7 +1219,7 @@ export class PineTui {
 
 	/** An event that woke the agent, shown as what it is and not as something you typed: the source, and the start of what it reported. */
 	private eventLine(tab: Tab, label: string, prompt: string): void {
-		const body = prompt.replace(/^\[(?:You are subscribed to|Your owner wrote|Somebody wrote)[\s\S]*?\]\n\n/, "").replace(/^\[event on [^\n]*\]\n/, "").replace(/^Event [^\n]*:\n/, "");
+		const body = prompt.replace(/^\[(?:You are subscribed to|Your owner wrote|Somebody wrote|It is time for your schedule)[\s\S]*?\]\n\n/, "").replace(/^\[event on [^\n]*\]\n/, "").replace(/^Event [^\n]*:\n/, "");
 		// Paths under the user's home are shown the short way, as one would type them.
 		this.say(tab, `${c.yellow("⚡")} ${c.bold(label)}\n${c.gray(`  ${short(oneLine(body).replaceAll(os.homedir(), "~"), 300)}`)}`);
 	}

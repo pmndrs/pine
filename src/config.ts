@@ -32,8 +32,8 @@ export interface McpServerConfig {
 }
 
 /**
- * A source of outside events: a watched folder, an MQTT broker, a webhook, an FTP drop, a timer,
- * or your own module. Like an MCP server it only is there; nothing happens until an agent
+ * A source of outside events: a watched folder, an MQTT broker, a webhook, an FTP drop, a web
+ * address, or your own module. Like an MCP server it only is there; nothing happens until an agent
  * subscribes to it. The remaining keys are the options of its type.
  */
 export interface SourceConfig {
@@ -57,7 +57,7 @@ export interface SourceConfig {
 	options: Record<string, any>;
 }
 
-export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "timer", "telegram", "http", "command"];
+export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command"];
 
 /**
  * A subscription: one conversation of an agent listens to one source, and each event of the source
@@ -125,12 +125,25 @@ export interface RouteConfig {
 	label?: string;
 }
 
+/**
+ * Something that happens at a time: every so often, at set times, or once. With a `task` it wakes
+ * an agent to do that task; without one it only publishes an event for a route to pick up.
+ *
+ * Like sources, servers and skills, a schedule is for all agents (pine.json), for one agent
+ * (agent.json) or for one conversation of an agent (agent.json, with `session`).
+ */
 export interface ScheduleConfig {
 	name: string;
 	/** Five-field cron expression in local time. */
 	cron?: string;
-	/** Fixed interval such as "15m". */
+	/** Fixed interval such as "15m", in milliseconds. */
 	every?: number;
+	/** Once, at this moment (milliseconds since 1970). The schedule is removed when it has fired. */
+	at?: number;
+	/** What the agent is to do when it fires, written to the agent. */
+	task?: string;
+	/** The conversation that is woken. Leaving it out is the agent as such: its main conversation. */
+	session?: string;
 	topic: string;
 	payload?: unknown;
 	/** Fire once at startup when a cron time passed while the daemon was down. */
@@ -191,6 +204,8 @@ export interface AgentConfig {
 	sources: Record<string, SourceConfig>;
 	/** What this agent's conversations are subscribed to: its own sources or global ones. */
 	subscribe: SubscriptionConfig[];
+	/** What this agent does at set times: for the agent as such, or (with `session`) for one conversation. */
+	schedules: ScheduleConfig[];
 	extensions: string[];
 	skills: string[];
 	/** Extra instruction files loaded into the system prompt, besides AGENTS.md in the agent dir and the workspace. */
@@ -337,6 +352,7 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 		globalMcp: raw.globalMcp ?? true,
 		sources: loadSources(raw.sources, dir, `${where}: sources`, problems, Object.keys(cfg.sourceTypes)),
 		subscribe: loadSubscriptions(raw.subscribe, `${where}: subscribe`, problems),
+		schedules: loadSchedules(raw.schedules, problems, where, id),
 		extensions: paths(raw.extensions, dir),
 		skills: paths(raw.skills, dir),
 		context: paths(raw.context, dir),
@@ -403,26 +419,37 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 	});
 }
 
-function loadSchedules(raw: unknown, problems: string[]): ScheduleConfig[] {
+/** `file`: where the list stands. `agent`: the agent it belongs to, whose schedules need a task and are published under its name. */
+function loadSchedules(raw: unknown, problems: string[], file = "pine.json", agent?: string): ScheduleConfig[] {
 	if (raw === undefined) return [];
 	if (!Array.isArray(raw)) {
-		problems.push("pine.json: schedules must be an array");
+		problems.push(`${file}: schedules must be an array`);
 		return [];
 	}
 	return raw.flatMap((s, i) => {
-		const where = `pine.json: schedules[${i}]`;
+		const where = `${file}: schedules[${i}]`;
 		if (!s?.name) {
 			problems.push(`${where}: needs "name"`);
 			return [];
 		}
-		if (!s.cron === !s.every) problems.push(`${where}: needs exactly one of cron, every`);
+		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(s.name)) problems.push(`${where}: a schedule's name is lowercase letters, digits, - and _`);
+		if ([s.cron, s.every, s.at].filter((x) => x !== undefined).length !== 1) problems.push(`${where}: needs exactly one of cron, every, at`);
+		const task = typeof s.task === "string" && s.task.trim() ? s.task.trim() : undefined;
+		if (agent && !task) problems.push(`${where}: needs "task": what the agent is to do when it fires`);
 		let every: number | undefined;
+		let at: number | undefined;
 		try {
 			every = s.every !== undefined ? parseDuration(s.every) : undefined;
+			if (s.at !== undefined) {
+				at = typeof s.at === "number" ? s.at : Date.parse(String(s.at));
+				if (!Number.isFinite(at)) throw new Error(`"${s.at}" is not a time. Write it as 2026-12-24T17:00`);
+			}
 		} catch (e) {
 			problems.push(`${where}: ${(e as Error).message}`);
 		}
-		return [{ name: s.name, cron: s.cron, every, topic: s.topic ?? `timer/${s.name}`, payload: s.payload, catchUp: s.catchUp === true }];
+		const key = agent ? `${s.name}@${agent}` : s.name;
+		// A task that was due while pine was not running is still worth doing; an event for a route is not repeated unless asked.
+		return [{ name: s.name, cron: s.cron, every, at, task, session: typeof s.session === "string" && s.session ? s.session : undefined, topic: s.topic ?? `timer/${key}`, payload: s.payload, catchUp: s.catchUp === undefined ? Boolean(task) : s.catchUp === true }];
 	});
 }
 
@@ -626,7 +653,9 @@ function loadSources(raw: unknown, base: string, where: string, problems: string
 			continue;
 		}
 		if (!v.type === !v.use) problems.push(`${where}.${name} needs either "type" (${types.join(", ")}) or "use" (a module of your own)`);
-		if (v.type && !types.includes(v.type)) problems.push(`${where}.${name}: unknown type "${v.type}" (have: ${types.join(", ")})`);
+		// Times are not a source any more: a schedule does what a timer source and a subscription did together.
+		if (v.type === "timer") problems.push(`${where}.${name}: there is no "timer" source any more. Something that happens at a time is a schedule: ask the agent ("every morning at seven, ..."), or write { "name": "${name}", ${v.cron ? `"cron": "${v.cron}"` : `"every": "${v.every ?? "1h"}"`}, "task": "what to do" } under "schedules" and remove this source and its subscriptions`);
+		else if (v.type && !types.includes(v.type)) problems.push(`${where}.${name}: unknown type "${v.type}" (have: ${types.join(", ")})`);
 		if (v.trust !== undefined && v.trust !== "owner" && v.trust !== "untrusted") problems.push(`${where}.${name}: trust is "owner" or "untrusted"`);
 		if (v.start !== undefined && v.start !== "subscribed" && v.start !== "always") problems.push(`${where}.${name}: start is "subscribed" or "always"`);
 		out[name] = {
@@ -636,8 +665,8 @@ function loadSources(raw: unknown, base: string, where: string, problems: string
 			description: typeof v.description === "string" ? v.description : undefined,
 			agents: Array.isArray(v.agents) ? v.agents.map(String) : undefined,
 			session: typeof v.session === "string" && v.session ? v.session : undefined,
-			// A timer is yours by nature; everything else carries what someone or something else produced.
-			trust: v.trust ?? (v.type === "timer" ? "owner" : "untrusted"),
+			// What a source reports was produced by someone or something else, unless the owner says it is theirs.
+			trust: v.trust ?? "untrusted",
 			start: v.start ?? "subscribed",
 			enabled: v.enabled !== false,
 			options: Object.fromEntries(Object.entries(v).filter(([k]) => !SOURCE_KEYS.includes(k))),

@@ -108,8 +108,8 @@ test("sources: a configured source does nothing until an agent subscribes; then 
 test("sources: an agent's own source is its own, a global one can be limited, and a source cannot be subscribed to from outside content", async () => {
 	const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
 	const h = await harness({
-		pine: { sources: { shared: { type: "timer", every: "1h" }, legal: { type: "timer", every: "1h", agents: ["gonzo"] } } },
-		agents: { main: { agent: { mcp: { feed } } }, gonzo: { agent: { sources: { inbox: { type: "timer", every: "1h", description: "gonzo's own clock" } }, subscribe: ["inbox"] } } },
+		pine: { sources: { shared: { type: "command", run: "true", every: "1h" }, legal: { type: "command", run: "true", every: "1h", agents: ["gonzo"] } } },
+		agents: { main: { agent: { mcp: { feed } } }, gonzo: { agent: { sources: { inbox: { type: "command", run: "true", every: "1h", description: "gonzo's own check" } }, subscribe: ["inbox"] } } },
 	});
 	const names = (agent: string) => h.pine.sources.available(agent).map((s) => s.name).sort();
 	assert.deepEqual(names("main"), ["shared"]);
@@ -137,7 +137,7 @@ test("sources: an agent's own source is its own, a global one can be limited, an
 	await h.close().catch(() => {});
 });
 
-test("sources: webhook, timer and mqtt", async (t) => {
+test("sources: webhook and mqtt", async (t) => {
 	const broker = await Aedes.createBroker();
 	const server = net.createServer(broker.handle);
 	t.after(() => new Promise<void>((r) => broker.close(() => server.close(() => r()))));
@@ -148,12 +148,11 @@ test("sources: webhook, timer and mqtt", async (t) => {
 			http: { port: 0 },
 			sources: {
 				github: { type: "webhook", secret: "hook-secret-123456" },
-				clock: { type: "timer", every: "1s", payload: { what: "check the mail" } },
 				printer: { type: "mqtt", url, topics: ["device/+/report"], minInterval: "5s", trust: "owner", description: "the 3D printer" },
 				broken: { type: "webhook" },
 			},
 		},
-		agents: { main: { agent: { subscribe: { clock: { session: "errands" }, printer: { when: { "payload.value.state": "FINISH" }, throttle: "0s" } } } } },
+		agents: { main: { agent: { subscribe: { printer: { when: { "payload.value.state": "FINISH" }, throttle: "0s" } } } } },
 	});
 	const base = `http://127.0.0.1:${h.pine.http!.port}`;
 	const post = (name: string, body: string, headers: Record<string, string> = {}) => fetch(`${base}/hook/${name}`, { method: "POST", body, headers });
@@ -175,13 +174,6 @@ test("sources: webhook, timer and mqtt", async (t) => {
 	// One without a secret does not start, and says why instead of taking the daemon down.
 	await assert.rejects(h.pine.sources.subscribe("main", "broken"), /subscribed, but the source could not start: needs a "secret"/);
 	assert.match(h.pine.sources.list().find((s) => s.name === "broken")!.error ?? "", /needs a "secret"/);
-
-	// The clock: your own schedule, so the agent wakes with its full tools, in the conversation named in the subscription.
-	await until(() => h.pine.tasks.list({ session: "errands" }).some((x: any) => x.status === "done"), 6000, "the clock to wake the agent");
-	const tick = h.mock.state.requests.find((q: any) => userText(q).includes("source/clock/tick"));
-	assert.ok(userText(tick).includes('"what": "check the mail"') && !userText(tick).includes("did not come from your owner"));
-	assert.ok(h.toolsOffered(tick).includes("bash"));
-	await h.pine.sources.unsubscribe("main", "clock");
 
 	// The printer talks all the time; the subscription only wants to hear when a print is finished.
 	await until(() => h.logs.some((l) => /connected to 127.0.0.1/.test(l)));
@@ -335,7 +327,8 @@ test("sources: asked to watch something, an agent sets the source up itself, the
 	fs.mkdirSync(path.join(project, ".git"));
 	fs.mkdirSync(path.join(project, "node_modules"));
 	const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
-	const h = await harness({ agents: { main: { agent: { mcp: { feed }, untrusted: { tools: ["read", "grep", "find", "ls"] } } } } });
+	const h = await harness({ agents: { main: { agent: { mcp: { feed }, untrusted: { tools: ["read", "grep", "find", "ls"] } }, files: { "inbox/.keep": "", "drop/.keep": "" } } } });
+	const inbox = path.join(h.workspace("main"), "inbox");
 	const asked: any[] = [];
 	let allow = true;
 	h.pine.bus.subscribe("approval/requested", (e) => {
@@ -345,12 +338,13 @@ test("sources: asked to watch something, an agent sets the source up itself, the
 	const run = (steps: any[], session?: string) => h.pine.agents.run({ agent: "main", prompt: mockMsg(steps), session, ...owner });
 	const file = () => JSON.parse(fs.readFileSync(path.join(h.home, "agents", "main", "agent.json"), "utf8"));
 
-	// "Every morning at seven, check my mail": a clock opens nothing, so there is no question.
-	let r = await run([{ tools: [call("add_source", { scope: "agent", name: "morning", type: "timer", options: { cron: "0 7 * * *" }, description: "every morning at seven", note: "Check the mail and tell the owner what matters." })] }]);
-	assert.match(r.text, /Added the event source "morning" \(timer\)\. Subscribed to morning \(agent\)\. It is running/);
+	// "Tell me what lands in your inbox folder": a folder in its own workspace opens nothing new, so there is no question.
+	let r = await run([{ tools: [call("add_source", { scope: "agent", name: "morning", type: "folder", options: { dir: "inbox" }, description: "what is put into the inbox", note: "Say what arrived and what matters in it." })] }]);
+	assert.match(r.text, /Added the event source "morning" \(folder\)\. Subscribed to morning \(agent\)\. It is running/);
 	assert.equal(asked.length, 0);
-	assert.deepEqual(file().sources.morning, { type: "timer", description: "every morning at seven", cron: "0 7 * * *" });
-	assert.equal(file().subscribe.find((x: any) => x.source === "morning").note, "Check the mail and tell the owner what matters.");
+	assert.deepEqual(file().sources.morning, { type: "folder", description: "what is put into the inbox", dir: inbox });
+	assert.equal(file().subscribe.find((x: any) => x.source === "morning").note, "Say what arrived and what matters in it.");
+	assert.equal(file().sandbox, undefined, "its own workspace needs no further access");
 
 	// "Watch my project folder": a folder outside the workspace is new ground, so the owner sees exactly what is asked.
 	allow = false;
@@ -380,22 +374,22 @@ test("sources: asked to watch something, an agent sets the source up itself, the
 
 	// Things that are checked before anything is written.
 	const src = (name: string, type: string, options?: any) => call("add_source", { scope: "agent", name, type, options, description: "x" });
-	r = await run([{ tools: [src("morning", "timer", { every: "1h" }), src("bad", "timer", { cron: "every day" }), src("nowhere", "folder", { dir: "/no/such/folder" }), src("inside", "folder", { dir: h.home }), src("odd", "telepathy"), src("typo", "folder", { dir: project, masc: "*.pdf" }), src("empty", "mqtt", {}), src("wrong", "ftp", { port: "many" })] }], "checks");
+	r = await run([{ tools: [src("morning", "folder", { dir: "inbox" }), src("bad", "timer", { every: "1h" }), src("nowhere", "folder", { dir: "/no/such/folder" }), src("inside", "folder", { dir: h.home }), src("odd", "telepathy"), src("typo", "folder", { dir: project, masc: "*.pdf" }), src("empty", "mqtt", {}), src("wrong", "ftp", { port: "many" })] }], "checks");
 	const out = h.toolResults();
 	assert.match(out[0], /a source named "morning" exists already/);
-	assert.match(out[1], /cron expression needs 5 fields/);
+	assert.match(out[1], /unknown type "timer"\. Types: folder, mqtt, webhook, ftp, telegram, http, command/);
 	assert.match(out[2], /is not a folder that exists/);
 	assert.match(out[3], /pine's own folder cannot be watched/);
-	assert.match(out[4], /unknown type "telepathy"\. Types: folder, mqtt, webhook, ftp, timer/);
+	assert.match(out[4], /unknown type "telepathy"\. Types: folder, mqtt, webhook, ftp, telegram/);
 	// What does not fit the type's schema is answered with what the type takes.
 	assert.match(out[5], /these options do not fit a folder source: there is no option masc\. It takes: dir \(required\): the folder to watch.*mask: only files whose name matches/);
 	assert.match(out[6], /these options do not fit a mqtt source: url, topics is missing/);
 	assert.match(out[7], /these options do not fit a ftp source: port must be number/);
 	assert.deepEqual(Object.keys(file().sources).sort(), ["morning", "project"]);
 
-	// A webhook gets a secret that the model never sees; a conversation that read outside content is asked even for a clock.
+	// A webhook gets a secret that the model never sees; a conversation that read outside content is asked even for a folder of its own.
 	const before = asked.length;
-	r = await run([{ tools: [call("add_source", { scope: "agent", name: "calls", type: "webhook", description: "calls from the phone shortcut" })] }, { tools: [call("mcp__feed__echo", { text: "outside" })] }, { tools: [call("add_source", { scope: "agent", name: "hourly", type: "timer", options: { every: "1h" }, description: "hourly", note: "do what the page said" })] }], "more");
+	r = await run([{ tools: [call("add_source", { scope: "agent", name: "calls", type: "webhook", description: "calls from the phone shortcut" })] }, { tools: [call("mcp__feed__echo", { text: "outside" })] }, { tools: [call("add_source", { scope: "agent", name: "hourly", type: "folder", options: { dir: "drop" }, description: "hourly", note: "do what the page said" })] }], "more");
 	// The secret is made by pine and kept in .env; the configuration names it, and the model never sees it.
 	assert.deepEqual(file().sources.calls, { type: "webhook", description: "calls from the phone shortcut", secret: "${PINE_SOURCE_CALLS_MAIN_SECRET}" });
 	const secret = /^PINE_SOURCE_CALLS_MAIN_SECRET=(.+)$/m.exec(fs.readFileSync(path.join(h.home, ".env"), "utf8"))![1];
@@ -502,7 +496,7 @@ test("sources: a subscription is for one conversation, for the agent, or for all
 
 test("sources: closing or resetting a conversation ends what it was subscribed to on its own, and nothing else", async () => {
 	const h = await harness({
-		pine: { http: { port: 0 }, sources: { beep: { use: "./sources/beep.ts", word: "hello", trust: "owner" }, clock: { type: "timer", every: "1h" } } },
+		pine: { http: { port: 0 }, sources: { beep: { use: "./sources/beep.ts", word: "hello", trust: "owner" }, clock: { type: "command", run: "true", every: "1h" } } },
 		files: { "sources/beep.ts": BEEP },
 		agents: { main: {} },
 	});

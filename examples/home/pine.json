@@ -24,13 +24,7 @@
       "options": { "headed": false }
     }
   },
-  "sources": {
-    "morning": {
-      "type": "timer",
-      "cron": "0 7 * * *",
-      "description": "every morning at seven. Idle until an agent subscribes: /subscribe morning <what to do>"
-    }
-  },
+  "sources": {},
   "routes": [],
   "schedules": []
 }

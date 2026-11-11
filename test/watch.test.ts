@@ -252,12 +252,12 @@ test("source types: the main agent brings in a new kind of source, with the owne
 	await run([{ tools: [call("add_source_type", { name: "blinker", file: "types/blinker.ts" })] }]);
 	assert.match(h.toolResults().at(-1)!, /not registered \(test\)/);
 	answer = true;
-	await run([{ tools: [call("add_source_type", { name: "link", file: "types/link.ts" }), call("add_source_type", { name: "up", file: "../agent.json" }), call("add_source_type", { name: "notes", file: "notes.txt" }), call("add_source_type", { name: "timer", file: "types/blinker.ts" }), call("add_source_type", { name: "broken", file: "types/broken.ts" }), call("add_source_type", { name: "shy", file: "types/shy.ts" })] }]);
+	await run([{ tools: [call("add_source_type", { name: "link", file: "types/link.ts" }), call("add_source_type", { name: "up", file: "../agent.json" }), call("add_source_type", { name: "notes", file: "notes.txt" }), call("add_source_type", { name: "folder", file: "types/blinker.ts" }), call("add_source_type", { name: "broken", file: "types/broken.ts" }), call("add_source_type", { name: "shy", file: "types/shy.ts" })] }]);
 	const no = h.toolResults().slice(-6);
 	assert.match(no[0], /must be a file in your workspace/);
 	assert.match(no[1], /must be a file in your workspace/);
 	assert.match(no[2], /is not a \.ts file/);
-	assert.match(no[3], /"timer" is one of pine's own types/);
+	assert.match(no[3], /"folder" is one of pine's own types/);
 	assert.match(no[4], /the module is not a source type: it has no default export function/);
 	assert.match(no[5], /the module is not a source type: an option cannot be called enabled/);
 	assert.deepEqual([types(), kept()], [undefined, []], "nothing of them stays");

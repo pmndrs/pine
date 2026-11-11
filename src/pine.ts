@@ -10,7 +10,7 @@ import { Router } from "./router.ts";
 import { SourceHost } from "./sources.ts";
 import { Approvals, audit, Redactor } from "./security.ts";
 import { Bus, Kv, openDb, State, TaskStore } from "./store.ts";
-import { Timers } from "./timers.ts";
+import { Scheduler } from "./timers.ts";
 import { createLogger, errText, type Logger } from "./util.ts";
 
 export interface Pine {
@@ -21,6 +21,7 @@ export interface Pine {
 	agents: AgentManager;
 	approvals: Approvals;
 	sources: SourceHost;
+	schedules: Scheduler;
 	http?: HttpServer;
 	/** Bearer token of the control API. */
 	token: string;
@@ -111,7 +112,8 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 	agents.sources = sources;
 	router.start();
 	await sources.start();
-	const timers = new Timers(cfg, bus, kv, log.child("timers"));
+	const timers = new Scheduler(cfg, bus, kv, log.child("timers"), router);
+	agents.schedules = timers;
 	timers.start();
 	const pruned = bus.prune(cfg.limits.eventRetentionDays * 86_400_000);
 	if (pruned) log.info(`removed ${pruned} events older than ${cfg.limits.eventRetentionDays} days`);
@@ -143,7 +145,7 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 
 	let stopped = false;
 	return {
-		cfg, bus, state, tasks, agents, approvals, sources, http, token, warnings, complete,
+		cfg, bus, state, tasks, agents, approvals, sources, schedules: timers, http, token, warnings, complete,
 		async stop() {
 			if (stopped) return;
 			stopped = true;

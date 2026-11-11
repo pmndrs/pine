@@ -18,8 +18,8 @@
 
 This is a small daemon that runs AI agents. Yes, you've heard that before. Some things it does very differently:
 
-- **Letting agents react to external events**: chat, FTP, webhooks, MQTT, timers, etc. In a simple, modular way, and without configs. Agents can subscribe to any installed event source and react accordingly, or list available sources and unsubscribe. Event sources are simple to create, it's a \*.ts service with a schema. This allows you to create full automation workflows by just stating what you want: "watch my security cam, ring the alarm if someone enters while i'm away".
-- **No configs**: you tell the agent what you want. They operate through safe tool calls. Main agent can create other agents, global MCPs, event sources, skills, etc. Other agents can create these either for local conversations or their scope. No agent will touch or bypass into user config (where your tokens are).
+- **Letting agents react to external events**: chat, FTP, webhooks, MQTT, web addresses, schedules, etc. In a simple, modular way, and without configs. Agents can subscribe to any installed event source and react accordingly, or list available sources and unsubscribe. Event sources are simple to create, it's a \*.ts service with a schema. This allows you to create full automation workflows by just stating what you want: "watch my security cam, ring the alarm if someone enters while i'm away".
+- **No configs**: you tell the agent what you want. They operate through safe tool calls. Main agent can create other agents, global MCPs, event sources, skills, schedules, etc. Other agents can create these either for local conversations or their scope. No agent will touch or bypass into user config (where your tokens are).
 - **A CLI that feels new**. Like a desktop UI. Interactive tabs, buttons, scroll regions. Images and videos are actually shown, formats markdown. Drag and drop files with real thumbails - and yes it's running in your shell (all Kitty shells, GHOSTTY et al, with lower quality fallbacks for old terminals).
 - **All basics inbuilt**: computer use, tool calls, internet, browsing and operating live websites
 - **Coding assistance**: diffs, output files, git integration, current folders ...
@@ -131,7 +131,7 @@ Start at [docs/SKILL.md](docs/SKILL.md); it indexes everything.
 | Let agents set things up by tool call instead of editing files                          | [setup.md](docs/references/setup.md)                         |
 | Set up agents, delegation and sub-agents                                                | [agents.md](docs/references/agents.md)                       |
 | Route events, schedules, model calls                                                    | [events.md](docs/references/events.md)                       |
-| Event sources: Telegram, folders, MQTT, web addresses, commands, webhooks, FTP, timers  | [sources.md](docs/references/sources.md)                     |
+| Event sources: Telegram, folders, MQTT, web addresses, commands, webhooks, FTP          | [sources.md](docs/references/sources.md)                     |
 | MCP servers, web search, command tools                                                  | [mcp.md](docs/references/mcp.md)                             |
 | Know what is protected and what is not                                                  | [security.md](docs/references/security.md)                   |
 | Work on pine itself                                                                     | [AGENTS.md](AGENTS.md), [stack.md](docs/references/stack.md) |

@@ -11,7 +11,8 @@ import { addServer, removeServer, validateServer } from "./mcp-config.ts";
 import { isInside, realish } from "./security.ts";
 import { checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions } from "./sources.ts";
-import { errText, matchesAny, safeName, truncate } from "./util.ts";
+import { localTime } from "./timers.ts";
+import { errText, matchesAny, parseDuration, safeName, truncate } from "./util.ts";
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
@@ -242,12 +243,12 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 			defineTool({
 				name: "sources",
 				label: "Event sources",
-				description: "List the event sources you can subscribe to (watched folders, devices, webhooks, timers and the like) and what is subscribed to them: this conversation, you as an agent, or all agents. Use it when your owner asks what you are watching or subscribed to, or what could wake you.",
+				description: "List the event sources you can subscribe to (watched folders, devices, web addresses, webhooks and the like) and what is subscribed to them: this conversation, you as an agent, or all agents. Use it when your owner asks what you are watching or subscribed to, or what could wake you.",
 				parameters: Type.Object({}),
 				execute: async () => {
 					const session = here();
 					const mine = host.available(agent.id, session);
-					if (!mine.length) return ok(`No event sources exist yet, so nothing is subscribed to anything and nothing wakes you by itself. You can set one up with add_source when your owner asks you to watch or react to something: a folder, a time (timer), a web address or a command that is looked at again and again, an MQTT device, a webhook, an FTP drop for cameras, Telegram. The "pine" skill has the details in references/sources.md.`);
+					if (!mine.length) return ok(`No event sources exist yet, so nothing is subscribed to anything and nothing wakes you by itself. You can set one up with add_source when your owner asks you to watch or react to something: a folder, a web address or a command that is looked at again and again, an MQTT device, a webhook, an FTP drop for cameras, Telegram. What should happen at a time is a schedule (add_schedule). The "pine" skill has the details in references/sources.md.`);
 					const all = host.list();
 					const senders = host.senders(agent.id, session);
 					const lines = mine.map((s) => {
@@ -264,7 +265,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					});
 					const hereToo = mine.filter((s) => s.local || (session === "main" && (s.agent || s.global))).length;
 					const lead = session === "main" ? "" : hereToo ? "" : " THIS conversation is not subscribed to anything: to be woken here, subscribe (without a scope), also to a source your main conversation already listens to.";
-					return ok(`${mine.length} event source${mine.length === 1 ? "" : "s"}; ${hereToo} wake${hereToo === 1 ? "s" : ""} this conversation.${lead}\n${lines.join("\n")}\nFor something that is not listed, set up a new source with add_source (folder, timer, mqtt, webhook, ftp).`);
+					return ok(`${mine.length} event source${mine.length === 1 ? "" : "s"}; ${hereToo} wake${hereToo === 1 ? "s" : ""} this conversation.${lead}\n${lines.join("\n")}\nFor something that is not listed, set up a new source with add_source (${host.typeList().map((t) => t.name).join(", ")}). What should happen at a time is a schedule (add_schedule), not a source.`);
 				},
 			}),
 			defineTool({
@@ -316,7 +317,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 			defineTool({
 				name: "add_source",
 				label: "Add event source",
-				description: `Set up a new event source and subscribe to it, when your owner asks you to watch or react to something that no existing source covers: a folder ("watch ~/Scans", "tell me when a pdf lands in my downloads"), a time ("every morning at seven"), a device or service. Pick the type and pass its options; your owner confirms it where that is needed. Passwords, tokens and keys are not yours to handle: never ask your owner to write one into the conversation, and do not go looking for one. Leave a secret option out and pine asks your owner for it in a dialog of its own, where it is typed without being shown and stored without passing through you. If your owner says it is already in pine's .env file under a name, pass "\${NAME}" as its value. Types and their options:\n${host.typeList().map((t) => `- ${t.name}: ${t.summary}. Options: ${describeOptions(t.options)}`).join("\n")}`,
+				description: `Set up a new event source and subscribe to it, when your owner asks you to watch or react to something that no existing source covers: a folder ("watch ~/Scans", "tell me when a pdf lands in my downloads"), a web address ("tell me when the price drops"), a device or service. What should happen at a time ("every morning at seven", "remind me at five") is a schedule: use add_schedule for that. Pick the type and pass its options; your owner confirms it where that is needed. Passwords, tokens and keys are not yours to handle: never ask your owner to write one into the conversation, and do not go looking for one. Leave a secret option out and pine asks your owner for it in a dialog of its own, where it is typed without being shown and stored without passing through you. If your owner says it is already in pine's .env file under a name, pass "\${NAME}" as its value. Types and their options:\n${host.typeList().map((t) => `- ${t.name}: ${t.summary}. Options: ${describeOptions(t.options)}`).join("\n")}`,
 				parameters: Type.Object({
 					name: Type.String({ description: "Short name for it: lowercase letters, digits, - and _ (for example scans, morning, printer)" }),
 					type: Type.String({ description: `One of: ${host.typeList().map((t) => t.name).join(", ")}` }),
@@ -523,6 +524,82 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				},
 			}),
 		);
+		// Schedules: what is done because of the time. Made at the owner's wish, so what one starts
+		// counts as theirs; from a conversation that outside content may steer, they see the task first.
+		const sched = manager.schedules;
+		if (sched) {
+			const whereOf = (s: { scope: string; session?: string }) => (s.scope === "global" ? "all agents" : s.session === "main" ? "you as an agent, in your main conversation" : s.session === here() ? "this conversation" : `your conversation "${s.session}"`);
+			tools.push(
+				defineTool({
+					name: "schedules",
+					label: "Schedules",
+					description: "List what is scheduled for you: what you do at set times, in which of your conversations, and when each is next due. Use it when your owner asks what you have planned or when something will happen.",
+					parameters: Type.Object({}),
+					execute: async () => {
+						run();
+						const mine = sched.available(agent.id);
+						if (!mine.length) return ok("Nothing is scheduled. With add_schedule you can do something at a set time, again and again or once, when your owner asks you to (\"every morning at seven\", \"remind me at five\", \"in twenty minutes\").");
+						return ok(`${mine.length} schedule${mine.length === 1 ? "" : "s"}.\n${mine.map((s) => `${s.name} (${whereOf(s)}): ${s.when}${s.next ? ` · next ${localTime(s.next).replace("T", " ")}` : ""}\n    Task: ${s.task}`).join("\n")}`);
+					},
+				}),
+				defineTool({
+					name: "add_schedule",
+					label: "Add schedule",
+					description: `Do something at a time: again and again ("every morning at seven", "every 15 minutes") or once ("remind me at five", "in twenty minutes check the build"). When it is time you are woken with the task you write now, also when your owner is not there, and you do it then. Write the task so that it is enough on its own: what to do, and how your owner hears of it (if they may be away: the send tool). Give exactly one of cron, every, at, in. One that happens once removes itself afterwards. A schedule is for this conversation, for yourself as an agent${isMain ? ", or for all agents" : ""}.${isMain ? "" : ` One for all agents is the main agent's to add (${mainId}).`} For something that should happen when a thing changes or arrives rather than at a time, set up an event source instead (add_source).`,
+					parameters: Type.Object({
+						name: Type.String({ description: "Short name: lowercase letters, digits, - and _ (for example morning, dentist, build-check)" }),
+						task: Type.String({ description: "What you are to do when it is time, written to yourself and complete on its own" }),
+						cron: Type.Optional(Type.String({ description: 'Set times, as five fields in local time: minute hour day-of-month month day-of-week, e.g. "0 7 * * 1-5" (weekdays at seven)' })),
+						every: Type.Optional(Type.String({ description: 'A fixed interval, e.g. "15m", "2h". At least "1m"' })),
+						at: Type.Optional(Type.String({ description: 'Once, at this local time: "2026-12-24 17:00". The note in front of each message tells you the time now' })),
+						in: Type.Optional(Type.String({ description: 'Once, after this long: "20m", "2h"' })),
+						scope: Type.Optional(Type.String({ description: `Who is woken. ${forWhom("the schedule")}` })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						if ([p.cron, p.every, p.at, p.in].filter((x) => x !== undefined && x !== "").length !== 1) throw new Error('give exactly one of "cron" (set times), "every" (an interval), "at" (once, at a time) or "in" (once, after this long)');
+						if (p.every && parseDuration(p.every) < 60_000) throw new Error('"every" must be at least "1m"');
+						let at: number | undefined;
+						if (p.in) at = Date.now() + parseDuration(p.in);
+						if (p.at) {
+							at = Date.parse(p.at.trim().replace(" ", "T"));
+							if (!Number.isFinite(at)) throw new Error(`"${p.at}" is not a time. Write it as 2026-12-24 17:00`);
+							if (at < Date.now() - 60_000) throw new Error(`${p.at} is in the past: it is ${localTime(Date.now()).replace("T", " ")} now`);
+						}
+						const scope = scopeOf(p.scope, "add schedules");
+						const entry = sched.check({ name: p.name, task: p.task, cron: p.cron, every: p.every, at, session: scope === "local" ? here() : undefined });
+						const when = p.cron ? `at the times "${p.cron.trim()}" (minute hour day month weekday)` : p.every ? `every ${p.every}` : `once, at ${localTime(at!).replace("T", " ")}`;
+						// Its own conversation's needs no question; what reaches further, or may not be the owner's wish, does.
+						if (scope === "global" || (scope === "agent" && !inMain) || live.tainted || live.mode() === "manual") {
+							const decision = await confirm("add_schedule", `add the schedule "${entry.name}" for ${whoIs(scope)}\n${when}\nTask: ${truncate(String(entry.task), 1200)}`, `from then on ${scope === "global" ? "every agent" : "the agent"} is woken at ${at ? "that time" : "those times"} and does this as your wish, also when you are not there${careful()}`, signal);
+							if (!decision.allow) throw new Error(`not scheduled (${decision.by}). Do not retry; tell your owner what you wanted to schedule.`);
+						}
+						const made = sched.add(scope === "global" ? undefined : agent.id, entry);
+						const woken = scope === "global" ? "every agent is woken in its main conversation" : scope === "agent" ? `you are woken in your main conversation${inMain ? " (this one)" : ""}` : "you are woken here, in this conversation";
+						return ok(`Scheduled "${made.name}" for ${whose(scope)}: ${made.when}.${made.next && !at ? ` Next: ${localTime(made.next).replace("T", " ")}.` : ""} When it is time, ${woken} with the task. ${at ? "It removes itself once it has fired." : "It stays until it is removed (remove_schedule)."} Tell your owner when it will happen.`);
+					},
+				}),
+				defineTool({
+					name: "remove_schedule",
+					label: "Remove schedule",
+					description: `Remove a schedule, when your owner no longer wants it. You can remove one of this conversation or of your own agent${isMain ? ", and as the main agent one that is for all agents" : "; one that is for all agents is the main agent's to remove"}. Your owner confirms it unless it is this conversation's own. To change a schedule, remove it and add it again.`,
+					parameters: Type.Object({ name: Type.String({ description: "Name of the schedule, as the schedules tool lists it" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						const found = sched.available(agent.id).find((s) => s.name === p.name);
+						if (!found) throw new Error(`there is no schedule called "${p.name}". The schedules tool lists what there is.`);
+						if (found.scope === "global") mainOnly("remove a schedule");
+						const own = found.scope === agent.id && found.session === here();
+						if (!own || live.tainted || live.mode() === "manual") {
+							const decision = await confirm("remove_schedule", `remove the schedule "${found.name}" of ${found.scope === "global" ? "ALL agents" : `agent ${agent.id}`}\n${found.when}\nTask: ${truncate(found.task ?? "", 600)}`, `this ends something that was to be done at set times${careful()}`, signal);
+							if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						}
+						sched.remove(found.scope === "global" ? undefined : agent.id, found.name);
+						return ok(`Removed the schedule "${found.name}". It will not fire again.`);
+					},
+				}),
+			);
+		}
 		// Skills: how something is done, written down once. They are part of what an agent is told, like
 		// its instruction files, and so they are written by pine and never from a conversation that
 		// outside content may steer.
@@ -618,6 +695,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						if (!decision.allow) throw new Error(`not created (${decision.by}). Do not retry; tell your owner what you proposed.`);
 						const made = createAgent(cfg, spec);
 						manager.sources?.agentsChanged();
+						manager.schedules?.agentsChanged();
 						await manager.refreshSessions();
 						return ok(`Your owner confirmed it. The agent ${made.id} exists now, with its workspace at ${made.workspace}. Your owner can talk to it in the terminal UI (/agent ${made.id}) or with "pine send ${made.id} ...". You can hand it work with delegate from your next message on. It starts with no MCP servers and no event sources of its own; it can set those up itself when your owner asks it to.`);
 					},
