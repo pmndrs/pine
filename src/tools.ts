@@ -81,6 +81,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 						kind: "delegate",
 						parent: r.task,
 						tainted: live.tainted,
+						folder: live.folder,
 						notify: p.wait === false ? { agent: agent.id, session: r.task.session } : undefined,
 						label: truncate(p.task, 80),
 					});

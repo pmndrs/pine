@@ -32,7 +32,9 @@ files apply, and the folder stays open to the conversation after it has read out
 when the rest of your account is closed until you say otherwise.
 
 The folder belongs to that one conversation. Another conversation of the same agent does not
-have it, and neither has another agent it delegates to; sub-agents it starts do. It stays until
+have it. Sub-agents it starts do, and so does another agent for the length of one task that
+is handed to it from this conversation (`delegate` without a thread): a specialist has to see
+the project it is asked about. A conversation that other agent keeps does not get it. It stays until
 you take it away or remove the conversation, also across restarts. A renamed conversation
 keeps it.
 
@@ -80,13 +82,14 @@ when no folder is open. In a terminal of 100 columns or more it takes half the w
 | **Changes** | What differs from the last commit: changed (`M`), added (`A`), new (`+`), deleted (`D`) and renamed (`R`) files with the lines added and removed, and the branch | on a file shows its diff, added lines green and removed ones red; `‹ back` returns to the list |
 | **Files** | The folder as a tree | on a folder opens or closes it; on a file shows its text with line numbers and colours, or a picture as a picture |
 | **Output** | Every tool call of the conversation's last 8 messages, newest first: the tool, what it was called with, how long it took | on a call shows everything it printed, not only the first lines the conversation shows |
+| **Blocked** | What pine's reviewer did not let the agent do in this conversation, newest first, each with the rule and the reason | on `✓ allow once` lets that exact call through; the agent is told and makes it again |
 | **Running** | What the conversation's commands started and left running: a development server, a watcher. Each with its command, the ports it listens on and how long it has run | on `■ stop` ends it |
 
 The pane follows the agent: when a tool call finishes, what is shown is read again, so a diff
 grows while the agent edits. `↻` reads it again by hand, `×` closes the pane. The wheel scrolls
 whichever side the pointer is over. Whether the pane was open is remembered for the next start.
 
-`/code changes`, `/code files`, `/code output` and `/code running` open it on that view;
+`/code changes`, `/code files`, `/code output`, `/code running` and `/code blocked` open it on that view;
 `/code off` closes it.
 
 ### What an agent left running
@@ -106,7 +109,7 @@ A program that detaches itself completely (a daemon that starts a session of its
 found this way. On Linux, in the workspace scope, nothing outlives its command in the first
 place; a server there is started by an agent with the scope `account`.
 
-Apart from that stop, the pane only shows. It changes no file, runs no command of the project and sends nothing to a
+Apart from that stop and from allowing a blocked action, the pane only shows. It changes no file, runs no command of the project and sends nothing to a
 model. Long lines wrap. A file is shown up to 256 KB, a diff up to 200 000 characters, a tool's
 output up to 200 000 characters and 4000 lines; binary files are named, not shown. Changes
 lists the first 300 files, and Files shows up to 500 entries of a folder.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig } from "./config.ts";
+import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig, sandboxScope } from "./config.ts";
 import { audit } from "./security.ts";
 import { pineManual, showRead, showSearch } from "./manual.ts";
 import { allSkills, listSkills } from "./skills.ts";
@@ -356,6 +356,11 @@ async function main(): Promise<void> {
 			out(`  skills     ${listSkills(cfg, a, "main").map((s) => s.name).join(", ") || "none"}`);
 			out(`  delegates  ${a.delegates.join(", ") || "none"}; sub-agents ${a.subagents.enabled ? `up to ${a.subagents.maxParallel}` : "off"}`);
 			out(`  mode       ${a.mode}`);
+			// What that means for this agent, so that nobody has to read code to know.
+			const reach = sandboxScope(cfg, a) === "account" ? "your whole account and the network" : `its own folder${a.sandbox.network ? " and the network" : ""}`;
+			const after = cfg.security.taint === "off" ? "nothing changes" : cfg.security.review === "model" ? "it keeps that; what reaches out, sends or changes its memory is checked by the reviewer" : cfg.security.review === "ask" ? "it loses that until you say, once, that the conversation keeps it" : "it keeps that, and nothing is checked";
+			out(`  reaches    ${a.sandbox.enabled ? reach : "everything the daemon can (no sandbox)"}`);
+			out(`  after outside content: ${a.mode === "bypass" && cfg.security.bypassWhenTainted ? "nothing changes (bypass)" : after}`);
 			out(`  sandbox    ${a.sandbox.enabled ? `on, network ${a.sandbox.network ? "allowed" : "blocked"}` : "OFF"}; untrusted events: ${a.untrusted === false ? "refused" : a.untrusted.tools.join(", ") || "no tools"}`);
 		}
 		const warnings = audit(cfg);

@@ -71,7 +71,10 @@ export async function harness(spec: { pine?: Record<string, unknown>; agents: Re
 	// Tests script the model, and a scripted command must not reach the account of whoever runs
 	// them: every agent stays in its workspace unless a test asks for the account by name.
 	const defaults = { model: "mock/m", scope: "workspace", ...((spec.pine?.defaults as Record<string, unknown> | undefined) ?? {}) };
-	write(path.join(home, "pine.json"), JSON.stringify({ http: false, logLevel: "debug", ...(spec.pine ?? {}), defaults }, null, 2));
+	// The same goes for what happens after outside content: the tests that are about the one
+	// question say so here, and the tests about the reviewer ask for it and script its answers.
+	const security = { review: "ask", ...((spec.pine?.security as Record<string, unknown> | undefined) ?? {}) };
+	write(path.join(home, "pine.json"), JSON.stringify({ http: false, logLevel: "debug", ...(spec.pine ?? {}), defaults, security }, null, 2));
 	for (const [rel, content] of Object.entries(spec.files ?? {})) write(path.join(home, rel), content);
 	for (const [id, a] of Object.entries(spec.agents)) {
 		const dir = path.join(home, "agents", id);

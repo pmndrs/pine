@@ -80,9 +80,9 @@ In manual mode, and in a conversation that has read outside content, the questio
 otherwise skipped are asked too (ending a subscription: in manual mode only).
 
 In a conversation that has read outside content two things are stricter, because what they
-write is read back as instructions or runs as a program. `add_skill` asks, whoever the skill
-is for, and shows its instructions, until you have said that the conversation keeps its full
-rights ([security.md](security.md), "After outside content: one question").
+write is read back as instructions or runs as a program. `add_skill` is checked by the
+reviewer like a write to the agent's memory ([security.md](security.md), "After outside
+content: the reviewer"; with `security.review: "ask"` it shows you the skill instead).
 `add_source_type` is refused: start a new conversation for it.
  Runs with the
 reduced tool set, which outside events start through a route or a subscription marked

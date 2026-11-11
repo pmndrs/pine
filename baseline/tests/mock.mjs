@@ -85,6 +85,10 @@ export async function startMock(opts = {}) {
 			step = (state.scripts[ref[1]] ?? [{ text: `UNKNOWN-REF ${ref[1]}` }])[assistantCount] ?? {
 				text: `FINAL:: ${toolResults.map((t) => t.slice(0, 2000)).join(" || ")}`,
 			};
+		} else if (!hasTools && typeof opts.withoutTools === "function") {
+			// A host that makes plain model calls of its own (a reviewer) scripts their answers here.
+			const system = messages.find((x) => x.role === "system" || x.role === "developer");
+			step = { text: String(opts.withoutTools({ system: system ? textOf(system.content) : "", user: lastUserText, body })) };
 		} else if (!hasTools && !opts.directivesWithoutTools) {
 			step = { text: `SUMMARY-OK chars=${raw.length}` };
 		} else if (m) {

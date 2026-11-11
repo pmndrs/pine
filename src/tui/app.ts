@@ -341,7 +341,7 @@ class Button implements Component {
 const SCOPES = ["local", "agent", "global"];
 const SCOPE_HELP: Record<string, string> = { local: "only this conversation, until it is closed", agent: "the agent, in its main conversation", global: "every agent" };
 
-const PANE_HELP: Record<string, string> = { changes: "what git says changed in the folder, with the diff of each file", files: "the files of the folder", output: "what the agent's tool calls printed", running: "servers and other programs the agent left running, each with a way to stop it", off: "close the pane" };
+const PANE_HELP: Record<string, string> = { changes: "what git says changed in the folder, with the diff of each file", files: "the files of the folder", output: "what the agent's tool calls printed", running: "servers and other programs the agent left running, each with a way to stop it", blocked: "what pine's reviewer did not let the agent do, each with a way to allow it", off: "close the pane" };
 
 const childKind = (kind: string) => (kind === "subagent" ? "sub-agent" : kind === "delegate" ? "delegated task" : kind);
 
@@ -1622,7 +1622,7 @@ export class PineTui {
 				getArgumentCompletions: (prefix) => [...PANE_VIEWS, "off"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v, description: PANE_HELP[v] })),
 				run: (args) => {
 					const word = args.trim().toLowerCase();
-					if (word && word !== "off" && !PANE_VIEWS.includes(word as PaneView)) return this.flash("usage: /code [changes|files|output|running|off]");
+					if (word && word !== "off" && !PANE_VIEWS.includes(word as PaneView)) return this.flash("usage: /code [changes|files|output|running|blocked|off]");
 					if (this.active.kind !== "chat") return this.flash("switch to a conversation tab first");
 					// Without a word it opens and closes, like the button and ctrl+g.
 					this.showCode(word ? word !== "off" : !this.codeOpen, word && word !== "off" ? (word as PaneView) : undefined);

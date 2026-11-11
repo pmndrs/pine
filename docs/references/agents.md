@@ -56,9 +56,9 @@ read; anything else the agent keeps there is its own notes, which it reads when 
 Other agents get `USER.md` in their prompt but cannot open or change the file; they tell you
 when something belongs there. A conversation that has read outside content changes these files
 only with your yes ([security.md](security.md)): what is read into every future prompt is
-exactly what an injected instruction would try to rewrite. The first time such a conversation
-writes its memory or instructions, you are shown what it writes and asked once whether the
-conversation keeps its full rights; a yes holds until the conversation is reset.
+exactly what an injected instruction would try to rewrite. In such a conversation each write
+to its memory or instructions is checked by the reviewer first, which blocks what reads like
+an order you did not give and lets notes about the task through.
 
 An existing home from before this layout keeps working: `agents/<id>/AGENTS.md` is still read.
 To hand the instructions over to the agent, move that file to `agents/<id>/workspace/AGENTS.md`;
@@ -329,9 +329,8 @@ ever has two skills of one name.
 
 A skill is part of what an agent is told, like its `AGENTS.md`. It is therefore written by
 pine, in pine's home where the agent reads but does not write. From a conversation that has
-read outside content it is never written without you: `add_skill` then shows you the skill's
-instructions and waits for your answer, whoever it is for, unless you have already said that
-the conversation keeps its full rights. What is a fact and not a way of
+read outside content it is not written unseen: the reviewer checks it like a write to the
+agent's memory. What is a fact and not a way of
 doing something belongs into the agent's `MEMORY.md`.
 
 ### Put it there yourself

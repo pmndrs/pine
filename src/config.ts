@@ -277,6 +277,20 @@ export interface PineConfig {
 		taintTools: string[];
 		/** Keep bypass mode in force after a session has seen outside content. Off: such a session asks again. */
 		bypassWhenTainted: boolean;
+		/**
+		 * What happens in auto mode once a conversation has read outside content.
+		 * "model": it keeps its rights, and each action that reaches out, sends or changes the
+		 *          agent's memory is checked by a reviewer first (src/actions.ts).
+		 * "ask":   it loses its rights until the owner says, once, that it keeps them.
+		 * "off":   it keeps its rights and nothing is checked.
+		 */
+		review: "model" | "ask" | "off";
+		/** The model that reviews, as "provider/id". Not set: the agent's own. */
+		reviewer?: string;
+		/** How long a review may take before it counts as no verdict. */
+		reviewTimeoutMs: number;
+		/** The reviewer's rules, in plain language (`rulesFrom` in src/actions.ts). */
+		rules?: unknown;
 	};
 	/** Values that must never leave the daemon in events or messages. */
 	secrets: string[];
@@ -528,6 +542,10 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			taint: raw.security?.taint ?? "session",
 			taintTools: strings(raw.security?.taintTools, []),
 			bypassWhenTainted: raw.security?.bypassWhenTainted === true,
+			review: raw.security?.review === "ask" || raw.security?.review === "off" ? raw.security.review : "model",
+			reviewer: typeof raw.security?.reviewer === "string" && raw.security.reviewer ? raw.security.reviewer : undefined,
+			reviewTimeoutMs: parseDuration(raw.security?.reviewTimeout ?? "90s"),
+			rules: raw.security?.rules,
 		},
 		secrets: Object.values(fileEnv).filter((v) => v.length >= 8),
 		mcp: raw.mcp ?? {},
@@ -541,6 +559,8 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		http: raw.http === false ? undefined : { host: raw.http?.host ?? "127.0.0.1", port: raw.http?.port ?? 7463, token: raw.http?.token, hooks: {} },
 		agents: {},
 	};
+	if (raw.security?.review !== undefined && !["model", "ask", "off"].includes(raw.security.review)) problems.push(`pine.json: security.review is "model" (actions are checked by a reviewer), "ask" (you are asked once per conversation) or "off"`);
+	if (raw.security?.reviewer !== undefined && !/^[^/\s]+\/\S+$/.test(String(raw.security.reviewer))) problems.push(`pine.json: security.reviewer names a model as provider/model-id`);
 	if (cfg.http) {
 		for (const [name, h] of Object.entries<any>(raw.http?.hooks ?? {})) {
 			if (!/^[A-Za-z0-9_-]+$/.test(name)) problems.push(`pine.json: invalid hook name "${name}"`);

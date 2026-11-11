@@ -87,6 +87,33 @@ test("folder: a conversation that is given a folder works there; no other conver
 	await h.close();
 });
 
+test("folder: a task handed to another agent is done in the conversation's folder, for that one run", mac, async (t) => {
+	const dir = project(t, false);
+	const h = await harness({ agents: { main: { agent: { delegates: ["helper"] } }, helper: {} } });
+	await h.pine.agents.setFolder("main", "main", dir);
+	h.mock.state.scripts.helper = [{ tools: [call("read", { path: "notes.txt" }), call("bash", { command: "pwd; echo by-helper | tee from-helper.txt" })] }];
+	const hand = (args: Record<string, unknown>) => h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("delegate", { agent: "helper", task: "@@REF:helper@@", ...args })] }]), ...owner });
+
+	// The specialist sees the project it is asked about, and its work lands there.
+	await hand({});
+	const seen = h.requestsFor("PERSONA-HELPER").at(-1);
+	assert.ok(h.toolResults(seen)[0].includes("PROJECT-NOTES"), h.toolResults(seen)[0]);
+	assert.ok(h.toolResults(seen)[1].includes(dir));
+	assert.equal(fs.readFileSync(path.join(dir, "from-helper.txt"), "utf8"), "by-helper\n");
+	assert.ok(notesOf(h.requestsFor("PERSONA-HELPER")[0]).join("\n").includes(`opened the folder ${dir}`));
+
+	// A conversation the other agent keeps (a thread) does not: it would keep the folder for good.
+	fs.rmSync(path.join(dir, "from-helper.txt"));
+	await hand({ thread: "books" });
+	const kept = h.requestsFor("PERSONA-HELPER").at(-1);
+	assert.match(h.toolResults(kept)[0], /ENOENT|no such file/i);
+	assert.ok(!fs.existsSync(path.join(dir, "from-helper.txt")));
+	// And by itself the helper has no folder at all.
+	await h.pine.agents.run({ agent: "helper", prompt: mockMsg([{ tools: [call("read", { path: path.join(dir, "notes.txt") })] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /outside the paths this agent may read/);
+	await h.close();
+});
+
 test("code view: changes, diffs, files and file text of a conversation's folder, and nothing outside it", mac, async (t) => {
 	const dir = project(t);
 	const outside = project(t, false);

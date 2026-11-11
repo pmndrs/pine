@@ -48,6 +48,7 @@ src/
   router.ts         routes: filter, debounce, set / publish / call / agent
   timers.ts         the scheduler: cron, intervals and one-offs; a schedule with a task wakes an agent
   programs.ts       what a conversation's commands left running: found by process group, listed, stopped
+  actions.ts        what a tool call is (`classify`), the protected paths, and the reviewer: its rules, its prompt, its verdict
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   http.ts           control API and webhooks
   limiter.ts        model slots with priority
@@ -103,30 +104,30 @@ These are invariants. A change that breaks one needs a test that shows why it is
    What an agent writes and pine reads back is text for its own prompt, never code or
    configuration: `AGENTS.md`, `SOUL.md` and `MEMORY.md` at the top of its workspace, and for
    the main agent `USER.md` in pine's home, the one file there an agent may write. A run that
-   has handled outside content writes them only after the owner said that the conversation
-   keeps its full rights (`keepWide`, the one question in the `tool_call` gate; `ownFiles` and
-   `roots.ownOpen` in `src/security.ts` open exactly these files in the sandbox, and nothing
-   else that is read as instructions). A run started from outside is never asked.
+   has handled outside content writes them only past the reviewer (class `own`), or, with
+   `security.review: "ask"`, after the owner said that the conversation keeps its full rights
+   (`ownFiles` and `roots.ownOpen` in `src/security.ts` open exactly these files in the
+   sandbox, and nothing else that is read as instructions). A run started from outside never does.
    Skills are instructions too, and need no configuration entry: where the folder lies says
    whom it is for (`src/skills.ts`). They are written by `add_skill` into pine's home, which
-   the agent reads and cannot write, and in a tainted conversation that the owner has not let
-   keep its rights `add_skill` puts the skill to the owner with its instructions, as
-   `add_schedule` does with a task.
+   the agent reads and cannot write. In a tainted conversation `add_skill` goes past the
+   reviewer like a write to the agent's memory; with `security.review: "ask"`, in a
+   conversation the owner has not let keep its rights, it is put to the owner with its
+   instructions, as `add_schedule` does with a task.
 2. **File access is enforced by the OS, not by a path check.** (What the OS enforces depends on
    the mode, the agent's scope and what the conversation has read: `live.variant()` picks the
    normal, restricted or open profile for each call, and access the owner granted with
    `request_access` is written into that session's profiles.)
    The open profile is the owner's whole account. It is for bypass mode and for an agent whose
    scope is the account (`sandboxScope` in `src/config.ts`: the main agent, unless configured
-   otherwise), in the owner's own conversations only (`live.wide()`). A conversation that has
-   read outside content loses its full rights until the owner says it keeps them: one
-   question for everything (`keepWide`, asked in the `tool_call` gate with the first call that
-   needs any of it; `live.keeps()` is what other code asks). Then it runs in `open-restricted`,
-   where the agent's own files can be written and nothing else that is read as instructions.
-   A yes is stored with the conversation's outside-content mark and goes with it on a reset.
-   A run started from outside never has any of it. Something new that depends on a
-   conversation being clean goes under this one question, not a question of its own; and do
-   not add a third way to the open profile.
+   otherwise), in the owner's own conversations only (`live.wide()`). What a conversation
+   that has read outside content keeps is `security.review`'s to say, and `live.keeps()` is
+   the one thing other code asks. With `"model"` (the default) and `"off"` it keeps
+   everything, and runs in `open-restricted`: the agent's own files can be written, nothing
+   else that is read as instructions. With `"ask"` it loses its full rights until the owner
+   says, once, that it keeps them (`keepWide`; a yes is stored with the conversation's
+   outside-content mark and goes with it on a reset). A run started from outside never has
+   any of it. Do not add a third way to the open profile.
    In every variant pine's home and pine's code stay closed. Shell commands and all six file
    tools run behind `sandboxArgv()`: `sandbox-exec` with the profile from `sandboxProfile()` on
    macOS, `bwrap` with the mounts from `bwrapArgs()` on Linux. A rule goes into both or into
@@ -146,10 +147,16 @@ These are invariants. A change that breaks one needs a test that shows why it is
 4. **Untrusted runs get their capabilities by registration.** Tools and MCP servers that the
    untrusted profile does not list are not registered in that session at all, and the session
    key gets `~u` so history is never shared with the owner's session.
-5. **Every tool call passes `tool_call` in `coreExtension()`.** That is where deny patterns, the
-   bash time limit, path checks, taint marking and approvals happen. New tools need no extra work
-   to be covered, but a tool that sends information out should be added to the default
-   `approveWhenTainted` list in `config.ts`.
+5. **Every tool call passes `tool_call` in `coreExtension()`, and has a class.** That is where
+   deny patterns, the bash time limit, path checks, taint marking, review and approvals happen.
+   `classify()` in `src/actions.ts` is the one place that says what a call is (look, local,
+   reach, send, own, critical, setup); the gate decides by class and mode. A new tool gets its
+   class there, not a check of its own somewhere else: one that sends information out is
+   added to the default `approveWhenTainted` list in `config.ts` (class `send`), one that only
+   reads to `LOOK_TOOLS`. The reviewer (`reviewAction`) is given the owner's messages from the
+   task list and the call, and never a tool result: do not hand it conversation history. A
+   block is returned to the model as a reason; no verdict, or three blocks in a row, goes to
+   the owner. It never becomes "run it anyway".
 6. **Secrets stay in `.env`.** They are interpolated into the configuration and never exported to
    `process.env`; `shellEnv()` builds the environment for child processes from an allow-list.
    With the whole account it is the owner's own environment instead, without the daemon's
@@ -191,7 +198,9 @@ These are invariants. A change that breaks one needs a test that shows why it is
 11. **Only the owner opens a folder for a conversation, and looking at one runs nothing.**
    `setFolder` in `src/agents.ts` is reached from the control API only; there is no tool for it.
    It refuses pine's home, pine's code and other agents' workspaces in either direction, and a
-   run started by outside content does not get the folder. `src/workspace-view.ts` serves the
+   run started by outside content does not get the folder. A task one agent hands to another
+   (`delegate`, without a thread) is done in the conversation's folder for that one run
+   (`TaskMeta.folder`); a conversation the other agent keeps never gets it that way. `src/workspace-view.ts` serves the
    code pane: every path is resolved and must stay inside the folder, and `git` runs behind
    `helperArgv()` without write access or network and with everything a repository's
    configuration could make it start turned off. Keep new git calls on that `git()` helper.
@@ -289,8 +298,10 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   types free of agent, session or prompt logic, and make them start nothing until `setup` runs:
   an unsubscribed source must cost nothing and listen to nothing.
 - The approval gate lives in one place, the `tool_call` handler in `coreExtension`
-  (`src/agents.ts`). Order: bypass, then what is configured to always ask, then what never asks
-  (read-only tools, a remembered "always"), then manual mode, then the taint rules.
+  (`src/agents.ts`). Order: bypass, then what is configured to always ask, then what is
+  reviewed (critical always; reach, send and own after outside content), then what never asks
+  (read-only tools, a remembered "always"), then manual mode, then the taint rules of
+  `security.review: "ask"`.
 - Keep the documentation in `docs/references/` in step with behaviour changes, and add new
   files to the tables in `docs/SKILL.md` and `README.md`. Agents read these files to answer
   their owners' questions about pine, so a wrong sentence there becomes a wrong answer.

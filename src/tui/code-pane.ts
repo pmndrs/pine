@@ -12,8 +12,8 @@ import { c } from "./theme.ts";
 // and what the agent's tool calls printed. It only shows; nothing in it changes a file or reaches
 // a model. Everything is read through the control API, so it works the same on an attached daemon.
 
-export type PaneView = "changes" | "files" | "output" | "running";
-export const PANE_VIEWS: PaneView[] = ["changes", "files", "output", "running"];
+export type PaneView = "changes" | "files" | "output" | "running" | "blocked";
+export const PANE_VIEWS: PaneView[] = ["changes", "files", "output", "running", "blocked"];
 
 /** The conversation a pane shows. */
 export interface PaneTarget {
@@ -55,6 +55,8 @@ interface State {
 	programs?: Awaited<ReturnType<Client["programs"]>>;
 	/** A program that was just asked to stop: shown as stopping until it is gone from the list. */
 	stopping?: Set<number>;
+	/** What the reviewer blocked in the conversation. */
+	blocked?: Awaited<ReturnType<Client["blocked"]>>;
 }
 
 const tilde = (p: string) => (p === os.homedir() ? "~" : p.startsWith(`${os.homedir()}/`) ? `~${p.slice(os.homedir().length)}` : p);
@@ -232,6 +234,10 @@ export class CodePane {
 				s.dirs = dirs;
 				s.root = root;
 				if (s.file) s.file.rows = file;
+			} else if (s.view === "blocked") {
+				const blocked = await this.client.blocked(t.agent, t.session);
+				if (turn !== this.turn) return;
+				s.blocked = blocked;
 			} else if (s.view === "running") {
 				const programs = await this.client.programs(t.agent, t.session);
 				if (turn !== this.turn) return;
@@ -299,6 +305,7 @@ export class CodePane {
 		else if (s.view === "changes") this.changesRows(s, rows);
 		else if (s.view === "files") this.filesRows(s, rows);
 		else if (s.view === "running") this.runningRows(s, rows);
+		else if (s.view === "blocked") this.blockedRows(s, rows);
 		else this.outputRows(s, rows);
 		this.rows.rows = rows;
 		this.redraw();
@@ -364,6 +371,30 @@ export class CodePane {
 			else rows.push({ text: `  ${c.red("■ stop")}`, run: () => void this.stopProgram(p.id) });
 			rows.push({ text: "" });
 		}
+	}
+
+	/** What pine's reviewer did not let the agent do, with its reason, and a way for the owner to let one through. */
+	private blockedRows(s: State, rows: Row[]): void {
+		if (!s.blocked) return void rows.push({ text: c.gray(s.loading ?? "") });
+		if (!s.blocked.length) return void rows.push({ text: c.gray("Nothing was blocked. An action that pine's reviewer does not let the agent take is listed here with the reason, and you can allow it."), wrap: true });
+		for (const b of s.blocked) {
+			rows.push({ text: `${c.red("✗")} ${c.bold(b.tool)} ${plain(b.subject).replace(/\s+/g, " ")}`, wrap: true });
+			rows.push({ text: c.gray(`  ${[b.rule, b.reason].filter(Boolean).map((x) => plain(x!)).join(": ") || "no reason given"} · ${since(Math.max(0, Math.round((Date.now() - b.time) / 1000)))} ago`), wrap: true });
+			rows.push({ text: `  ${c.green("✓ allow once")}`, run: () => void this.allowBlocked(b.id) });
+			rows.push({ text: "" });
+		}
+	}
+
+	private async allowBlocked(id: string): Promise<void> {
+		const t = this.target();
+		const s = this.state;
+		if (!t || !s) return;
+		try {
+			await this.client.allowBlocked(t.agent, t.session, id);
+		} catch (e) {
+			s.error = errText(e);
+		}
+		void this.load(false);
 	}
 
 	private async stopProgram(id: number): Promise<void> {
@@ -436,7 +467,7 @@ export class CodePane {
 		const where = s?.root ? tilde(s.root) : "";
 		const ch = s?.view === "changes" ? s.changes : undefined;
 		// What is asked for first comes first; the folder's name is what gets cut when the pane is narrow.
-		const info = [...(ch?.repo ? [`${ch.branch || "no branch"}`, ch.files.length ? `${ch.files.length}${ch.more ? "+" : ""} changed` : "clean"] : []), ...(s?.view === "output" && s.calls ? [`${s.calls.length} tool call${s.calls.length === 1 ? "" : "s"}`] : []), ...(s?.view === "running" && s.programs ? [s.programs.length ? `${s.programs.length} running` : "nothing running"] : []), where].filter(Boolean).join(" · ");
+		const info = [...(ch?.repo ? [`${ch.branch || "no branch"}`, ch.files.length ? `${ch.files.length}${ch.more ? "+" : ""} changed` : "clean"] : []), ...(s?.view === "output" && s.calls ? [`${s.calls.length} tool call${s.calls.length === 1 ? "" : "s"}`] : []), ...(s?.view === "running" && s.programs ? [s.programs.length ? `${s.programs.length} running` : "nothing running"] : []), ...(s?.view === "blocked" && s.blocked ? [s.blocked.length ? `${s.blocked.length} blocked` : "nothing blocked"] : []), where].filter(Boolean).join(" · ");
 		return [truncateToWidth(text, width), truncateToWidth(` ${c.gray(info)}`, width), c.gray("─".repeat(width))];
 	}
 }

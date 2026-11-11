@@ -65,6 +65,8 @@ export interface TaskMeta {
 	trust?: Trust;
 	/** The session that created this task had already seen outside content. */
 	tainted?: string;
+	/** The folder the owner opened for the conversation this task was handed on from. A one-off delegated run works there too. */
+	folder?: string;
 	/** `input` is what the model server had to read anew; `cached` is what it took from its prompt cache. */
 	stats?: { input: number; output: number; cached?: number; turns: number; tools: string[]; ms: number; context?: ContextUse };
 }

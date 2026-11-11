@@ -98,6 +98,10 @@ Removing the source removes the entry. See [sources.md](sources.md).
 | `security.approvalTimeout` | `5m` | An unanswered approval request counts as "no" after this. |
 | `security.taint` | `session` | How long a session stays tainted: until reset (`session`), until the task ends (`run`), or never (`off`). See [security.md](security.md). |
 | `security.taintTools` | `[]` | Tool name globs whose results count as outside content, besides MCP servers marked `taints`. |
+| `security.review` | `model` | What happens in `auto` mode once a conversation has read outside content. `model`: it keeps its rights, and what reaches out, sends something or changes the agent's memory is checked by a reviewer, one action at a time. `ask`: it loses its rights until you say, once, that it keeps them. `off`: it keeps its rights and nothing is checked. See [security.md](security.md), "After outside content: the reviewer". |
+| `security.reviewer` | the agent's own model | The model that reviews, as `provider/model-id`. A second, small model keeps the review from pushing the agent's conversation out of a model server's cache. |
+| `security.reviewTimeout` | `90s` | A review that takes longer counts as no verdict, and the action is put to you instead. |
+| `security.rules` | built in | The reviewer's rules in plain language: `{ "hard": [...], "soft": [...], "allow": [...] }`. `hard`: never. `soft`: only if you asked for exactly this. `allow`: ordinary work. `"$defaults"` in a list keeps the built-in entries at that place; a list without it replaces them. |
 | `security.bypassWhenTainted` | `false` | Keep bypass mode in force in a session that has read outside content. Off, such a session asks again. |
 | `http` | on, loopback, port 7463 | Control API and webhooks. `false` turns it off (the CLI's client commands then do not work). |
 | `http.host`, `http.port` | `127.0.0.1`, `7463` | Where the control API listens. Anything but loopback is reported by `pine check`. |
@@ -185,7 +189,7 @@ Every key is optional; `{}` is a valid agent.
 | `sandbox.env` | `{}` | Extra environment variables for the agent's shell. Do not put secrets here; the agent can read them. |
 | `trustWorkspace` | `false` | `true` lets pi load `.pi/extensions`, `.pi/settings.json` and skills from the workspace. That is code execution inside the daemon for whoever can write there, the agent included. |
 | `approve` | `[]` | Tool calls that always need your approval: `"tool"` or `"tool:argument-glob"`, for example `"bash:*git push*"`. |
-| `approveWhenTainted` | `["publish_event", "send"]` | Tool calls that need approval once the session has seen outside content. |
+| `approveWhenTainted` | `["publish_event", "send"]` | Tool calls that count as sending something out. Once the session has seen outside content they are checked by the reviewer (with `security.review: "ask"` they need your approval). |
 | `untrusted` | read-only profile | What a run started by an untrusted event may use: `{ "tools": ["read","grep","find","ls"], "mcp": [], "delegates": [], "publish": [], "stateWrite": false, "subagents": false }`. `false` refuses such runs. |
 
 ## models.json
