@@ -5,30 +5,25 @@
   </picture>
 </h1>
 
-<div align="center">
-<code>
-+ Opencode like CLI, everything's interactive + support for images, videos
-+ OpenClaw automation, without the weight & complexity
-+ PI coding agent for basic turns, auto compact and model providers
--------------------------------------------------------------------
-= PINE
-</code>
-</div>
-<br/>
-
 ```bash
 npm install -g @pmndrs/pine
 ```
 
-This is a small daemon that runs AI agents _reactively_. Some things it does very differently:
+PINE is React for AI.
 
-- **Letting agents react to external events**: chat, FTP, webhooks, MQTT, web addresses, schedules, etc. In a simple, modular way, and without configs. Agents can subscribe to any installed event source and react accordingly, or list available sources and unsubscribe. Event sources are simple to create, it's a \*.ts service with a schema. This allows you to create full automation workflows by just stating what you want: "watch my security cam, ring the alarm if someone enters while i'm away".
-- **No configs**: you tell the (main) agent what you want. It operates through safe tool calls. Main agent can create other agents, global MCPs, event sources, skills, schedules, etc. Other agents can create these either for local conversations or their scope. No agent will touch or bypass into user config.
-- **Discovery**: PINE ships a scripted BM25 instruction MCP, and a synonym thesaurus. All agents in it should know how it works in and out without having to carry documentation in context. They should be able to surface any api or internal detail on demand.
-- **A CLI that feels new**. Like a desktop UI. Interactive tabs, buttons, scroll regions. Images and videos are actually shown, formats markdown. Drag and drop files with real thumbails - and yes it's running in your shell (all Kitty shells, GHOSTTY et al, with lower quality fallbacks for old terminals).
-- **All basics inbuilt**: computer use, tool calls, internet, browsing and operating live websites
-- **Coding assistance**: diffs, output files, git integration, current folders ...
-- **Orchestrating agents**, sub-agents, ... well, yes it does that. In an intuitive way. A pinned tab is a persistent agent. Create an agent, open a tab, rename it, tell it its basic instructions (these go into AGENTS.md), connect it to event sources, for instance Telegram if you want to chat abroad, pin it, close the tab if you want (you find it back in the running sessions), you're done.
+Most harnesses just do input chat: "Do this do that". And maybe a scheduler: "Do it tomorrow". In PINE agents react to any stimuli. From watching folders, commands, websites, ftp endpoints, webhooks, to any other event source. You can hook them up and let them react to and operate your physical devices in the house, or digital assets.
+
+PINE of course also handles regular chat, coding, tasks and orchestration. Agents carry memory and so on. All the boring stuff is in there, too.
+
+Here are some things that it does quite differently:
+
+- **Event-driven agents:** Agents react to external events like chat, FTP, webhooks, MQTT, URLs and schedules, with no configs. They can subscribe to any installed source, list what's available, or unsubscribe. A source is just a `*.ts` service with a schema. You build whole workflows by saying what you want: "watch my security cam, ring the alarm if someone enters while I'm away."
+- **No configs:** You tell the main agent what you want, and it acts through safe tool calls. The main agent can create agents, global MCPs, event sources, skills and schedules. Other agents can create these only within their own scope. No agent touches your user config.
+- **Discovery:** PINE ships a scripted BM25 instruction MCP and a synonym thesaurus. Agents know the whole system without carrying docs in context, and they can look up any API or internal detail when they need it.
+- **A CLI that feels new:** It works like a desktop UI, with tabs, buttons and scroll regions. It renders markdown and shows images and video inline. You can drag and drop files and see real thumbnails, all in your shell (Kitty-protocol terminals like Ghostty, with fallbacks for older ones).
+- **Built in:** Computer use, tool calls, internet access, and browsing and operating live websites.
+- **Coding:** Diffs, output files, git integration and folder awareness.
+- **Orchestration:** Agents and sub-agents, done intuitively. A pinned tab is a persistent agent. Open a tab, name it, give it instructions (saved to AGENTS.md), connect event sources like Telegram, and pin it. You can close the tab, and it stays under running sessions.
 
 > [!IMPORTANT]
 > pine runs on macOS and Linux (see [Linux](#linux) for Ubuntu and Docker). Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
