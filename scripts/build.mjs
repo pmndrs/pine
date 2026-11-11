@@ -24,6 +24,8 @@ delete pkg.private;
 delete pkg.devDependencies;
 delete pkg.scripts;
 pkg.bin = { pine: "bin/pine.js" };
+// A release gives the package its version; a plain build keeps the one in package.json.
+if (process.env.PINE_VERSION) pkg.version = process.env.PINE_VERSION;
 pkg.publishConfig = { access: "public" };
 fs.writeFileSync(path.join(out, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 

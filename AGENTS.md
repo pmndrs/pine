@@ -10,7 +10,7 @@ to change the code.
 |---|---|
 | `npm test` | All tests against the scripted model server. About ten seconds. Run it after every change. |
 | `npm run build` | Makes the npm package in `build/`: the sources compiled to JavaScript at the same paths, plus docs and examples. Node runs TypeScript directly in a checkout but not inside `node_modules`, so only the package is compiled. Code that names one of pine's own module files at run time uses `EXT` from `src/config.ts` (".ts" or ".js"). |
-| `npm run release` | Tests, build, `npm publish ./build`. The checkout's `package.json` is marked private so that the sources are never published uncompiled. |
+| `npm run release` | What the Release workflow runs on every push to `main` (`.github/workflows/release.yml`): works out the next version, builds, publishes to npm, and marks the release with a tag. `node scripts/release.mjs --dry-run` shows the version and checks the package without publishing. The checkout's `package.json` is marked private so that the sources are never published uncompiled. |
 | `npm run check` | Type check (`tsc --noEmit`). |
 | `npm run test:live` | End-to-end through `claude -p`, plus the real browser. Slow, uses a Claude plan and the network. Run it when you change prompts, tool descriptions, `src/dev/claude-model.ts` or `mcp/browser.ts`. |
 | `npm run baseline` | The 59 pi SDK checks in `baseline/`. Run it after upgrading pi. |
@@ -128,6 +128,24 @@ upgrade pi (`npm run baseline`, then `npm test`).
 | Skills and `AGENTS.md` are discovered in the user's home and above the workspace | `skillsOverride` / `agentsFilesOverride` keep only configured locations |
 | `tools: [...]` is a strict allow-list that hides extension tools | `excludeTools` for built-ins instead |
 | The default system prompt describes a coding assistant inside pi and points at pi's manuals | `systemPromptOverride` supplies `BASE_PROMPT`; `docs/` is offered to every agent as the `pine` skill |
+
+## Releases
+
+Every push to `main` is a release. Its version follows from the commit messages since the last
+one (`scripts/version.mjs`, tested in `test/release.test.ts`):
+
+| A commit since the last release | Raises |
+|---|---|
+| has `BREAKING CHANGE` in its message, or `!` before the colon of its subject (`feat!: ...`) | the major number (the minor one while pine is below 1.0.0) |
+| has a subject that starts with `feat:` or `feat(scope):` | the minor number |
+| anything else | the patch number |
+
+So an ordinary push is a patch release, and the subject line is how you say that it is more.
+To pick a version by hand, set it in `package.json`: it is used as it is while it is ahead of
+what the commits call for. A commit message that contains `[skip release]` publishes nothing.
+
+Publishing needs no stored secret: on npmjs.com the package names this repository and
+`release.yml` as a trusted publisher. A repository secret `NPM_TOKEN` is used instead if one exists.
 
 ## Tests
 

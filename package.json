@@ -26,7 +26,7 @@
     "test:live": "PINE_LIVE=1 node --test --test-force-exit test/live.test.ts test/browser.test.ts",
     "baseline": "sh baseline/run-all.sh",
     "build": "node scripts/build.mjs",
-    "release": "npm test && node scripts/build.mjs && npm publish ./build"
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^1.5.1",
