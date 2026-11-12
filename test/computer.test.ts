@@ -298,7 +298,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 			return ok();
 		case "shot": {
 			if (!granted("screen")) return fail("screen");
-			if (flags.includes("after-shot-moved")) moved = true;
+			if (flags.includes("after-shot-moved") && (!flags.includes("menu-open") || front === m.pid)) moved = true;
 			const file = m.dir + "/shot-" + Date.now() + ".jpg";
 			const real = flags.find((f) => f.startsWith("picture="));
 			if (real) fs.copyFileSync(real.slice(8), file);
@@ -306,7 +306,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 			note("shot " + (m.ref ?? "display " + (m.display ?? 1)) + " edge=" + m.edge);
 			if (m.ref) {
 				const w = Object.values(windows).flat().find((x) => x.ref === m.ref);
-				return ok({ file, width: w.w * 2, height: w.h * 2, x: w.x, y: w.y, w: w.w, h: w.h });
+				// A menu hangs out of the window, to the left and below: the picture is of that part of the screen.
+				if (flags.includes("menu-open")) return front === m.pid ? ok({ file, width: (w.w + 40) * 2, height: (w.h + 100) * 2, x: w.x - 40, y: w.y, w: w.w + 40, h: w.h + 100, wx: w.x, wy: w.y, more: true }) : fail("behind");
+				return ok({ file, width: w.w * 2, height: w.h * 2, x: w.x, y: w.y, w: w.w, h: w.h, wx: w.x, wy: w.y });
 			}
 			return (m.display ?? 1) === 2 ? ok({ file, width: 1280, height: 720, x: -1920, y: 0, w: 1920, h: 1080, display: 2, displays: 2 }) : ok({ file, width: 1280, height: 720, x: 0, y: 0, w: 2560, h: 1440, display: 1, displays: 2 });
 		}
@@ -446,6 +448,18 @@ test("computer: by picture. A position in the picture the model was given is cli
 	await moved.call("app_screenshot", { app: "TextEdit" });
 	await moved.call("app_click", { app: "TextEdit", x: 640, y: 400 });
 	assert.equal(moved.lines().at(-1), "click 920.3,350.3 left x1");
+
+	// With a menu open the picture holds more than the window, and a window alone cannot be
+	// photographed: the app comes to the front first, and positions count from where the picture starts.
+	const menu = fakeHelper(t, {}, "menu-open");
+	assert.match(await menu.call("app_screenshot", { app: "TextEdit" }), /^Picture of TextEdit, window 1 "Untitled", and what is open over it: 1360 by 1000 pixels\./);
+	assert.deepEqual(menu.lines().slice(-3), ["shot w1 edge=1280", "activate 100 w1", "shot w1 edge=1280"]);
+	await menu.call("app_click", { app: "TextEdit", x: 80, y: 0 });
+	assert.equal(menu.lines().at(-1), "click 100.3,50.3 left x1", "40 points of menu lie left of the window");
+	const both = fakeHelper(t, {}, "menu-open", "after-shot-moved");
+	await both.call("app_screenshot", { app: "TextEdit" });
+	await both.call("app_click", { app: "TextEdit", x: 80, y: 0 });
+	assert.equal(both.lines().at(-1), "click 600.3,150.3 left x1");
 	const closed = fakeHelper(t, {}, "closed");
 	await closed.call("app_screenshot", { app: "TextEdit" });
 	assert.match(await closed.fails("app_click", { app: "TextEdit", x: 640, y: 400 }), /The window in the last picture is gone\. Take a new app_screenshot/);

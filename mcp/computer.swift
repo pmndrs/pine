@@ -423,9 +423,65 @@ func windowNumber(pid: pid_t, at f: CGRect) -> Int? {
 	for w in list {
 		guard (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid, (w[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 else { continue }
 		guard let b = w[kCGWindowBounds as String] as? NSDictionary, let rect = CGRect(dictionaryRepresentation: b), let id = (w[kCGWindowNumber as String] as? NSNumber)?.intValue else { continue }
-		if abs(rect.minX - f.minX) < 3 && abs(rect.minY - f.minY) < 3 && abs(rect.width - f.width) < 3 && abs(rect.height - f.height) < 3 { return id }
+		if alike(rect, f) { return id }
 	}
 	return nil
+}
+
+func alike(_ a: CGRect, _ b: CGRect) -> Bool {
+	return abs(a.minX - b.minX) < 3 && abs(a.minY - b.minY) < 3 && abs(a.width - b.width) < 3 && abs(a.height - b.height) < 3
+}
+
+/**
+ * The area that holds a window and what its app has open over it that is no window of its own:
+ * a menu, a sheet, a popover. nil when there is nothing of the kind. `own` are the frames of the
+ * app's windows, which stay out of it: another document is not part of this one.
+ */
+func withAttached(pid: pid_t, window f: CGRect, own: [CGRect]) -> (area: CGRect, parts: [CGRect])? {
+	guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+	var above: [CGRect] = []
+	// The list goes from the front to the back: what comes after the window is behind it.
+	for w in list {
+		guard (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid else { continue }
+		guard let b = w[kCGWindowBounds as String] as? NSDictionary, let rect = CGRect(dictionaryRepresentation: b) else { continue }
+		let layer = (w[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+		if layer == 0 && alike(rect, f) { break }
+		// 25 is the level of the icons in the menu bar: an app's icon there is not part of its window.
+		if layer == 25 || ((w[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) <= 0 || rect.width < 2 || rect.height < 2 { continue }
+		if layer == 0 && own.contains(where: { alike($0, rect) }) { continue }
+		above.append(rect)
+	}
+	var area = f
+	var parts = [f]
+	var grew = true
+	// A submenu hangs on a menu, not on the window: so again until nothing is added.
+	while grew {
+		grew = false
+		for (i, r) in above.enumerated().reversed() where r.intersects(area.insetBy(dx: -8, dy: -8)) {
+			area = area.union(r)
+			parts.append(r)
+			above.remove(at: i)
+			grew = true
+		}
+	}
+	return parts.count > 1 ? (area, parts) : nil
+}
+
+/** The part of an area that is on a screen, in whole points. */
+func onScreens(_ r: CGRect) -> CGRect {
+	var all = CGRect.null
+	for d in displays() { all = all.union(CGRect(x: d["x"] as! Int, y: d["y"] as! Int, width: d["w"] as! Int, height: d["h"] as! Int)) }
+	let part = all.isNull ? r : r.intersection(all)
+	if part.isNull || part.width < 2 || part.height < 2 { return .null }
+	let x = part.minX.rounded(.down)
+	let y = part.minY.rounded(.down)
+	return CGRect(x: x, y: y, width: (part.maxX - x).rounded(.down), height: (part.maxY - y).rounded(.down))
+}
+
+func pixels(_ file: URL) -> (Double, Double)? {
+	guard let src = CGImageSourceCreateWithURL(file as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else { return nil }
+	guard let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue, let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue else { return nil }
+	return (w, h)
 }
 
 /** Whose window is on top at a point, among ordinary windows. */
@@ -450,7 +506,7 @@ func displays() -> [[String: Any]] {
 }
 
 /** Writes a picture no larger than asked for, as JPEG: a model is sent every picture again with every turn. */
-func shrink(_ from: URL, to: URL, edge: Double, area: Double) throws -> (Int, Int) {
+func shrink(_ from: URL, to: URL, edge: Double, area: Double, keep: [CGRect] = []) throws -> (Int, Int) {
 	guard let src = CGImageSourceCreateWithURL(from as CFURL, nil), let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { throw Fail(code: "failed", message: "the picture could not be read") }
 	let W = Double(image.width)
 	let H = Double(image.height)
@@ -458,8 +514,11 @@ func shrink(_ from: URL, to: URL, edge: Double, area: Double) throws -> (Int, In
 	let w = max(1, Int((W * scale).rounded()))
 	let h = max(1, Int((H * scale).rounded()))
 	guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { throw Fail(code: "failed", message: "the picture could not be made smaller") }
-	ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+	// `keep`: the parts of the picture that are shown, as fractions of it from its top left corner.
+	// The rest stays grey: a picture of one app does not show what lies beside it on the screen.
+	ctx.setFillColor(CGColor(gray: keep.isEmpty ? 1 : 0.5, alpha: 1))
 	ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+	if !keep.isEmpty { ctx.clip(to: keep.map { CGRect(x: $0.minX * Double(w), y: (1 - $0.maxY) * Double(h), width: $0.width * Double(w), height: $0.height * Double(h)) }) }
 	ctx.interpolationQuality = .high
 	ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
 	guard let small = ctx.makeImage(), let dest = CGImageDestinationCreateWithURL(to as CFURL, "public.jpeg" as CFString, 1, nil) else { throw Fail(code: "failed", message: "the picture could not be written") }
@@ -819,9 +878,14 @@ func handle(_ cmd: String, _ p: [String: Any]) throws -> [String: Any] {
 		let raw = URL(fileURLWithPath: dir).appendingPathComponent(name + ".png")
 		let small = URL(fileURLWithPath: dir).appendingPathComponent(name + ".jpg")
 		defer { try? FileManager.default.removeItem(at: raw) }
-		var args = ["-x", "-t", "png"]
+		let base = ["-x", "-t", "png"]
+		var args = base
 		var area: CGRect
 		var r: [String: Any] = [:]
+		var whole: CGRect?
+		var keep: [CGRect] = []
+		var front = true
+		let region = { (a: CGRect) -> [String] in ["-R", "\(Int(a.minX)),\(Int(a.minY)),\(Int(a.width)),\(Int(a.height))"] }
 		if p["ref"] != nil {
 			let w = try element(p)
 			guard let f = frame(w), f.width > 1, f.height > 1 else { throw Fail(code: "gone", message: "this window does not exist any more") }
@@ -829,21 +893,54 @@ func handle(_ cmd: String, _ p: [String: Any]) throws -> [String: Any] {
 			var pid: pid_t = 0
 			AXUIElementGetPid(w, &pid)
 			area = f
-			// The window itself, also where another one covers it. Without its number: what is on the screen in its place.
-			if let id = windowNumber(pid: pid, at: f) { args += ["-o", "-l", String(id)] } else { args += ["-R", "\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width)),\(Int(f.height))"] }
+			r["wx"] = Double(f.minX)
+			r["wy"] = Double(f.minY)
+			let own = windowsOf(appElement(pid)).compactMap { frame($0) }
+			// A part of the screen shows the app only while the app is in front: pine brings it there and asks again.
+			let behind = Fail(code: "behind", message: "this window is behind another app")
+			front = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+			if let wide = withAttached(pid: pid, window: f, own: own) {
+				if !front { throw behind }
+				// A menu or a sheet is open over the window. A picture of the window alone would leave it
+				// out, or hold it at a place nobody can work out: so the picture is of that part of the screen.
+				area = onScreens(wide.area)
+				if !area.isNull { keep = wide.parts.map { CGRect(x: ($0.minX - area.minX) / area.width, y: ($0.minY - area.minY) / area.height, width: $0.width / area.width, height: $0.height / area.height) } }
+				r["more"] = true
+			} else if let id = windowNumber(pid: pid, at: f) {
+				// The window itself, also where another one covers it.
+				args += ["-o", "-l", String(id)]
+				whole = f
+			} else {
+				if !front { throw behind }
+				area = onScreens(f)
+			}
+			if area.isNull { throw Fail(code: "failed", message: "this window is not on a screen") }
+			if whole == nil { args += region(area) }
 		} else {
 			let all = displays()
 			let n = (p["display"] as? Int) ?? 1
 			guard n >= 1 && n <= all.count else { throw Fail(code: "not_found", message: "there is no screen \(n); there \(all.count == 1 ? "is 1 screen" : "are \(all.count) screens")") }
 			let d = all[n - 1]
 			area = CGRect(x: d["x"] as! Int, y: d["y"] as! Int, width: d["w"] as! Int, height: d["h"] as! Int)
-			args += ["-R", "\(Int(area.minX)),\(Int(area.minY)),\(Int(area.width)),\(Int(area.height))"]
+			args += region(area)
 			r["display"] = n
 			r["displays"] = all.count
 		}
-		let (status, err) = runTool("/usr/sbin/screencapture", args + [raw.path])
+		var (status, err) = runTool("/usr/sbin/screencapture", args + [raw.path])
+		if status == 0, let f = whole, let (W, H) = pixels(raw) {
+			// A picture of a window is the window, at one, two or three pixels to the point. One that
+			// is not holds something else as well, and positions in it would be guesses.
+			let k = (W / f.width).rounded()
+			if k < 1 || abs(W - f.width * k) > 2 * k || abs(H - f.height * k) > 2 * k {
+				if !front { throw Fail(code: "behind", message: "this window is behind another app") }
+				area = onScreens(f)
+				if area.isNull { throw Fail(code: "failed", message: "this window is not on a screen") }
+				try? FileManager.default.removeItem(at: raw)
+				(status, err) = runTool("/usr/sbin/screencapture", base + region(area) + [raw.path])
+			}
+		}
 		guard status == 0, FileManager.default.fileExists(atPath: raw.path) else { throw Fail(code: "failed", message: "the picture could not be taken\(err.isEmpty ? "" : ": " + err.trimmingCharacters(in: .whitespacesAndNewlines))") }
-		let (w, h) = try shrink(raw, to: small, edge: (p["edge"] as? NSNumber)?.doubleValue ?? 1280, area: (p["area"] as? NSNumber)?.doubleValue ?? 1_150_000)
+		let (w, h) = try shrink(raw, to: small, edge: (p["edge"] as? NSNumber)?.doubleValue ?? 1280, area: (p["area"] as? NSNumber)?.doubleValue ?? 1_150_000, keep: keep)
 		r["file"] = small.path
 		r["width"] = w
 		r["height"] = h

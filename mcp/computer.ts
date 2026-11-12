@@ -358,7 +358,7 @@ export function computer(o: ComputerOptions, io: ComputerIo): { call(name: strin
 	/** The app pine runs in, once asked for. */
 	let host: { name: string; pid: number } | null | undefined;
 	/** The last picture the model was given, and what it showed. */
-	let picture: (Picture & { pid?: number; app?: string; ref?: string }) | undefined;
+	let picture: (Picture & { pid?: number; app?: string; ref?: string; dx: number; dy: number }) | undefined;
 	/** macOS shows its own request once for each grant; after that it is the agent who says it. */
 	const prompted = new Set<string>();
 	let queue: Promise<unknown> = Promise.resolve();
@@ -502,7 +502,8 @@ export function computer(o: ComputerOptions, io: ComputerIo): { call(name: strin
 			// The window may have been moved since the picture was taken.
 			try {
 				const f = await ask("frame", { ref: picture.ref });
-				shown = { ...picture, x: f.x, y: f.y, w: f.w, h: f.h };
+				// What the picture shows starts where it started in the window: beside it, when a menu hung out of it.
+				shown = { ...picture, x: f.x + picture.dx, y: f.y + picture.dy };
 			} catch {
 				throw new Error("The window in the last picture is gone. Take a new app_screenshot.");
 			}
@@ -628,15 +629,24 @@ export function computer(o: ComputerOptions, io: ComputerIo): { call(name: strin
 			const size = { edge: Math.max(320, Math.min(4000, Number(o.imageSize) || 1280)), area: 1_150_000, dir: io.scratch };
 			let r: any;
 			let what: string;
-			let of: { pid?: number; app?: string; ref?: string } = {};
+			let of: { pid?: number; app?: string; ref?: string; dx?: number; dy?: number } = {};
 			if (typeof args.app === "string" && args.app.trim()) {
 				const a = await find(args, false);
 				const all = await windowsOf(a);
 				const w = pickWindow(all, args.window) ?? all.find((x) => x.main && !x.minimized) ?? all.find((x) => !x.minimized) ?? all[0];
 				if (!w) throw new Error(`${a.name} has no window open, so there is nothing to take a picture of. app_open brings it to the front.`);
-				r = await ask("shot", { ...size, pid: a.pid, ref: w.ref });
-				what = `${a.name}, window ${windowLine(w)}`;
-				of = { pid: a.pid, app: a.name, ref: w.ref };
+				const shoot = () => ask("shot", { ...size, pid: a.pid, ref: w.ref });
+				try {
+					r = await shoot();
+				} catch (e) {
+					if (!(e instanceof HelperError) || e.code !== "behind") throw e;
+					// Something hangs over the window (a sheet, a bubble), so the picture is of that part of the
+					// screen, and the screen shows the app only when the app is in front.
+					await toFront(a, w.ref);
+					r = await shoot();
+				}
+				what = `${a.name}, window ${windowLine(w)}${r.more ? ", and what is open over it" : ""}`;
+				of = { pid: a.pid, app: a.name, ref: w.ref, dx: r.x - (r.wx ?? r.x), dy: r.y - (r.wy ?? r.y) };
 			} else {
 				r = await ask("shot", { ...size, ...(args.screen !== undefined ? { display: Number(args.screen) } : {}) });
 				what = `${WHOLE_SCREEN}${r.displays > 1 ? ` ${r.display} of ${r.displays}` : ""}`;
@@ -647,7 +657,7 @@ export function computer(o: ComputerOptions, io: ComputerIo): { call(name: strin
 			} finally {
 				fs.rmSync(r.file, { force: true });
 			}
-			picture = { width: r.width, height: r.height, x: r.x, y: r.y, w: r.w, h: r.h, ...of };
+			picture = { width: r.width, height: r.height, x: r.x, y: r.y, w: r.w, h: r.h, dx: 0, dy: 0, ...of };
 			const text = `Picture of ${what}: ${r.width} by ${r.height} pixels. For app_click, app_drag and app_scroll, x and y are pixels in this picture, counted from its top left corner (x from 0 to ${r.width - 1}, y from 0 to ${r.height - 1}).`;
 			return [{ type: "text", text }, { type: "image", data: bytes.toString("base64"), mimeType: bytes[0] === 0x89 ? "image/png" : "image/jpeg" }];
 		},

@@ -62,6 +62,12 @@ turns them into the right point on the screen, whatever the display's resolution
 the window is, also on a second display. A window that was moved after its picture was taken
 is clicked where it is now.
 
+A picture of a window shows that window alone, also while another app covers it, and taking it
+does not bring the app to the front. When the app has something open over the window (a menu, a
+sheet, a bubble), the picture holds that too, also where it reaches beyond the window, and the
+answer says "and what is open over it". For such a picture the app is brought to the front, and
+what lies beside the app on the screen is left grey: a picture of one app does not show another.
+
 **For both.** `app_type` types text where the cursor is, `app_key` presses a key or a
 shortcut, `app_open` starts an app or brings it to the front, `apps` lists what is running.
 
@@ -83,7 +89,7 @@ matter; a bundle id (`com.apple.TextEdit`) works too.
 | `app_press` | Presses the control with the reference `ref`: a button, a checkbox, a link, a tab. A row of a list is selected. A control that has nothing to press by name is clicked in its middle |
 | `app_set_text` | Makes the text field with the reference `ref` hold `text`, replacing what was in it. A search or address field acts only on the return key: `app_key` with `return` afterwards |
 | `app_menu` | Brings the app to the front and picks an entry from its menu bar: `path` is the menu names from the top down, separated by ` > ` (`File > Save`, `Format > Font > Bold`). Without `path` it lists the menus, with the name of a menu what is in it, with shortcuts |
-| `app_screenshot` | Takes a picture of an app's window (`app`, and `window` like `app_snapshot`), or of the whole screen without `app` (`screen`: which one, when there are several). The answer gives the picture's size in pixels |
+| `app_screenshot` | Takes a picture of an app's window (`app`, and `window` like `app_snapshot`), or of the whole screen without `app` (`screen`: which one, when there are several). The answer gives the picture's size in pixels. An open menu or sheet of the app is in the picture; other apps are not |
 | `app_click` | Clicks at `x`, `y` in the last picture. `count`: 2 for a double click, 3 for a triple one. `button`: `"right"` for the context menu |
 | `app_drag` | Presses the mouse button at `x`, `y` in the last picture, moves to `to_x`, `to_y` and lets go |
 | `app_scroll` | Turns the scroll wheel over `x`, `y` in the last picture. `direction`: `up`, `down`, `left` or `right`. `amount`: lines, 5 unless given |
