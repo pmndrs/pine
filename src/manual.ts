@@ -73,6 +73,7 @@ const SYNONYMS: string[][] = [
 	["error", "problem", "fail", "broken", "troubleshoot", "debug", "wrong", "stuck"],
 	["log", "history", "audit", "record", "trace"],
 	["image", "picture", "photo", "screenshot", "video", "media"],
+	["sound", "audio", "speech", "voice", "music", "hear", "wav", "mp3"],
 	["browser", "web", "playwright", "page", "search"],
 	["show", "visible", "headed", "headless", "window", "watch", "see"],
 	["plan", "propose", "proposal", "outline", "preview", "dry"],

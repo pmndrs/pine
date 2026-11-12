@@ -7,7 +7,8 @@
   and sets up. Without a sandbox pine starts, but withholds the shell tool, and `pine check`
   says why. See [security.md](security.md), "On Linux".
 - Optional: `ffmpeg` for videos in the terminal UI (on Linux also for pictures other than
-  png); on Linux `xclip`, or on Wayland `wl-copy` and `wl-paste`, for copying a selection and
+  png, and its `ffplay` for sound; `mpv`, `pw-play`, `paplay` or `aplay` do as well. macOS plays
+  sound with what it has); on Linux `xclip`, or on Wayland `wl-copy` and `wl-paste`, for copying a selection and
   pasting a picture.
 - Node 24 or newer. From a checkout Node runs the TypeScript sources directly; the npm package
   holds them compiled.
@@ -290,8 +291,8 @@ are JSON with `Content-Type: application/json`.
 | `POST /agents/<id>/undo` `{ session? }`, `POST /agents/<id>/redo` `{ session? }` | Take back the owner's last message in a conversation, with the files it changed, or bring back what the last undo took. See [coding.md](coding.md) |
 | `GET /media/tool/<id>` | A picture a tool returned. The ids are in the `images` field of `agent/<id>/tool` events and of transcript steps |
 | `GET /tasks/<id>/images/<n>` | The n-th picture that came with a task (an attachment, a Telegram photo) |
-| `GET /agents/<id>/image?path=&session=` | A picture or video file in that agent's workspace or, with `session`, in the folder opened for that conversation. Anything that is not an image or video file in there is "not found" |
-| `POST /images/fetch` `{ url }` | Fetch a picture or video from the web for display: https and public addresses only; pictures up to 20 MB, videos up to 100 MB |
+| `GET /agents/<id>/image?path=&session=` | A picture, video or sound file in that agent's workspace or, with `session`, in the folder opened for that conversation. Anything that is not an image, video or sound file in there is "not found" |
+| `POST /images/fetch` `{ url }` | Fetch a picture, video or sound from the web for display: https and public addresses only; pictures up to 20 MB, videos and sound up to 100 MB |
 | `GET /sources`, `GET /agents/<id>/sources` | Event sources and their state; the ones that agent can subscribe to |
 | `POST /agents/<id>/subscribe` `{ source, session?, note?, when?, throttle?, debounce?, separate? }`, `POST /agents/<id>/unsubscribe` `{ source, session? }` | Change an agent's subscriptions (written to its `agent.json`); `session` makes it one conversation's |
 | `POST /subscribe` `{ source, note?, ... }`, `POST /unsubscribe` `{ source }` | The subscription of all agents (written to `pine.json`) |

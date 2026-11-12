@@ -254,6 +254,7 @@ test("an agent is told which servers are reached over the network, and that thei
 	const system = h.system(h.mock.state.requests[0]);
 	assert.ok(system.includes("Reached over the network: studio. Such a server can run on another computer, and a file path in its answer is then a path there, not on yours. When a file from it is needed on your computer, fetch the link from its answer with the download tool; do not copy the path."), system.slice(-900));
 	assert.ok(system.includes("A picture that came with a tool's answer is already on your owner's screen, above your reply: do not write ![...](...) for it"));
+	assert.ok(system.includes("A sound is played to your owner the same way, with the file in your workspace (wav, mp3, m4a, ogg or flac): ![what is heard](path/to/file.wav)"));
 	assert.ok(!/Reached over the network: [^.]*near/.test(system), "a server on this computer is not one of them");
 	await h.close();
 });

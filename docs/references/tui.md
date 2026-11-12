@@ -399,6 +399,32 @@ half blocks, as for pictures. One video plays at a time. Playing in place needs
 `ffmpeg` (`brew install ffmpeg`); without it there is the still (from Quick Look) and the
 player. A video at a web address waits for a click, like a picture.
 
+**Sound** is played by pine itself, in the conversation: there is no service and no MCP server
+for it. An agent points at a sound file in its workspace the way it points at a picture,
+`![caption](hello.wav)` (wav, mp3, m4a, ogg, flac or aiff, up to 100 MB), and the conversation
+shows one line for it:
+
+```
+ ‖ pause · ♪ hello world · 0:01 / 0:03   ▸ open in player
+```
+
+- A sound that arrives while you are looking at the conversation is played at once, like a
+  video; one from earlier in a conversation you reopen waits for a click.
+- `‖ pause` / `▶ play`: click to pause and to go on from there. At the end the line is back at
+  the start. One sound plays at a time: starting another stops the first.
+- `▸ open in player` hands the file to the system's player.
+
+It plays on the computer the terminal UI runs on, through what is there anyway: on macOS the
+system's own audio player (driven through `osascript`, nothing to install); on Linux the first
+of `ffplay` (part of ffmpeg), `mpv`, `pw-play`, `paplay` and `aplay` that is installed. Without
+any of them the line says so and `▸ open in player` still works. A pause is exact with the
+macOS player, `ffplay` and `mpv`, which can start in the middle of a file; the other three are
+held where they are instead. The player runs confined like the picture converters: no network,
+and it writes nowhere. A sound at a web address waits for a click on `▸ load sound https://...`, for the
+same reason a picture does. Speech, music and other sound a remote server made is fetched
+first (see "Files and pictures from a remote server" in [mcp.md](mcp.md)); a video still plays
+without its sound in the conversation.
+
 All of this is display. The model is never sent the drawing; it gets the actual picture if it
 can look at images, exactly as before.
 

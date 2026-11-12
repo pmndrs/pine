@@ -330,6 +330,120 @@ test("tui: a video plays by itself when it arrives, at the size it is shown; pau
 	await h.close();
 });
 
+/** A wav file of silence: 8000 samples a second, one channel, 16 bits. */
+function wav(seconds: number): Buffer {
+	const data = Buffer.alloc(Math.round(seconds * 8000) * 2);
+	const head = Buffer.alloc(44);
+	head.write("RIFF", 0, "latin1");
+	head.writeUInt32LE(36 + data.length, 4);
+	head.write("WAVEfmt ", 8, "latin1");
+	head.writeUInt32LE(16, 16);
+	head.writeUInt16LE(1, 20);
+	head.writeUInt16LE(1, 22);
+	head.writeUInt32LE(8000, 24);
+	head.writeUInt32LE(16000, 28);
+	head.writeUInt16LE(2, 32);
+	head.writeUInt16LE(16, 34);
+	head.write("data", 36, "latin1");
+	head.writeUInt32LE(data.length, 40);
+	return Buffer.concat([head, data]);
+}
+
+test("tui: a sound an answer points at is played when it arrives, by the system's player; pause and play go on where it was", async (t) => {
+	const { execFileSync } = await import("node:child_process");
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-sound-test-")));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+	// A stand-in for the player: it notes its process, where it was told to start, the file and its
+	// size, and "plays" for a while.
+	const log = path.join(dir, "played.txt");
+	const script = path.join(dir, "player.mjs");
+	fs.writeFileSync(script, `import fs from "node:fs";\nconst [log, ms, ...rest] = process.argv.slice(2);\nconst file = rest.pop();\nfs.appendFileSync(log, [process.pid, rest[0] ?? "-", file, fs.statSync(file).size].join(" ") + "\\n");\nsetTimeout(() => {}, Number(ms));\n`);
+	const played = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map((l) => l.split(" ")) : []);
+	const state = (pid: string) => execFileSync("/bin/sh", ["-c", `ps -o state= -p ${Number(pid)} || true`], { encoding: "utf8" }).trim();
+	const seeking = { command: [process.execPath, script, log, "900"], from: (s: number) => [s.toFixed(1)] };
+	const opened: string[] = [];
+	const h = await harness({ pine: { main: "main", http: { port: 0 } }, agents: { main: {} } });
+	const term = new FakeTerminal(110, 40);
+	const client = new Client(`http://127.0.0.1:${h.pine.http!.port}`, h.pine.token);
+	const app = new PineTui({ client, terminal: term, openFile: (f) => void opened.push(f), soundPlayer: seeking });
+	apps.push(app);
+	await app.start();
+	const text = () => app.screen().join("\n");
+	const sees = (what: string | RegExp, ms = 6000) => until(() => (typeof what === "string" ? text().includes(what) : what.test(text())), ms, `the screen to show ${what}\n${text()}`);
+	const ws = h.workspace("main");
+	const sound = wav(2);
+	fs.writeFileSync(path.join(ws, "hello.wav"), sound);
+	fs.writeFileSync(path.join(ws, "fake.wav"), "this is only named like a sound");
+	fs.writeFileSync(path.join(ws, "text.mp3"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("notes in another encoding", "utf16le")]));
+
+	// The daemon serves real sound files from the workspace, and nothing that only has the name.
+	const served = await client.workspaceImage("main", "hello.wav");
+	assert.ok(served?.mime === "audio/wav" && served.bytes.equals(sound));
+	assert.equal(await client.workspaceImage("main", "fake.wav"), undefined);
+	assert.equal(await client.workspaceImage("main", "text.mp3"), undefined);
+
+	const line = () => app.screen().find((l) => l.includes("♪ hello world")) ?? "";
+	const clickWord = (word: string) => term.click(line().indexOf(word) + 1, app.screen().findIndex((l) => l.includes("♪ hello world")));
+
+	// It arrives and is played from the start: the player gets the file's bytes, and the line says how far it is.
+	term.type(mockMsg([{ text: "Here it is: ![hello world](hello.wav) and ![gone](nope.wav)" }]));
+	term.type([KEY.enter]);
+	await sees(/‖ pause · ♪ hello world · 0:00 \/ 0:02\s+▸ open in player/);
+	await until(() => played().length === 1, 3000, "the player to start");
+	assert.deepEqual(played()[0].slice(1, 2), ["0.0"]);
+	assert.equal(played()[0].at(-1), String(sound.length));
+	assert.match(played()[0].at(-2)!, /\.wav$/);
+	assert.ok(text().includes("(no sound file at nope.wav in the workspace)"), text());
+
+	// Pause ends the player and keeps the place; play starts one from there, not from the beginning.
+	await sleep(300);
+	clickWord("‖ pause");
+	await sees(/▶ play · ♪ hello world · 0:00 \/ 0:02/);
+	await until(() => state(played()[0][0]) === "", 3000, "the player to be gone");
+	await sleep(1100);
+	assert.match(line(), /▶ play · ♪ hello world · 0:00 \/ 0:02/, "the pause outlasts the player's own time, and nothing moves");
+	clickWord("▶ play");
+	await sees("‖ pause · ♪ hello world");
+	await until(() => played().length === 2, 3000, "a player to go on");
+	const from = Number(played()[1][1]);
+	assert.ok(from >= 0.3 && from < 0.9, `it goes on where it was (${from})`);
+
+	// When the player is done, the line is back at the start, and a click plays it from there.
+	await sees(/▶ play · ♪ hello world · 0:02\s+▸ open in player/);
+	clickWord("▶ play");
+	await until(() => played().length === 3, 3000, "the player to start again");
+	assert.equal(played()[2][1], "0.0");
+	clickWord("▸ open in player");
+	await until(() => opened.length === 1, 3000, "the player to be handed the file");
+	assert.ok(fs.readFileSync(opened[0]).equals(sound));
+
+	// Closing the UI ends what is playing.
+	await app.stop();
+	await until(() => state(played()[2][0]) === "", 3000, "the player to be gone");
+
+	// A player that cannot start in the middle is held at a pause and let go again. And a sound from
+	// earlier in the conversation waits for a click: opening the conversation plays nothing.
+	const term2 = new FakeTerminal(110, 40);
+	const again = new PineTui({ client, terminal: term2, soundPlayer: { command: [process.execPath, script, log, "900"] } });
+	apps.push(again);
+	await again.start();
+	const line2 = () => again.screen().find((l) => l.includes("♪ hello world")) ?? "";
+	const click2 = (word: string) => term2.click(line2().indexOf(word) + 1, again.screen().findIndex((l) => l.includes("♪ hello world")));
+	await until(() => line2().includes("▶ play · ♪ hello world"), 6000, "the conversation to be drawn again");
+	await sleep(200);
+	assert.equal(played().length, 3, "nothing plays by itself that was there before");
+	click2("▶ play");
+	await until(() => played().length === 4, 3000, "the player to start");
+	assert.equal(played()[3][1], "-", "it is given the file alone");
+	click2("‖ pause");
+	await until(() => state(played()[3][0]).startsWith("T"), 3000, "the player to be held");
+	click2("▶ play");
+	await until(() => /^[SR]/.test(state(played()[3][0])), 3000, "the player to go on");
+	assert.equal(played().length, 4, "the same player");
+	await again.stop();
+	await h.close();
+});
+
 test("tui: on a terminal with the Kitty graphics protocol a video plays as real pictures, each frame replacing the last", { skip: !ffmpeg }, async () => {
 	const { execFileSync } = await import("node:child_process");
 	const { pngFromRgb } = await import("../src/tui/picture.ts");

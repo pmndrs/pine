@@ -39,7 +39,7 @@ import { errText, expandHome, openInSystem } from "../util.ts";
 import type { AgentInfo, Client, Conversation, GoalInfo } from "./client.ts";
 import { CodePane, PANE_VIEWS, type PaneView } from "./code-pane.ts";
 import { redoText, undoText } from "./undo.ts";
-import { isImageFile, isVideoFile, mimeOf, Picture, picturesAsText, picturesIn, prepare, prepareVideo, Slot, stopVideos, Video } from "./picture.ts";
+import { isAudioFile, isImageFile, isVideoFile, mimeOf, Picture, picturesAsText, picturesIn, prepare, prepareSound, prepareVideo, Slot, Sound, type SoundPlayer, soundPlayer, stopSounds, stopVideos, Video } from "./picture.ts";
 import { Answer, c, editorTheme, selectTheme, SPINNER } from "./theme.ts";
 
 interface Tab {
@@ -183,6 +183,8 @@ class Line {
 }
 
 const MAX_ATTACHMENT = 20 * 1024 * 1024;
+/** The ending a sound file gets when its name has none: a player tells the kind by it. */
+const SOUND_EXT: Record<string, string> = { "audio/wav": ".wav", "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/ogg": ".ogg", "audio/flac": ".flac", "audio/aiff": ".aiff" };
 
 const URL_CHARS = /[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]/;
 
@@ -937,8 +939,10 @@ export interface TuiOptions {
 	onQuit?: () => void | Promise<void>;
 	/** Shown in the footer, for example "embedded daemon". */
 	mode?: string;
-	/** Hands a video file to a player when "open in player" is clicked. Default: the system's player. */
+	/** Hands a video or sound file to a player when "open in player" is clicked. Default: the system's player. */
 	openFile?: (file: string) => void;
+	/** What plays a sound in the conversation. Default: what the system has (see soundPlayer). */
+	soundPlayer?: SoundPlayer;
 	/** Opens a web address when it is clicked. Default: the system's browser. */
 	openUrl?: (url: string) => void;
 	/** Saves the picture that is on the clipboard as a file and resolves with its path, or with nothing when there is none. Default: the system's clipboard. */
@@ -1109,6 +1113,7 @@ export class PineTui {
 		this.unsubscribe?.();
 		this.code.stop();
 		stopVideos();
+		stopSounds();
 		if (this.mediaDir) fs.rmSync(this.mediaDir, { recursive: true, force: true });
 		this.tui.stop();
 		await this.opts.onQuit?.();
@@ -1450,6 +1455,11 @@ export class PineTui {
 				const video = await this.video(this.keepVideo(got.bytes, got.mime, name), name);
 				slot.inner = video;
 				if (autoplay()) video.play();
+			} else if (got?.mime.startsWith("audio/")) {
+				// A sound that arrives while you are looking is played, like a video; one from earlier waits for a click.
+				const sound = new Sound(await prepareSound(this.keepVideo(got.bytes, got.mime, name), name), this.opts.soundPlayer ?? soundPlayer(), () => this.tui.requestRender(), (f) => (this.opts.openFile ?? openInSystem)(f));
+				slot.inner = sound;
+				if (autoplay()) sound.play();
 			}
 			else if (got) slot.inner = new Picture(await prepare(got.bytes, got.mime, name));
 			else slot.inner = missing ? new Text(c.gray(missing), 1, 0) : undefined;
@@ -1459,10 +1469,10 @@ export class PineTui {
 		this.tui.requestRender();
 	}
 
-	/** A video that came over the API needs to be a file for ffmpeg and for the player. Kept until the UI closes. */
+	/** A video or sound that came over the API needs to be a file for ffmpeg and for the player. Kept until the UI closes. */
 	private keepVideo(bytes: Buffer, mime: string, name: string): string {
 		this.mediaDir ??= fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "pine-media-"));
-		const ext = mime === "video/webm" ? ".webm" : mime === "video/quicktime" ? ".mov" : ".mp4";
+		const ext = SOUND_EXT[mime] ?? (mime === "video/webm" ? ".webm" : mime === "video/quicktime" ? ".mov" : ".mp4");
 		const file = path.join(this.mediaDir, `${this.mediaCount++}-${name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-60) || "video"}${/\.\w{2,5}$/.test(name) ? "" : ext}`);
 		fs.writeFileSync(file, bytes, { mode: 0o600 });
 		return file;
@@ -1481,15 +1491,16 @@ export class PineTui {
 		for (const ref of picturesIn(text ?? "")) {
 			const name = ref.caption || path.basename(ref.target.split("?")[0]) || "picture";
 			if (!ref.remote) {
-				this.picture(tab, name, () => this.client.workspaceImage(agent, ref.target, tab.kind === "chat" ? tab.session : undefined), `(no picture at ${ref.target} in the ${tab.folder ? "folder or the " : ""}workspace)`, live);
+				this.picture(tab, name, () => this.client.workspaceImage(agent, ref.target, tab.kind === "chat" ? tab.session : undefined), `(no ${isAudioFile(ref.target) ? "sound file" : "picture"} at ${ref.target} in the ${tab.folder ? "folder or the " : ""}workspace)`, live);
 				continue;
 			}
 			let slot: Slot | undefined;
-			this.button(tab, `${c.accent("▸ load picture")} ${c.gray(ref.target)}`, () => {
+			const sound = isAudioFile(ref.target.split("?")[0]);
+			this.button(tab, `${c.accent(sound ? "▸ load sound" : "▸ load picture")} ${c.gray(ref.target)}`, () => {
 				if (!slot) return;
 				slot.inner = new Text(c.gray("loading …"), 1, 0);
 				this.tui.requestRender();
-				void this.fill(slot, name, () => this.client.fetchImage(ref.target), "(that address is not a picture)");
+				void this.fill(slot, name, () => this.client.fetchImage(ref.target), sound ? "(that address is not a sound file)" : "(that address is not a picture)");
 			});
 			slot = new Slot();
 			tab.doc.addChild(slot);

@@ -91,7 +91,7 @@ const BASE_PROMPT = `You are an agent in pine, a system that runs several AI age
   - SOUL.md: who you are, your character and tone.
   - MEMORY.md: your memory. When you learn something that matters beyond this conversation (a decision, a fact, a preference, an open end), write it there right away, briefly. It is read with every message, so keep it short: when it has grown long, tidy it. Merge what belongs together, drop what no longer holds, move details into other files in your workspace and leave a pointer.
 - {{OWNER}}
-- To show your owner a picture, write ![short caption](path/to/file.png) in your answer, with a file in your workspace (png, jpg, gif or webp; a video as mp4, mov or webm is shown the same way). A web address works too, but your owner has to click to load it; for a picture from the web, download it first and show the file. A picture that came with a tool's answer is already on your owner's screen, above your reply: do not write ![...](...) for it, and do not copy or download it unless your owner asks for it as a file.
+- To show your owner a picture, write ![short caption](path/to/file.png) in your answer, with a file in your workspace (png, jpg, gif or webp; a video as mp4, mov or webm is shown the same way). A sound is played to your owner the same way, with the file in your workspace (wav, mp3, m4a, ogg or flac): ![what is heard](path/to/file.wav), once, and no other link to it. A web address works too, but your owner has to click to load it; for a picture from the web, download it first and show the file. A picture that came with a tool's answer is already on your owner's screen, above your reply: do not write ![...](...) for it, and do not copy or download it unless your owner asks for it as a file.
 </working>
 
 <limits>
@@ -770,8 +770,8 @@ export class AgentManager {
 	}
 
 	/**
-	 * A picture or video in an agent's workspace, which the agent refers to in an answer. Only real
-	 * image and video files inside the workspace are served: the path comes from model output, and this endpoint
+	 * A picture, video or sound in an agent's workspace, which the agent refers to in an answer. Only real
+	 * image, video and sound files inside the workspace are served: the path comes from model output, and this endpoint
 	 * must not become a way to read other files.
 	 */
 	workspaceImage(agentId: string, file: string, session?: string): Picture | undefined {
@@ -2460,6 +2460,23 @@ function sniffVideo(head: Buffer): string | null {
 	return null;
 }
 
+/**
+ * wav, mp3, m4a, ogg, flac and aiff by their first bytes. An mp3 without a tag is known by a
+ * frame header of layer III only: two bytes that also start many a text file are not enough.
+ */
+function sniffAudio(head: Buffer): string | null {
+	const tag = (from: number, to: number) => head.toString("latin1", from, to);
+	if (head.length < 12) return null;
+	if (tag(0, 4) === "RIFF" && tag(8, 12) === "WAVE") return "audio/wav";
+	if (tag(0, 4) === "FORM" && (tag(8, 12) === "AIFF" || tag(8, 12) === "AIFC")) return "audio/aiff";
+	if (tag(0, 4) === "OggS") return "audio/ogg";
+	if (tag(0, 4) === "fLaC") return "audio/flac";
+	if (tag(0, 3) === "ID3") return "audio/mpeg";
+	if (head[0] === 0xff && (head[1] & 0xe6) === 0xe2 && (head[2] & 0xf0) !== 0xf0 && (head[2] & 0x0c) !== 0x0c) return "audio/mpeg";
+	if (tag(4, 8) === "ftyp" && /^M4[AB] $/.test(tag(8, 12))) return "audio/mp4";
+	return null;
+}
+
 export interface Picture {
 	mime: string;
 	bytes: Buffer;
@@ -2467,7 +2484,7 @@ export interface Picture {
 
 const toolImageId = (task: number, call: string, n: number) => `${task}-${safeName(call).slice(0, 80)}-${n}`;
 
-/** A file's bytes if it is a regular file of a supported image type (or, where asked for, video type) and of reasonable size. */
+/** A file's bytes if it is a regular file of a supported image type (or, where asked for, video or sound type) and of reasonable size. */
 function readPicture(file: string, video = false): Picture | undefined {
 	try {
 		const stat = fs.statSync(file);
@@ -2479,7 +2496,7 @@ function readPicture(file: string, video = false): Picture | undefined {
 		} finally {
 			fs.closeSync(fd);
 		}
-		const mime = sniffImage(head) ?? (video ? sniffVideo(head) : null);
+		const mime = sniffImage(head) ?? (video ? (sniffAudio(head) ?? sniffVideo(head)) : null);
 		if (!mime || (mime.startsWith("image/") && stat.size > MAX_PICTURE)) return undefined;
 		return { mime, bytes: fs.readFileSync(file) };
 	} catch {

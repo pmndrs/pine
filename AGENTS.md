@@ -71,7 +71,7 @@ src/
                     code-pane.ts (the pane beside a conversation: changes, files, tool output),
                     undo.ts (what the conversation says after /undo and /redo),
                     theme.ts (colours, markdown), highlight.ts (code colours),
-                    picture.ts (pictures and video: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing)
+                    picture.ts (pictures, video and sound: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing, the system's player for sound)
   types.ts, util.ts shared types; topics, templates, filters, durations, logger
   dev/claude-model.ts   OpenAI-compatible server backed by `claude -p` (development only)
 mcp/                bundled MCP servers (separate processes): web, browser, commands, computer; lib.ts is what they share

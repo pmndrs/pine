@@ -43,11 +43,13 @@ const TMP = fs.realpathSync(os.tmpdir());
  * Start a converter (sips, ffmpeg) on bytes that can come from anywhere: it gets no network and
  * may write only in the temp folder (sips keeps scratch files of its own there).
  */
-function confined(command: string, args: string[], stdio: "ignore" | "pipe", cwd = TMP): ChildProcess {
+function confined(command: string, args: string[], stdio: "ignore" | "pipe", cwd = TMP, group = false): ChildProcess {
 	const jail = helperArgv([TMP]);
+	// `group`: a process group of its own, so that it can be held and let go as a whole (see Sound).
+	const how = { cwd, stdio: ["ignore", stdio, "ignore"] as ["ignore", "ignore" | "pipe", "ignore"], detached: group };
 	// Where there is no sandbox at all, the converter still runs: a picture not shown helps nobody.
-	if (!jail) return spawn(command, args, { cwd, stdio: ["ignore", stdio, "ignore"] });
-	return spawn(jail[0], [...jail.slice(1), command, ...args], { cwd, stdio: ["ignore", stdio, "ignore"] });
+	if (!jail) return spawn(command, args, how);
+	return spawn(jail[0], [...jail.slice(1), command, ...args], how);
 }
 
 /**
@@ -581,6 +583,241 @@ export class Video implements Component {
 export function stopVideos(): void {
 	playing?.stop();
 }
+
+// ---- sound ---------------------------------------------------------------------------------------
+// A sound is one line in the conversation: play and pause, its name, how long it runs. It is played
+// by what the system has (its own audio player on macOS; ffplay, mpv, pw-play, paplay or aplay
+// elsewhere), confined like the converters: the bytes can come from anywhere.
+
+/**
+ * A program that plays a sound file: the command, with the file as its last argument. `from` says
+ * how it is told where in the file to start (arguments in front of the file); what it writes to
+ * its output when the sound starts sets the clock. A player that has
+ * it is ended at a pause and started again from there; one without it is held and let go
+ * (SIGSTOP), which not every program takes well: macOS's afplay goes on as if it had played.
+ */
+export interface SoundPlayer {
+	command: string[];
+	from?: (seconds: number) => string[];
+}
+
+/** macOS: the system's own audio player, driven by a script of the system's own scripting. Nothing to install. */
+const MAC_PLAYER = `ObjC.import("AVFoundation"); ObjC.import("stdlib");
+function run(argv) {
+	const player = $.AVAudioPlayer.alloc.initWithContentsOfURLError($.NSURL.fileURLWithPath(argv[1]), null);
+	if (!player || player.isNil()) $.exit(1);
+	player.currentTime = Number(argv[0]) || 0;
+	if (!player.play) $.exit(1);
+	$.NSFileHandle.fileHandleWithStandardOutput.writeData($("playing\\n").dataUsingEncoding($.NSUTF8StringEncoding));
+	while (player.playing) $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.05));
+}`;
+
+/** What plays sound on this computer. Undefined: nothing here can. */
+export function soundPlayer(): SoundPlayer | undefined {
+	const seconds = (s: number) => s.toFixed(2);
+	if (process.platform === "darwin") {
+		if (d_exists("/usr/bin/osascript")) return { command: ["/usr/bin/osascript", "-l", "JavaScript", "-e", MAC_PLAYER], from: (s) => [seconds(s)] };
+		if (d_exists("/usr/bin/afplay")) return { command: ["/usr/bin/afplay"] };
+	}
+	const ffplay = findTool("ffplay");
+	if (ffplay) return { command: [ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet"], from: (s) => ["-ss", seconds(s)] };
+	const mpv = findTool("mpv");
+	if (mpv) return { command: [mpv, "--no-video", "--really-quiet"], from: (s) => [`--start=${seconds(s)}`] };
+	for (const [name, args] of [["pw-play", []], ["paplay", []], ["aplay", ["-q"]]] as Array<[string, string[]]>) {
+		const found = findTool(name);
+		if (found) return { command: [found, ...args] };
+	}
+	return undefined;
+}
+
+export interface PreparedSound {
+	file: string;
+	name: string;
+	seconds?: number;
+}
+
+/** How long a wav file runs, from its header: the size of its data and the bytes it takes per second. */
+function wavSeconds(file: string): number | undefined {
+	const fd = fs.openSync(file, "r");
+	try {
+		const head = Buffer.alloc(4096);
+		const n = fs.readSync(fd, head, 0, head.length, 0);
+		if (n < 44 || head.toString("latin1", 0, 4) !== "RIFF" || head.toString("latin1", 8, 12) !== "WAVE") return undefined;
+		let rate = 0;
+		for (let at = 12; at + 8 <= n; ) {
+			const id = head.toString("latin1", at, at + 4);
+			const size = head.readUInt32LE(at + 4);
+			if (id === "fmt " && at + 20 <= n) rate = head.readUInt32LE(at + 16);
+			// A file that was written as a stream says 0 or the largest number here: then the file's size tells.
+			if (id === "data") return rate ? Math.min(size || Infinity, fs.fstatSync(fd).size - at - 8) / rate : undefined;
+			at += 8 + size + (size % 2);
+		}
+		return undefined;
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+/** Get a sound file ready: how long it runs, where that can be told. */
+export async function prepareSound(file: string, name: string): Promise<PreparedSound> {
+	let seconds: number | undefined;
+	try {
+		seconds = wavSeconds(file);
+		const probe = seconds !== undefined ? undefined : FFPROBE ? confined(FFPROBE, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], "pipe") : process.platform === "darwin" && d_exists("/usr/bin/afinfo") ? confined("/usr/bin/afinfo", [file], "pipe") : undefined;
+		if (probe) {
+			let out = "";
+			probe.stdout?.on("data", (d) => (out += d));
+			if (await finished(probe, 10_000)) seconds = Number.parseFloat(/estimated duration: ([\d.]+)/.exec(out)?.[1] ?? out) || undefined;
+		}
+	} catch {
+		// played without a length
+	}
+	return { file, name, seconds: seconds && Number.isFinite(seconds) ? seconds : undefined };
+}
+
+let sounding: Sound | undefined;
+
+/**
+ * One sound in the conversation: a line with play and pause, like a video's. A pause ends the
+ * player and play starts one from where it was, as a video does with ffmpeg; a player that
+ * cannot start in the middle is held instead (see SoundPlayer). At the end the line is back at
+ * the start.
+ */
+export class Sound implements Component {
+	private s: PreparedSound;
+	private player: SoundPlayer | undefined;
+	private redraw: () => void;
+	private open: (file: string) => void;
+	private child?: ChildProcess;
+	private ticker?: NodeJS.Timeout;
+	private paused = false;
+	/** Milliseconds played before the last pause, and when it went on from there. */
+	private before = 0;
+	private since = 0;
+	private failed = false;
+	private playTo = -1;
+	private openFrom = -1;
+
+	constructor(sound: PreparedSound, player: SoundPlayer | undefined, redraw: () => void, open: (file: string) => void) {
+		this.s = sound;
+		this.player = player;
+		this.redraw = redraw;
+		this.open = open;
+	}
+
+	invalidate(): void {}
+
+	get state(): "idle" | "playing" | "paused" {
+		return this.paused ? "paused" : this.child ? "playing" : "idle";
+	}
+
+	private played(): number {
+		return this.before + (this.child && !this.paused ? Date.now() - this.since : 0);
+	}
+
+	/** The player and whatever it started, as one: the sandbox in front of it may be a process of its own. */
+	private signal(child: ChildProcess, signal: NodeJS.Signals): void {
+		try {
+			if (child.pid) process.kill(-child.pid, signal);
+		} catch {
+			child.kill(signal);
+		}
+	}
+
+	/** Play, or go on after a pause. One sound at a time: another one that is playing stops. */
+	play(): void {
+		if (!this.player || this.state === "playing") return;
+		if (sounding && sounding !== this) sounding.stop();
+		sounding = this;
+		if (this.child) {
+			// It was held: let it go on.
+			this.signal(this.child, "SIGCONT");
+			this.paused = false;
+			this.since = Date.now();
+			return this.redraw();
+		}
+		if (!this.paused) this.before = 0;
+		const child = confined(this.player.command[0], [...this.player.command.slice(1), ...(this.player.from?.(this.before / 1000) ?? []), this.s.file], "pipe", TMP, true);
+		this.child = child;
+		this.since = Date.now();
+		// A player that says when the sound really starts (the macOS one does) sets the clock by it:
+		// the position a pause remembers is then the one that was heard.
+		child.stdout?.once("data", () => {
+			if (this.child === child && !this.paused) this.since = Date.now();
+		});
+		child.stdout?.resume();
+		this.paused = false;
+		this.failed = false;
+		const started = this.before;
+		const over = (ok: boolean) => {
+			if (this.child !== child) return;
+			// A player that gives up at once could not play this file.
+			this.failed = !ok && this.played() - started < 1000;
+			this.stop();
+		};
+		child.on("error", () => over(false));
+		child.on("close", (code) => over(code === 0));
+		clearInterval(this.ticker);
+		const ticker = setInterval(() => this.paused || this.redraw(), 500);
+		ticker.unref?.();
+		this.ticker = ticker;
+		this.redraw();
+	}
+
+	pause(): void {
+		if (!this.child || this.paused) return;
+		this.before = this.played();
+		this.paused = true;
+		const child = this.child;
+		if (this.player?.from) {
+			// It can start in the middle: end it, and play starts one from here.
+			this.child = undefined;
+			this.signal(child, "SIGKILL");
+		} else this.signal(child, "SIGSTOP");
+		this.redraw();
+	}
+
+	/** Back to the start. */
+	stop(): void {
+		const child = this.child;
+		clearInterval(this.ticker);
+		this.child = undefined;
+		this.paused = false;
+		this.before = 0;
+		if (sounding === this) sounding = undefined;
+		if (child) this.signal(child, "SIGKILL");
+		this.redraw();
+	}
+
+	handleMouse(e: any) {
+		if (e.button !== "left" || (e.type !== "press" && e.type !== "click" && e.type !== "release")) return undefined;
+		if (e.type === "click") {
+			if (this.openFrom >= 0 && e.x >= this.openFrom) this.open(this.s.file);
+			else if (e.x <= this.playTo) this.state === "playing" ? this.pause() : this.play();
+		}
+		return { handled: true, render: true };
+	}
+
+	render(width: number): string[] {
+		const control = !this.player ? "" : this.state === "playing" ? "‖ pause" : "▶ play";
+		const total = this.s.seconds ? clock(this.s.seconds) : "";
+		const at = this.s.seconds ? Math.min(this.played() / 1000, this.s.seconds) : this.played() / 1000;
+		const time = this.state !== "idle" ? `${clock(at)}${total ? ` / ${total}` : ""}` : total;
+		const note = this.failed ? " · could not be played here" : !this.player ? " · no program here that plays sound" : "";
+		const left = ` ${control ? `${c.accent(control)} ` : ""}${c.gray(`${control ? "· " : ""}♪ ${this.s.name}${time ? ` · ${time}` : ""}${note}`)}`;
+		this.playTo = control ? 1 + visibleWidth(control) : -1;
+		this.openFrom = visibleWidth(left) + 3;
+		return [truncateToWidth(`${left}   ${c.accent("▸ open in player")}`, width)];
+	}
+}
+
+/** Stop whatever sound is playing, for example when the UI closes. */
+export function stopSounds(): void {
+	sounding?.stop();
+}
+
+const AUDIO_FILE = /\.(wav|mp3|m4a|ogg|oga|flac|aiff?)$/i;
+export const isAudioFile = (name: string) => AUDIO_FILE.test(name);
 
 const VIDEO_FILE = /\.(mp4|m4v|mov|webm|mkv)$/i;
 export const isVideoFile = (name: string) => VIDEO_FILE.test(name);
