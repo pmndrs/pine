@@ -10,7 +10,7 @@ import { ALWAYS_BLOCKED, ASK_HINT, CORE_TOOLS, inlineFiles, relay, startGuardPro
 import { browserSession } from "../src/agents.ts";
 import { localTarget } from "../src/net.ts";
 import { effectiveMcp, loadConfig, mcpTaints, toPiMcp } from "../src/config.ts";
-import { harness, mockMsg, until } from "./support/harness.ts";
+import { harness, mockMsg, notesOf, until } from "./support/harness.ts";
 
 test("browser: tools that run code or read local files are never offered", () => {
 	for (const name of ALWAYS_BLOCKED) for (const tools of ["core", "all", [name]] as const) assert.equal(toolAllowed(name, { tools: tools as any }), false, `${name} with ${tools}`);
@@ -248,9 +248,19 @@ import readline from "node:readline";
 const [mode, log, ...flags] = process.argv.slice(2);
 const note = (line) => fs.appendFileSync(log, line + "\\n");
 note("start " + mode);
-let url = "about:blank", cookies = "none", shots = 0;
+let tabs = ["about:blank"], at = 0, cookies = "none", shots = 0;
 const send = (m) => process.stdout.write(JSON.stringify(m) + "\\n");
-const page = () => "### Page\\n- Page URL: " + url + "\\n- window: " + mode + "\\n- cookies: " + cookies;
+const page = () => "### Page\\n- Page URL: " + tabs[at] + "\\n- window: " + mode + "\\n- cookies: " + cookies;
+// What the owner does in the window meanwhile: lines "goto <address>" and "newtab <address>" in a file beside the log.
+const owner = () => {
+	if (!fs.existsSync(log + ".owner")) return;
+	for (const line of fs.readFileSync(log + ".owner", "utf8").split("\\n").filter(Boolean)) {
+		const [what, where] = line.split(" ");
+		if (what === "goto") tabs[at] = where;
+		else tabs.push(where);
+	}
+	fs.rmSync(log + ".owner");
+};
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
 	const m = JSON.parse(line);
 	if (m.method === "initialize") return send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "0" } } });
@@ -258,12 +268,19 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 	if (m.method !== "tools/call") return;
 	const a = m.params.arguments ?? {};
 	const reply = (text, isError) => send({ jsonrpc: "2.0", id: m.id, result: { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) } });
-	note(m.params.name + (a.url ? " " + a.url : ""));
+	owner();
+	if (m.params.name !== "browser_tabs" || a.action !== "list") note(m.params.name + (a.url ? " " + a.url : "") + (a.action ? " " + a.action + (a.index ?? "") : ""));
 	switch (m.params.name) {
 		case "browser_navigate":
 			if (mode === "headed" && flags.includes("no-screen")) return reply("### Error\\nError: browserType.launch: Missing X server or $DISPLAY", true);
-			url = a.url;
+			tabs[at] = a.url;
 			return reply(page());
+		case "browser_tabs":
+			if (a.action === "select") at = a.index;
+			if (a.action === "new") at = tabs.push(a.url ?? "about:blank") - 1;
+			return reply("### Result\\n" + tabs.map((u, i) => "- " + i + ":" + (i === at ? " (current)" : "") + " [Page " + i + "](" + u + ")").join("\\n"));
+		case "browser_snapshot":
+			return reply(page() + "\\n### Snapshot\\n- heading of " + tabs[at]);
 		case "login":
 			cookies = "session=abc";
 			return reply(page());
@@ -309,8 +326,40 @@ async function fakeBrowser(t: { after(fn: () => void): void }, o: Record<string,
 		return { text: r.content.map((p: any) => p.text).join("\n") as string, failed: r.isError === true };
 	};
 	await rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "0" } });
-	return { rpc, call, scratch, log: () => fs.readFileSync(log, "utf8").trim().split("\n"), ended: () => ended };
+	return { rpc, call, scratch, log: () => fs.readFileSync(log, "utf8").trim().split("\n"), ended: () => ended, owner: (...lines: string[]) => fs.writeFileSync(`${log}.owner`, lines.join("\n")) };
 }
+
+test("browser: with a window the owner uses it too: the agent is moved to the page they opened and does not leave a page it has not seen", async (t) => {
+	const b = await fakeBrowser(t, { window: true, tools: "all" });
+	await b.call("browser_navigate", { url: "https://en.wikipedia.org/" });
+	await b.call("browser_show");
+
+	// The owner goes to a shop in the tab that is open. The agent, told to search, tries to go to a search engine.
+	b.owner("goto https://shop.example/");
+	const stopped = await b.call("browser_navigate", { url: "https://search.example/?q=shampoo" });
+	assert.ok(stopped.text.startsWith("Not done: the browser is not where you left it.") && stopped.text.includes("Page 0 (https://shop.example/)") && stopped.text.includes("- heading of https://shop.example/"), stopped.text);
+	assert.ok(!b.log().includes("browser_navigate https://search.example/?q=shampoo"), "the owner's page was not left");
+	// It has seen the page now: the same call again is its decision, and is carried out.
+	assert.match((await b.call("browser_navigate", { url: "https://shop.example/s?k=shampoo" })).text, /Page URL: https:\/\/shop\.example\/s\?k=shampoo/);
+
+	// The owner opens another tab. A look goes through, on that tab, and says so; so does what follows.
+	b.owner("newtab https://mail.example/inbox");
+	const looked = await b.call("browser_snapshot");
+	assert.ok(looked.text.startsWith("The browser has changed since you last looked") && looked.text.includes("Page 1 (https://mail.example/inbox)") && looked.text.includes("- heading of https://mail.example/inbox"), looked.text);
+	assert.ok(b.log().includes("browser_tabs select1"), "the agent was moved to the owner's tab");
+	assert.ok(!(await b.call("browser_snapshot")).text.startsWith("The browser has changed"), "nothing changed since: no note");
+
+	// A page that moves within itself is the same page; the agent's own new tab is its own doing.
+	b.owner("goto https://mail.example/inbox#message-4");
+	assert.match((await b.call("browser_click", { ref: "e1" })).text, /^ok$/);
+	await b.call("browser_tabs", { action: "new", url: "https://search.example/" });
+	assert.match((await b.call("browser_navigate", { url: "https://search.example/?q=x" })).text, /Page URL: https:\/\/search\.example\/\?q=x/);
+
+	// Without a window nobody else is in the browser, and nothing is compared.
+	await b.call("browser_hide");
+	b.owner("goto https://elsewhere.example/");
+	assert.match((await b.call("browser_navigate", { url: "https://search.example/?q=y" })).text, /Page URL: https:\/\/search\.example\/\?q=y/);
+});
 
 test("browser: in the owner's conversation the agent puts the browser on the screen and takes it off, on the same page with the same login", async (t) => {
 	const b = await fakeBrowser(t, { window: true, tools: [...CORE_TOOLS, "login"] });
@@ -372,6 +421,24 @@ test("browser: the bundled server is configured like the others and marks sessio
 	assert.deepEqual(JSON.parse((toPiMcp("browser", set, browserSession(false, "/home/allowed.json")) as any).env.PINE_MCP_OPTIONS), { window: false, localFile: null });
 	assert.deepEqual(JSON.parse((toPiMcp("browser", set, browserSession(true, "/home/allowed.json")) as any).env.PINE_MCP_OPTIONS), { window: true, localFile: "/home/allowed.json" });
 	await h.close();
+});
+
+test("browser: an agent whose browser is on the owner's screen is told that the owner uses it too", async () => {
+	// Started with a window by the configuration; no page is opened, so no browser starts here.
+	const h = await harness({ pine: { mcp: { browser: { pine: "browser", options: { headed: true } } } }, agents: { main: {} } });
+	await h.pine.agents.run({ agent: "main", prompt: "hello", trust: "owner" });
+	const note = notesOf(h.mock.state.requests.at(-1)).join("\n");
+	assert.ok(note.includes("Your browser is a window on your owner's screen right now, and they use it too.") && note.includes("not with a web search") && note.includes("browser_snapshot first"), note);
+	// A run from outside has no window to share.
+	await h.pine.agents.run({ agent: "main", prompt: "an event", trust: "untrusted" });
+	assert.ok(!notesOf(h.mock.state.requests.at(-1)).join("\n").includes("Your browser is a window"));
+	await h.close();
+
+	// Without a window there is nothing to say.
+	const hidden = await harness({ pine: { mcp: { browser: { pine: "browser" } } }, agents: { main: {} } });
+	await hidden.pine.agents.run({ agent: "main", prompt: "hello", trust: "owner" });
+	assert.ok(!notesOf(hidden.mock.state.requests.at(-1)).join("\n").includes("Your browser is a window"));
+	await hidden.close();
 });
 
 // Starts a real browser and uses the network: only with PINE_LIVE=1.

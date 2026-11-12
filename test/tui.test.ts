@@ -198,8 +198,21 @@ test("tui: esc stops a running task; an approval is asked in a dialog and answer
 	await t.sees(/working · \d+s/);
 	await t.sees("● bash sleep 5");
 	t.term.type([KEY.esc]);
-	await t.sees("✗ cancelled");
+	await t.sees("■ stopped");
 	assert.ok(!/working ·/.test(t.text()));
+
+	// A message typed while the agent works starts when that work is stopped. A second esc, pressed
+	// because the status line says "working" again, does not take that message with it.
+	await t.send(mockMsg([{ tools: [{ name: "bash", args: { command: "sleep 5; echo never" } }] }]));
+	await t.sees("● bash sleep 5");
+	await t.send(mockMsg([{ delayMs: 600, text: "This is the answer to the correction." }]));
+	t.term.type([KEY.esc]);
+	await until(() => count(t.text(), "■ stopped") === 2, 4000, "the running work to stop");
+	await until(() => t.h.pine.tasks.list({ status: "running" }).length === 1, 2000, "the waiting message to start");
+	t.term.type([KEY.esc]);
+	await t.sees("This is your next message being answered");
+	await t.sees("This is the answer to the correction.");
+	assert.equal(count(t.text(), "■ stopped"), 2, "the correction was not stopped");
 
 	const risky = mockMsg([{ tools: [{ name: "bash", args: { command: "touch f; rm f; echo gone" } }] }]);
 	await t.send(risky);

@@ -257,6 +257,15 @@ change:
 | `mcp__browser__browser_show` | The browser becomes a window on the screen of the computer pine runs on, on the page the agent is on, with the same logins. You can click and type in it; the agent goes on working in the same window. Takes about a second |
 | `mcp__browser__browser_hide` | The window closes and the browser goes on without one, on the same page, with the same logins |
 
+- While the window is open you and the agent share one browser. The agent is told so, and that
+  what you ask for on the web is to be done in that window, on the page you are on, not with a
+  web search.
+- The agent does not act on a page it has not seen. Before each of its calls pine compares the
+  tabs with what the agent last saw. If you opened a page or a tab meanwhile, the agent is
+  moved to it, and a call that would act (open another address, click, type, close a tab) is
+  not carried out: the agent gets your page instead and is told to work there, or to open a
+  new tab for anything else. So a page you opened is not replaced behind your back. A call
+  that only looks (a snapshot, a screenshot) goes through, on your page.
 - The page is loaded again when the window appears or goes, so text typed into a form is lost
   and has to be typed again. Cookies and the site's stored data are kept; where several tabs
   were open, the one in front comes back.

@@ -191,7 +191,7 @@ never comes back up in bypass unless its `agent.json` says so.
 | `enter` | Send |
 | `shift+enter` | New line |
 | `up` / `down` | Earlier inputs |
-| `esc` | Stop the agent. While a list or dialog is open, it only closes that |
+| `esc` | Stop what the agent is doing; the conversation shows `■ stopped`. A message you typed while it worked is not stopped with it: it is answered next, and for three seconds a second `esc` leaves it alone (the status line says so). After that `esc` stops it like anything else. While a list or dialog is open, `esc` only closes that |
 | `shift+tab` | Next mode for this agent: auto, manual, bypass (while the input is empty) |
 | `tab` | Next tab (while the input is empty) |
 | `alt+1` ... `alt+9` | Go to that tab |

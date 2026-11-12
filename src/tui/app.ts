@@ -83,6 +83,8 @@ interface Tab {
 	attachments: Array<{ path: string; name: string; size: number }>;
 	/** The "bypass is paused here" note was shown already. */
 	pauseNoted: boolean;
+	/** When esc last stopped something here, how many typed messages were waiting then, and the tasks they became. */
+	stopped?: { at: number; waiting: number; spared: Set<number> };
 }
 
 /** Below this many columns the code pane takes the whole width instead of half of it. */
@@ -339,6 +341,9 @@ class Button implements Component {
 		return { handled: true, render: true };
 	}
 }
+
+/** For this long after esc stopped something, esc does not stop what started since. */
+const STOP_GRACE = 3000;
 
 /** How many lines of a thought are shown while it is being thought. */
 const PEEK = 4;
@@ -1632,8 +1637,18 @@ export class PineTui {
 		tab.roots.add(task);
 	}
 
+	/**
+	 * esc stops what is running. A message typed while the agent worked starts the moment that
+	 * work stops, and the status line says "working" again: a second esc, pressed because nothing
+	 * seemed to happen, would stop that message too. So for a few seconds after a stop, esc leaves
+	 * alone a message that was waiting when it was pressed.
+	 */
 	private async stopRunning(tab: Tab): Promise<void> {
-		for (const id of tab.running) await this.client.cancel(id).catch(() => {});
+		const recent = tab.stopped && Date.now() - tab.stopped.at < STOP_GRACE ? tab.stopped : undefined;
+		const ids = [...tab.running].filter((id) => !recent?.spared.has(id));
+		if (!ids.length) return this.flash("stopped. This is your next message being answered; esc again in a moment stops it too", 4000);
+		tab.stopped = { at: Date.now(), waiting: tab.awaiting.length, spared: recent?.spared ?? new Set() };
+		for (const id of ids) await this.client.cancel(id).catch(() => {});
 		this.flash("stopping…", 1500);
 	}
 
@@ -2058,8 +2073,14 @@ export class PineTui {
 				return;
 			}
 			const i = tab.awaiting.findIndex((a) => String(p.prompt ?? "").startsWith(a));
-			if (i >= 0) tab.awaiting.splice(i, 1);
-			else if (!tab.roots.has(p.task)) {
+			if (i >= 0) {
+				tab.awaiting.splice(i, 1);
+				// It waited behind work that esc just stopped: the next esc is not meant for it.
+				if (tab.stopped && tab.stopped.waiting > 0 && Date.now() - tab.stopped.at < STOP_GRACE) {
+					tab.stopped.waiting--;
+					tab.stopped.spared.add(p.task);
+				}
+			} else if (!tab.roots.has(p.task)) {
 				if (p.kind === "event" && p.label) this.eventLine(tab, String(p.label), String(p.prompt ?? ""));
 				else this.user(tab, String(p.prompt ?? ""), p.kind === "prompt" ? "elsewhere" : p.kind);
 				// What came with it and was not typed here: a photo sent on Telegram, a picture a camera saved.
@@ -2178,7 +2199,8 @@ export class PineTui {
 						this.add(tab, new Answer(p.text));
 						this.answerPictures(tab, p.agent, p.text);
 					}
-				} else this.say(tab, c.red(`✗ ${p.status}${p.error ? `: ${p.error}` : ""}`));
+				} else if (p.status === "cancelled") this.say(tab, c.gray("■ stopped"));
+				else this.say(tab, c.red(`✗ ${p.status}${p.error && p.error !== p.status ? `: ${p.error}` : ""}`));
 				tab.streamed.delete(p.task);
 				if (tab.kind === "task") this.say(tab, c.gray(this.taskSummary(p.status, p.stats)));
 				else void this.refreshTaints();

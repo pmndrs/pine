@@ -217,6 +217,41 @@ export function inlineFiles(text: string, scratch: string, limit = 24_000): stri
 	});
 }
 
+export interface Tabs {
+	tabs: Array<{ title: string; url: string }>;
+	current: number;
+}
+
+/** Playwright's list of tabs ("- 0: (current) [Title](address)"), read. */
+export function readTabs(text: string): Tabs {
+	const tabs: Tabs["tabs"] = [];
+	let current = 0;
+	for (const m of text.matchAll(/^- (\d+):( \(current\))? \[(.*)\]\((\S*)\)\s*$/gm)) {
+		if (m[2]) current = tabs.length;
+		tabs.push({ title: m[3], url: m[4] });
+	}
+	return { tabs, current };
+}
+
+/**
+ * Which tab somebody other than the agent changed, if any: a tab that was not there (the last
+ * such one), else the agent's own tab if its address is another now, else another tab whose
+ * address changed. Undefined when everything is as the agent last saw it.
+ */
+export function changedTab(before: Tabs, now: Tabs): number | undefined {
+	if (!now.tabs.length) return undefined;
+	if (now.tabs.length > before.tabs.length) return now.tabs.length - 1;
+	// A page that only moves within itself (the part after #) is the same page.
+	const bare = (url: string | undefined) => url?.replace(/#.*$/, "");
+	const moved = now.tabs.map((t, i) => (bare(t.url) !== bare(before.tabs[i]?.url) ? i : -1)).filter((i) => i >= 0);
+	if (!moved.length) return now.tabs.length < before.tabs.length || now.current !== before.current ? now.current : undefined;
+	return moved.includes(now.current) ? now.current : moved.at(-1);
+}
+
+/** Calls that only look at a page. Everything else acts on it or leaves it. */
+const LOOKS = ["browser_snapshot", "browser_take_screenshot", "browser_console_messages", "browser_find", "browser_network_requests", "browser_network_request"];
+const looksOnly = (params: any) => LOOKS.includes(String(params?.name)) || (params?.name === "browser_tabs" && params?.arguments?.action === "list");
+
 export interface BrowserServer {
 	/** Starts Playwright's server, with a window or without. */
 	launch(headed: boolean): ChildProcess;
@@ -244,6 +279,8 @@ export function relay(o: BrowserOptions, io: BrowserServer): { line(line: string
 	const retired = new Set<ChildProcess>();
 	const own = new Map<string, (msg: any) => void>();
 	let ownIds = 0;
+	/** The tabs as the agent last saw them, while the browser has a window. */
+	let seen: Tabs | undefined;
 	const listIds = new Set<unknown>();
 	// A browser is one page at a time: calls that a model issues in parallel are run one after another,
 	// otherwise the second navigation would abort the first.
@@ -277,10 +314,48 @@ export function relay(o: BrowserOptions, io: BrowserServer): { line(line: string
 		return { ok: !msg.error && !msg.result?.isError, text: inlineFiles(textOf(msg), io.scratch) };
 	};
 
+	/** The tabs as they are: their addresses in order, and which one the agent works in. */
+	const tabsNow = async (): Promise<Tabs | undefined> => {
+		const r = await call("browser_tabs", { action: "list" });
+		return r.ok ? readTabs(r.text) : undefined;
+	};
+	/**
+	 * With a window, the owner uses the same browser. Before a call of the agent's, look whether
+	 * the tabs are still as the agent last saw them. If not, the agent is moved to the tab that
+	 * changed, and a call that would act is not carried out: the agent gets the page as it is now
+	 * instead, so it never leaves or changes a page it has not seen.
+	 */
+	const guarded = async (msg: any) => {
+		const now = seen ? await tabsNow() : undefined;
+		const front = now && seen ? changedTab(seen, now) : undefined;
+		if (!now || front === undefined) return write(msg);
+		if (front !== now.current) await call("browser_tabs", { action: "select", index: front });
+		const tab = now.tabs[front];
+		const where = `${tab.title || "a page"} (${tab.url})`;
+		if (looksOnly(msg.params)) {
+			msg.notice = `The browser has changed since you last looked (your owner uses this window too). You are now on: ${where}.`;
+			return write(msg);
+		}
+		const page = await call("browser_snapshot", {});
+		seen = await tabsNow();
+		answered({
+			jsonrpc: "2.0",
+			id: msg.id,
+			result: {
+				content: [
+					{
+						type: "text",
+						text: `Not done: the browser is not where you left it. Your owner uses the same window and has probably opened this page: ${where}.\nIf what your owner asked for can be done on this page or this site, do it here. For anything else open a new tab (browser_tabs with action "new") instead of leaving their page. This is the page now:\n\n${page.text}`,
+					},
+				],
+			},
+		});
+	};
 	const next = () => {
 		if (inFlight !== undefined || !waiting.length) return;
 		inFlight = waiting.shift();
 		if (isWindowTool(String(inFlight.params?.name))) return void turn(inFlight);
+		if (headed) return void guarded(inFlight);
 		write(inFlight);
 	};
 	const answered = (msg: unknown) => {
@@ -326,8 +401,9 @@ export function relay(o: BrowserOptions, io: BrowserServer): { line(line: string
 				now = await open(false);
 				return say(`A window could not be opened on this computer (${why.trim().slice(0, 200)}). The browser carries on without one. If pine runs on a machine without a screen, there is no window to show.\n\n${now.text}`, true);
 			}
+			seen = show ? await tabsNow() : undefined;
 			say(
-				`${show ? "The browser is now a window on your owner's screen. They can use it themselves: log in, solve a captcha, confirm something. Tell them it is open, and when they have to do something, wait until they say they are done. You work in the same window; browser_hide closes it and keeps the logins." : "The window is closed. The browser carries on without one, with the same logins."}\n\n${now.text}`,
+				`${show ? "The browser is now a window on your owner's screen, and they use it too: they open pages in it, log in, solve a captcha, confirm something. Tell them it is open. From now on, what they ask you to find or do on the web, do in this window, on the page they are on; look at it first (browser_snapshot), because they may have changed it. When they have to do something themselves, wait until they say they are done. browser_hide closes the window and keeps the logins." : "The window is closed. The browser carries on without one, with the same logins."}\n\n${now.text}`,
 			);
 		} catch (e) {
 			say(`The browser could not be ${show ? "shown" : "hidden"}: ${e instanceof Error ? e.message : String(e)}`, true);
@@ -359,11 +435,15 @@ export function relay(o: BrowserOptions, io: BrowserServer): { line(line: string
 			current.again = true;
 			return void write({ jsonrpc: current.jsonrpc, id: current.id, method: current.method, params: current.params });
 		}
-		if (current?.params?.name === "browser_close" && !msg.result?.isError) page = undefined;
+		const closed = current?.params?.name === "browser_close" && !msg.result?.isError;
+		if (closed) page = undefined;
 		for (const part of msg.result?.content ?? []) if (part.type === "text" && typeof part.text === "string") part.text = inlineFiles(part.text, io.scratch);
 		if (msg.result?.content && io.refused.length && msg.result.isError) msg.result.content.push({ type: "text", text: `pine: the browser was refused ${io.refused.at(-1)}` });
-		if (current) answered(msg);
-		else io.send(msg);
+		if (current?.notice && Array.isArray(msg.result?.content)) msg.result.content.unshift({ type: "text", text: current.notice });
+		if (!current) return io.send(msg);
+		// What the tabs are after the agent's own call is what it has seen. (A closed browser is not asked: asking would open it again.)
+		if (!headed || closed) return (seen = undefined), answered(msg);
+		void tabsNow().then((tabs) => ((seen = tabs), answered(msg)));
 	};
 
 	return {
