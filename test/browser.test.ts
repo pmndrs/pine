@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { ALWAYS_BLOCKED, ASK_HINT, CORE_TOOLS, inlineFiles, startGuardProxy, toolAllowed, vet } from "../mcp/browser.ts";
+import { ALWAYS_BLOCKED, ASK_HINT, CORE_TOOLS, inlineFiles, relay, startGuardProxy, toolAllowed, vet } from "../mcp/browser.ts";
+import { browserSession } from "../src/agents.ts";
 import { localTarget } from "../src/net.ts";
 import { effectiveMcp, loadConfig, mcpTaints, toPiMcp } from "../src/config.ts";
-import { harness, mockMsg } from "./support/harness.ts";
+import { harness, mockMsg, until } from "./support/harness.ts";
 
 test("browser: tools that run code or read local files are never offered", () => {
 	for (const name of ALWAYS_BLOCKED) for (const tools of ["core", "all", [name]] as const) assert.equal(toolAllowed(name, { tools: tools as any }), false, `${name} with ${tools}`);
@@ -229,6 +231,134 @@ test("browser: page snapshots written to the scratch folder are put into the res
 	assert.ok(out.includes("[cut: 4000 more characters"));
 });
 
+test("browser: a screenshot's bytes are not put into the result as text", (t) => {
+	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pine-browser-test-"));
+	t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+	const shot = path.join(scratch, "page.png");
+	fs.writeFileSync(shot, Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), Buffer.from("IHDR-and-more".repeat(50))]));
+	const out = inlineFiles(`### Result\n- [Screenshot of viewport](${shot})`, scratch);
+	assert.equal(out, `### Result\n- Screenshot of viewport: saved as ${fs.realpathSync(shot)}`);
+});
+
+// A stand-in for Playwright's server: it says whether it has a window, keeps cookies only when
+// they are handed over in a file, and fails where the test tells it to.
+const FAKE_BROWSER = `
+import fs from "node:fs";
+import readline from "node:readline";
+const [mode, log, ...flags] = process.argv.slice(2);
+const note = (line) => fs.appendFileSync(log, line + "\\n");
+note("start " + mode);
+let url = "about:blank", cookies = "none", shots = 0;
+const send = (m) => process.stdout.write(JSON.stringify(m) + "\\n");
+const page = () => "### Page\\n- Page URL: " + url + "\\n- window: " + mode + "\\n- cookies: " + cookies;
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+	const m = JSON.parse(line);
+	if (m.method === "initialize") return send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "0" } } });
+	if (m.method === "tools/list") return send({ jsonrpc: "2.0", id: m.id, result: { tools: ["browser_navigate", "browser_take_screenshot", "browser_storage_state", "browser_cookie_list", "browser_run_code_unsafe"].map((name) => ({ name, inputSchema: { type: "object" } })) } });
+	if (m.method !== "tools/call") return;
+	const a = m.params.arguments ?? {};
+	const reply = (text, isError) => send({ jsonrpc: "2.0", id: m.id, result: { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) } });
+	note(m.params.name + (a.url ? " " + a.url : ""));
+	switch (m.params.name) {
+		case "browser_navigate":
+			if (mode === "headed" && flags.includes("no-screen")) return reply("### Error\\nError: browserType.launch: Missing X server or $DISPLAY", true);
+			url = a.url;
+			return reply(page());
+		case "login":
+			cookies = "session=abc";
+			return reply(page());
+		case "browser_storage_state":
+			fs.writeFileSync(a.filename, cookies);
+			return reply("saved");
+		case "browser_set_storage_state":
+			cookies = fs.readFileSync(a.filename, "utf8");
+			return reply("restored");
+		case "browser_take_screenshot":
+			return ++shots === 1 ? reply("### Error\\nTimeoutError: browserBackend.callTool: Timeout 5000ms exceeded.\\n  - waiting for fonts to load...", true) : reply("### Result\\n- shot " + shots);
+		case "browser_close":
+			return reply("closed");
+	}
+	reply("ok");
+});
+`;
+
+async function fakeBrowser(t: { after(fn: () => void): void }, o: Record<string, unknown>, ...flags: string[]) {
+	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pine-browser-test-"));
+	const script = path.join(scratch, "fake.mjs");
+	const log = path.join(scratch, "log.txt");
+	fs.writeFileSync(script, FAKE_BROWSER);
+	const got = new Map<unknown, any>();
+	let ended = false;
+	const server = relay(o as any, {
+		launch: (headed) => spawn(process.execPath, [script, headed ? "headed" : "hidden", log, ...flags], { stdio: ["pipe", "pipe", "inherit"] }),
+		send: (msg: any) => void got.set(msg.id, msg),
+		scratch,
+		refused: [],
+		ended: () => void (ended = true),
+	});
+	t.after(() => (server.child().kill(), fs.rmSync(scratch, { recursive: true, force: true })));
+	let id = 0;
+	const rpc = async (method: string, params?: unknown) => {
+		const n = ++id;
+		server.line(JSON.stringify({ jsonrpc: "2.0", id: n, method, params }));
+		await until(() => got.has(n), 5000, `an answer to ${method} ${JSON.stringify(params)}`);
+		return got.get(n);
+	};
+	const call = async (name: string, args: unknown = {}) => {
+		const r = (await rpc("tools/call", { name, arguments: args })).result;
+		return { text: r.content.map((p: any) => p.text).join("\n") as string, failed: r.isError === true };
+	};
+	await rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "0" } });
+	return { rpc, call, scratch, log: () => fs.readFileSync(log, "utf8").trim().split("\n"), ended: () => ended };
+}
+
+test("browser: in the owner's conversation the agent puts the browser on the screen and takes it off, on the same page with the same login", async (t) => {
+	const b = await fakeBrowser(t, { window: true, tools: [...CORE_TOOLS, "login"] });
+	const names = (await b.rpc("tools/list")).result.tools.map((x: any) => x.name);
+	assert.deepEqual(names, ["browser_navigate", "browser_take_screenshot", "browser_show", "browser_hide"], "the window tools are offered; what reads cookies or runs code is not");
+
+	// Nothing open yet: showing it still opens a window, on an empty page.
+	assert.match((await b.call("browser_hide")).text, /has no window/);
+	const empty = await b.call("browser_show");
+	assert.ok(!empty.failed && empty.text.includes("now a window on your owner's screen") && empty.text.includes("- window: headed"), empty.text);
+	assert.match((await b.call("browser_show")).text, /already a window/);
+	assert.ok(!(await b.call("browser_hide")).failed);
+
+	// A page and a login, without a window. Shown: the same page, the login still there. Hidden again: the same.
+	await b.call("browser_navigate", { url: "https://shop.example/account" });
+	assert.match((await b.call("login")).text, /window: hidden\n- cookies: session=abc/);
+	const shown = await b.call("browser_show");
+	assert.ok(shown.text.includes("- Page URL: https://shop.example/account\n- window: headed\n- cookies: session=abc"), shown.text);
+	const hidden = await b.call("browser_hide");
+	assert.ok(hidden.text.startsWith("The window is closed.") && hidden.text.includes("- Page URL: https://shop.example/account\n- window: hidden\n- cookies: session=abc"), hidden.text);
+	assert.deepEqual(fs.readdirSync(b.scratch).filter((f) => f.startsWith("state-")), [], "the file that carried the login is gone");
+	assert.equal(b.ended(), false, "a browser that was replaced does not end the server");
+	assert.deepEqual(b.log().filter((l) => l.startsWith("start")), ["start hidden", "start headed", "start hidden", "start headed", "start hidden"]);
+
+	// The tools pine uses for this itself stay closed to the agent.
+	for (const name of ["browser_storage_state", "browser_set_storage_state", "browser_cookie_list", "browser_run_code_unsafe"]) assert.match((await b.call(name, { filename: "/etc/hosts" })).text, /is not available/);
+});
+
+test("browser: no window for a run started from outside; a machine without a screen says so and carries on; a screenshot that timed out is taken again", async (t) => {
+	// What pine passes for a run that the owner did not start.
+	const outside = await fakeBrowser(t, { window: false });
+	assert.deepEqual((await outside.rpc("tools/list")).result.tools.map((x: any) => x.name), ["browser_navigate", "browser_take_screenshot"]);
+	assert.match((await outside.call("browser_show")).text, /browser_show is not available/);
+	assert.deepEqual(outside.log(), ["start hidden"], "nothing was started for it");
+	assert.ok(!toolAllowed("browser_show", {}) && !toolAllowed("browser_show", { tools: "all" }) && toolAllowed("browser_show", { window: true }) && !toolAllowed("browser_show", { window: true, block: ["browser_show"] }));
+	assert.ok(!toolAllowed("browser_cookie_list", { tools: "all" }) && toolAllowed("browser_cookie_list", { tools: "all", caps: "storage" }), "cookie tools only where the owner asked for them");
+
+	const b = await fakeBrowser(t, { window: true }, "no-screen");
+	await b.call("browser_navigate", { url: "https://example.com/" });
+	const refused = await b.call("browser_show");
+	assert.ok(refused.failed && refused.text.includes("A window could not be opened on this computer") && refused.text.includes("Missing X server") && refused.text.includes("- Page URL: https://example.com/\n- window: hidden"), refused.text);
+	assert.match((await b.call("browser_hide")).text, /has no window/);
+
+	const shot = await b.call("browser_take_screenshot");
+	assert.ok(!shot.failed && shot.text.includes("shot 2"), shot.text);
+	assert.equal(b.log().filter((l) => l === "browser_take_screenshot").length, 2);
+});
+
 test("browser: the bundled server is configured like the others and marks sessions as tainted", async () => {
 	const h = await harness({ pine: { mcp: { browser: { pine: "browser", options: { headed: true } } } }, agents: { main: {} }, start: false });
 	const cfg = loadConfig(h.home);
@@ -237,6 +367,10 @@ test("browser: the bundled server is configured like the others and marks sessio
 	const pi = toPiMcp("browser", server) as any;
 	assert.ok(pi.args[0].endsWith("mcp/browser.ts"));
 	assert.deepEqual(JSON.parse(pi.env.PINE_MCP_OPTIONS), { headed: true });
+	// What pine adds for a conversation wins over the options: a run started from outside gets no window and no local addresses.
+	const set = { ...server, options: { window: true, localFile: "/tmp/anything" } };
+	assert.deepEqual(JSON.parse((toPiMcp("browser", set, browserSession(false, "/home/allowed.json")) as any).env.PINE_MCP_OPTIONS), { window: false, localFile: null });
+	assert.deepEqual(JSON.parse((toPiMcp("browser", set, browserSession(true, "/home/allowed.json")) as any).env.PINE_MCP_OPTIONS), { window: true, localFile: "/home/allowed.json" });
 	await h.close();
 });
 

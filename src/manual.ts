@@ -71,6 +71,7 @@ const SYNONYMS: string[][] = [
 	["log", "history", "audit", "record", "trace"],
 	["image", "picture", "photo", "screenshot", "video", "media"],
 	["browser", "web", "playwright", "page", "search"],
+	["show", "visible", "headed", "headless", "window", "watch", "see"],
 	["code", "repository", "repo", "git", "diff", "project"],
 	["route", "rule", "pipeline", "automation"],
 	["state", "variable", "store", "value"],

@@ -245,9 +245,34 @@ a reference the click and type tools take. To see what a page looks like, the ag
 screenshot, which a model that can see pictures gets as a picture; to see why a page it built
 does not work, it reads the page's console messages.
 
+### Seeing the browser, and logging in yourself
+
+The browser has no window: the agent works in it unseen. When you want to watch, or a page
+needs you (a login, a captcha, a payment to confirm), ask the agent to show the browser. It
+has two more tools for that in your own conversations, and nothing in the configuration has to
+change:
+
+| Tool | What it does |
+|---|---|
+| `mcp__browser__browser_show` | The browser becomes a window on the screen of the computer pine runs on, on the page the agent is on, with the same logins. You can click and type in it; the agent goes on working in the same window. Takes about a second |
+| `mcp__browser__browser_hide` | The window closes and the browser goes on without one, on the same page, with the same logins |
+
+- The page is loaded again when the window appears or goes, so text typed into a form is lost
+  and has to be typed again. Cookies and the site's stored data are kept; where several tabs
+  were open, the one in front comes back.
+- What you log in to in the window, the agent is logged in to as well: it is one browser.
+  Without `profile` the logins last as long as that conversation's browser runs: at the
+  latest until pine restarts or the conversation is reset. With `profile` they are kept.
+- A run that was started from outside (an event, a message from somebody else) does not have
+  these tools and cannot put a window on your screen.
+- On a machine without a screen (a server, Docker) no window can open. The agent is told so
+  and carries on without one.
+- `"block": ["browser_show", "browser_hide"]` takes the tools away. `"headed": true` starts the
+  browser with a window every time.
+
 | Option | Default | Meaning |
 |---|---|---|
-| `headed` | `false` | Show the browser window, so you can watch. |
+| `headed` | `false` | `true`: the browser has a window from the start, in every conversation. To see it now and then, ask the agent instead (`browser_show`). |
 | `profile` | none | A folder for a persistent profile: cookies and logins survive. Without it every session starts clean. |
 | `images` | `true` | `false`: a screenshot comes back without its picture. Set it for a model that cannot see pictures. |
 | `tools` | `"core"` | `"core"`: the sixteen tools above. `"all"`: everything Playwright offers that is not blocked. Or a list of names. |
@@ -255,7 +280,7 @@ does not work, it reads the page's console messages.
 | `allowHosts`, `denyHosts` | none | Limit where the browser may go. Subdomains are included. |
 | `allowPrivate` | `false` | Allow every address on this computer and your own network, without asking. Leave it off: one local address at a time is allowed by answering a question, see "Local addresses" below. |
 | `browser` | `chromium` | `chrome` or `msedge` use an installed browser instead of Playwright's Chromium. |
-| `executablePath`, `viewport`, `caps`, `extraArgs` | | Passed on to Playwright MCP. |
+| `executablePath`, `viewport`, `caps`, `extraArgs` | | Passed on to Playwright MCP. With `"caps": "storage"` and `"tools": "all"` the agent also gets the tools that read and change cookies. |
 
 What the guard does:
 
@@ -266,12 +291,16 @@ What the guard does:
   exception is an address you allowed for a conversation ("Local addresses" below). `file:`
   URLs are blocked by Playwright.
 - **No code on your machine.** `browser_run_code_unsafe` (runs code in the server process),
-  `browser_file_upload` and `browser_drop` (hand local files to a page) and `browser_install`
-  are removed from the tool list and refused if called, whatever `tools` says.
+  `browser_file_upload` and `browser_drop` (hand local files to a page), `browser_install`, and
+  `browser_storage_state` and `browser_set_storage_state` (write and read a file of cookies)
+  are removed from the tool list and refused if called, whatever `tools` says. Tools that a
+  page itself declares (WebMCP) are not collected.
 - **One step at a time.** Calls a model issues in parallel are run one after another; a browser
   has one page in front.
 - **Snapshots inline.** Playwright writes snapshots to files; the guard puts their content into
   the tool result (cut at 24,000 characters; `browser_find` locates things on longer pages).
+  A screenshot comes as a picture, with the name of the file it was saved as. One that gives
+  up because the page is still loading its fonts is taken a second time.
 
 A browser is the widest door for outside content: sessions that use it are tainted, and with a
 `profile` it is signed in as you wherever you signed in. Treat a persistent profile like a

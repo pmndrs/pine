@@ -186,6 +186,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    connects; `mcp/browser.ts` sends all browser traffic through its guard proxy and withholds the
    Playwright tools in `ALWAYS_BLOCKED`. When Playwright MCP is upgraded, list its tools again
    and add anything that runs code in the server or reads local files.
+   The browser has no window unless the owner's conversation asks for one (`browser_show`,
+   `browser_hide` in `mcp/browser.ts`): the daemon says which sessions may (`window`, set where
+   the server is registered, never for a run started from outside), and the guard proxy and
+   the blocked tools are the same with a window as without.
    The browser has one exception, and it is the owner's: when an agent itself opens an address
    that is local by its own name (`localTarget` in `src/net.ts`), the gate in `coreExtension`
    asks, and a yes allows that host and port for the conversation (`AgentManager.allowLocal`

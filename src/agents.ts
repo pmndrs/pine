@@ -36,6 +36,13 @@ const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 const FILE_TOOLS: Record<string, "read" | "write"> = { read: "read", grep: "read", find: "read", ls: "read", write: "write", edit: "write" };
 const SILENT = /^\s*(NO_REPLY|SILENT)\s*$/;
+/**
+ * What pine tells the bundled browser about the conversation it serves, over whatever the options
+ * say. Only an owner's conversation has local addresses the owner allowed, and only there may the
+ * browser be put on the owner's screen.
+ */
+export const browserSession = (owner: boolean, localFile: string): Record<string, unknown> => (owner ? { localFile, window: true } : { localFile: null, window: false });
+
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 const contextOf = (session: any): ContextUse | undefined => {
@@ -1525,8 +1532,9 @@ export class AgentManager {
 					pi.registerMcpServer(name, { ...toPiMcp(name, server), command: argv[0], args: argv.slice(1), env, cwd: roots.workspace });
 					continue;
 				}
-				// The browser of an owner's conversation learns which local addresses the owner allowed there.
-				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandbox: jail?.("restricted"), env: shellEnv(agent, roots, {}) } : server.pine === "browser" && live.trust === "owner" ? { localFile: this.localFile(live.perm) } : {};
+				// The browser of an owner's conversation learns which local addresses the owner allowed there,
+				// and may be put on the owner's screen. A run started from outside gets neither, whatever the options say.
+				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandbox: jail?.("restricted"), env: shellEnv(agent, roots, {}) } : server.pine === "browser" ? browserSession(live.trust === "owner", this.localFile(live.perm)) : {};
 				pi.registerMcpServer(name, toPiMcp(name, server, extra));
 			}
 
