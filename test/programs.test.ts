@@ -30,7 +30,7 @@ test("programs: how one is named and how long it has run", () => {
 
 test("programs: what a command leaves running is listed for its conversation, the agent is told, and the owner or the agent stops it", mac, async (t) => {
 	// The agent as pine ships it: with the owner's account, so that a server of its own can listen.
-	const h = await harness({ pine: { defaults: { scope: undefined }, http: { port: 0 } }, agents: { main: {} } });
+	const h = await harness({ pine: { defaults: { mode: undefined }, http: { port: 0 } }, agents: { main: {} } });
 	const list = (session = "main") => h.pine.agents.programsOf("main", session);
 	t.after(() => {
 		for (const session of ["main", "other"]) for (const p of list(session)) h.pine.agents.stopProgram("main", session, p.id);
@@ -81,7 +81,7 @@ test("programs: what a command leaves running is listed for its conversation, th
 test("tui: the code pane lists what the agent left running and stops it on a click", mac, async (t) => {
 	// With the owner's account, as pine ships the main agent. (In the workspace sandbox Linux ends
 	// what a command leaves behind together with the command; see security.md, "On Linux".)
-	const h = await harness({ pine: { main: "main", defaults: { scope: undefined }, http: { port: 0 } }, agents: { main: {} } });
+	const h = await harness({ pine: { main: "main", defaults: { mode: undefined }, http: { port: 0 } }, agents: { main: {} } });
 	t.after(() => {
 		for (const p of h.pine.agents.programsOf("main", "main")) h.pine.agents.stopProgram("main", "main", p.id);
 	});

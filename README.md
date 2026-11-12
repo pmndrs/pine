@@ -109,7 +109,7 @@ PINE of course also handles regular chat, coding, tasks and orchestration. Agent
 ## Quick start
 
 Sets everything up: the browser the web tools drive, and your user folder (`~/.pine`). On Linux
-also the sandbox agents work in; it shows what it would install and asks once.
+also the sandbox that agents in `safe` mode work in; it shows what it would install and asks once.
 
 ```bash
 pine init
@@ -164,8 +164,32 @@ pine update
 
 ## Docker
 
-Agents run their commands in a sandbox, and a container may only make one when it is started
-with the rights for it:
+A container needs nothing special. It is the wall around pine, and the agents work inside it
+without a sandbox of their own:
+
+```bash
+docker run -it -v pine:/root/.pine node:24 bash
+```
+
+`-v pine:/root/.pine` keeps pine's home (configuration, conversations) when the container is
+replaced. Inside, it is the same as anywhere:
+
+```bash
+npm install -g @pmndrs/pine
+```
+
+```bash
+pine init
+```
+
+Every agent whose mode you did not choose then works in `auto` mode, and `pine check` says so.
+The agents and pine's own secrets are in the same container; what keeps the two apart there is
+described under "pine's own files without a sandbox" in
+[docs/references/security.md](docs/references/security.md).
+
+`safe` mode puts an agent into a sandbox of its own, as on a Mac. A container may only make
+one when it is started with the rights for it, which take away most of what Docker itself
+protects:
 
 ```bash
 docker run -it --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined -v pine:/root/.pine node:24 bash
@@ -177,17 +201,6 @@ docker run -it --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=un
 | `--cap-add NET_ADMIN` | lets a sandbox without network have its own loopback interface |
 | `--security-opt seccomp=unconfined` | Docker's system call filter forbids the sandbox's change of root |
 | `--security-opt apparmor=unconfined` | Docker's AppArmor profile forbids its mounts |
-| `-v pine:/root/.pine` | keeps pine's home (configuration, conversations) when the container is replaced |
-
-Inside, it is the same as anywhere:
-
-```bash
-npm install -g @pmndrs/pine
-```
-
-```bash
-pine init
-```
 
 `pine init` installs what the image lacks (bubblewrap, the browser's system libraries) and says
 so if a right is missing. With pine as an ordinary user in the container instead of root, add

@@ -604,11 +604,11 @@ export class SourceHost {
 		if (!agent) return Promise.reject(new Error("the agent this source belongs to is gone"));
 		const roots = rootsFor(this.cfg, agent);
 		// Where the agent's own shell is withheld because nothing could confine it, a source's command is not run either.
-		if (agent.sandbox.enabled && !sandboxAvailable()) return Promise.reject(new Error("there is no sandbox on this platform to run the command in, so it is not run"));
+		if (!sandboxAvailable()) return Promise.reject(new Error("there is no sandbox on this platform to run the command in, so it is not run"));
 		// The variant of a run that has read outside content: what is read into the agent's prompt stays as it is.
-		const argv = agent.sandbox.enabled ? [...sandboxArgv(this.cfg, agent, roots, "restricted"), bin("bash"), "-c", command] : [bin("bash"), "-c", command];
+		const argv = [...sandboxArgv(this.cfg, agent, roots, "restricted"), bin("bash"), "-c", command];
 		// On Linux a protected file that did not exist cannot be forbidden, only taken away again.
-		const guard = agent.sandbox.enabled ? sandboxGuard(roots, "restricted") : undefined;
+		const guard = sandboxGuard(roots, "restricted");
 		const max = opts.maxBytes ?? 256 * 1024;
 		const timeoutMs = opts.timeoutMs ?? 30_000;
 		return new Promise((resolve, reject) => {

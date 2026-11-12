@@ -52,7 +52,7 @@ Everything in the two bars reacts to a click.
 | `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output, what the agent left running, and what the reviewer blocked. In the pane: its five views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
 | The model | The models you have credentials for |
 | `reasoning <level>` | How much the model thinks before answering: off, minimal, low, medium, high, xhigh, max |
-| The mode (`auto`, `plan`, `manual`, `bypass`) | The four modes |
+| The mode (`auto`, `safe`, `manual`, `bypass`, `plan`) | The five modes |
 | A button in an approval dialog | Allow once, Always here, Deny or Later |
 | Anywhere beside an open list or dialog | It closes (an approval stays open for later). The click does nothing else |
 | A `▸ thinking` or `▸ thought for` line, or the lines under it | What the model thought opens in full. A click anywhere on the open text closes it again. See [What a model thinks](#what-a-model-thinks) |
@@ -194,7 +194,7 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/goal [objective\|pause\|resume\|clear]` | Goal mode: with an objective, the agent keeps working by itself, round after round, until a judge says the objective is met. Without an argument it shows the goal and where it stands; `pause`, `resume` and `clear` do what they say. See "Goals" below |
 | `/model [provider/id]` | Switch the agent's model. Without an argument, a list to search and pick from; or type a few letters after it: `/model deepseek` |
 | `/reasoning [level]` | Set how much the model thinks before answering; without an argument, choose from a list. Saved like the model. A model that cannot reason ignores it |
-| `/mode [auto\|plan\|manual\|bypass]` | Set how much this agent does without asking; without an argument, choose from a list. See [Modes](#modes) |
+| `/mode [auto\|safe\|manual\|bypass\|plan]` | Set how much this agent does without asking; without an argument, choose from a list. See [Modes](#modes) |
 | `/attach <path>`, `/detach [n]` | Attach files to the next message, or remove them |
 | `/paste` | Attach the picture that is on the clipboard (a screenshot, for example) to the next message. `ctrl+v` does the same in terminals that pass that key on. Text is pasted with the terminal's own paste |
 | `/mcp`, `/mcp login [name]` | List the MCP servers with their state and whom each is for: all agents, one agent, or one conversation (`only this conversation`, or `only the conversation notes of main, not this one`: a server added in one conversation is missing in the agent's others, see [mcp.md](mcp.md)). `/mcp login` signs in to a remote one through the browser. Without a name: the only remote server, or a list to choose from |
@@ -256,7 +256,7 @@ one another UI on the same daemon shows.
 | `shift+enter` | New line |
 | `up` / `down` | Earlier inputs |
 | `esc` | Stop what the agent is doing; the conversation shows `■ stopped`. A goal that was being worked on is paused (`/goal resume` goes on). A message you typed while it worked is not stopped with it: it is answered next, and for three seconds a second `esc` leaves it alone (the status line says so). After that `esc` stops it like anything else. While a list or dialog is open, `esc` only closes that |
-| `shift+tab` | Next mode for this agent: auto, plan, manual, bypass (while the input is empty) |
+| `shift+tab` | Next mode for this agent: auto, plan, safe, manual, bypass (while the input is empty) |
 | `tab` | Next tab (while the input is empty) |
 | `alt+1` ... `alt+9` | Go to that tab |
 | `ctrl+t`, `ctrl+w` | New conversation; close the tab |
@@ -272,14 +272,15 @@ The bottom bar shows the agent's mode; click it, press `shift+tab`, or use `/mod
 
 | Mode | What you will notice |
 |---|---|
-| `auto` | The agent works without asking. The main agent has your whole account and the network, and keeps them after reading the web. From then on a reviewer checks what reaches out, sends something or changes the agent's memory; what it blocks is listed under Blocked in the code pane, and you are asked only when it keeps blocking. Another agent asks when it wants something outside its workspace ("read access to ~/dev/gonzo, reason: ..."). Any agent asks, after outside content, before it sends something out or acts on the world |
-| `plan` | The agent looks, reads, searches the web and asks, and changes nothing: no file is written, no command that changes something runs, nothing is sent, and you are not asked about any of it. Its answer is a plan. Read it, say what should be different, then switch to another mode (`/mode auto`, or a click on the mode in the bottom bar; `shift+tab` goes on to `manual`): the agent is told that planning is over and carries it out. Good with a small model: you see what it is about to do before it does it. Shown in magenta |
-| `manual` | A dialog before every command, edit or message, until you answer "Always here" for that tool or server |
-| `bypass` | No dialogs. The agent can read and change files anywhere in your account and use the network. Shown in red |
+| `auto` | The agent works without asking and without a sandbox: it has your whole account and the network, and keeps them after reading the web. A reviewer checks what is critical, and after outside content what reaches out, sends something or changes the agent's memory; what it blocks is listed under Blocked in the code pane, and you are asked only when it keeps blocking. What the main agent starts in |
+| `safe` | The agent works without asking inside its sandbox: its own folders, no network. It asks when it wants something outside ("read access to ~/dev/gonzo, reason: ..."), and after outside content before it sends something out. What every other agent starts in. Shown in green |
+| `plan` | The agent looks, reads, searches the web and asks, and changes nothing: no file is written, no command that changes something runs, nothing is sent, and you are not asked about any of it. Its answer is a plan. Read it, say what should be different, then switch to another mode (`/mode auto`, or a click on the mode in the bottom bar; `shift+tab` goes on to `safe`): the agent is told that planning is over and carries it out. While it plans, the agent reaches what the mode it had before reaches. Good with a small model: you see what it is about to do before it does it. Shown in magenta |
+| `manual` | Inside its sandbox, and a dialog before every command, edit or message, until you answer "Always here" for that tool or server |
+| `bypass` | No sandbox and no dialogs. The agent can read and change files anywhere in your account and use the network, and nothing is checked. Shown in red |
 
 Bypass and outside content do not mix by default. If a conversation in bypass reads a web page
 or another outside source, a yellow note appears, the bar shows `bypass (paused)`, and the agent
-is back inside its sandbox. Choosing bypass in such a conversation asks you which you want: a
+works as in `auto` mode: what reaches out, sends something or changes its memory is checked. Choosing bypass in such a conversation asks you which you want: a
 new, clean conversation in bypass (recommended), or bypass here anyway. The agent is told its
 mode every turn, so it knows when something it refused earlier has become possible.
 

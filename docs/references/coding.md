@@ -22,11 +22,11 @@ that: a repository, a project. From its next message on
 - the folder's instruction files (`AGENTS.md`, `CLAUDE.md`) apply, next to the agent's own,
 - the agent is told which folder it works in and that its own workspace is still there.
 
-Everything else stays as it is: for an agent in the workspace scope the rest of your home is
-closed and the network is closed unless you opened it, and the agent's mode decides what it
-asks before doing.
+Everything else stays as it is: for an agent in the sandbox (`safe` or `manual` mode) the rest
+of your home is closed and the network is closed unless you opened it, and the agent's mode
+decides what it asks before doing.
 
-The main agent reaches your whole account anyway (`sandbox.scope`, see
+The main agent works in `auto` mode and reaches your whole account anyway (see "Modes" in
 [security.md](security.md)), so it can work on a project without a folder being opened.
 Opening one still does three things for it: its tools start there, the folder's instruction
 files apply, and the folder stays open to the conversation after it has read outside content,
@@ -108,9 +108,9 @@ when a command has ended, whatever the agent says about it. For each conversatio
   agent's work on a message, not a server that work started.
 
 A program that detaches itself completely (a daemon that starts a session of its own) is not
-found this way. On Linux, in the workspace scope, nothing outlives its command in the first
-place; a server there is started in the background (next section), or by an agent with the
-scope `account`.
+found this way. On Linux, in the sandbox (`safe` or `manual` mode), nothing outlives its
+command in the first place; a server there is started in the background (next section), or
+by an agent in `auto` mode.
 
 ### Commands in the background
 

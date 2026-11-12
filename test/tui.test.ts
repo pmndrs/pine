@@ -106,20 +106,26 @@ test("tui: tabs, slash commands and keys", async () => {
 	await t.sees('model "nope/nothing" is not defined');
 
 	// Modes: by command and by shift+tab; the bar at the bottom always shows the mode.
-	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · auto/);
-	t.term.type([KEY.shiftTab]);
-	await t.sees("gonzo is now in plan mode");
-	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · plan/);
+	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · safe/);
 	t.term.type([KEY.shiftTab]);
 	await t.sees("gonzo is now in manual mode");
 	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · manual/);
+	await t.send("/mode plan");
+	await t.sees("gonzo is now in plan mode");
+	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · plan/);
+	assert.equal(t.h.pine.cfg.agents.gonzo.level, "manual", "plan lies on top of the mode the agent had: its sandbox stays that mode's");
+	t.term.type([KEY.shiftTab]);
+	await t.sees("gonzo is now in safe mode");
+	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · safe/);
 	await t.send("/mode bypass");
 	await t.sees("gonzo is now in bypass mode");
 	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · bypass/);
 	assert.equal(t.h.pine.cfg.agents.gonzo.mode, "bypass");
-	assert.equal(t.h.pine.cfg.agents.main.mode, "auto", "the mode belongs to one agent");
+	assert.equal(t.h.pine.cfg.agents.main.mode, "safe", "the mode belongs to one agent");
 	await t.send("/mode auto");
 	await t.sees("gonzo is now in auto mode");
+	await t.send("/mode safe");
+	await until(() => t.h.pine.cfg.agents.gonzo.mode === "safe");
 
 	await t.send("/events");
 	await t.sees(/4 events/);
@@ -266,7 +272,7 @@ test("tui: the mouse works on tabs, their close buttons, the bottom bar and the 
 	t.term.type([KEY.esc]);
 	await until(() => !t.text().includes("Model for main"));
 
-	await click("auto", last());
+	await click("safe", last());
 	await t.sees("│ Mode for main");
 	await click("asks before every action");
 	await t.sees("main is now in manual mode");
@@ -483,7 +489,7 @@ test("tui: reasoning level and context use are shown in the bottom bar; the leve
 	const t = await open({ agents: { main: { agent: { description: "front desk" } } }, model: { reasoning: true, contextWindow: 20000 }, mockOptions: { prefixCache: true } });
 	await t.sees("type a message");
 	const bar = () => t.app.screen().at(-1)!;
-	assert.match(bar(), /main · main · no folder · mock\/m · reasoning off · auto/);
+	assert.match(bar(), /main · main · no folder · mock\/m · reasoning off · safe/);
 	assert.ok(!/context|cache/.test(bar()), "no figures before the model has answered once");
 	assert.ok(!/embedded|test ·/.test(bar()), "the bar holds only what is about the conversation");
 

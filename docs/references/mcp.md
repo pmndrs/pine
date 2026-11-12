@@ -69,14 +69,17 @@ replaced. A key the server needs is named again (`secrets`) and typed again in t
 the one pine kept for the old entry goes with it.
 
 A **local server** is a program that somebody else wrote and that keeps running while the agent
-works. One that an agent adds therefore runs inside the sandbox of the agent that uses it
+works. One that an agent adds therefore runs where the commands of the agent that uses it run
 (`"sandboxed": true` in its entry): it reaches what that agent's shell reaches and nothing
-more. For the main agent that is your account and the network, with your home folder; for
-another agent its workspace, its private home folder and the network. pine's home stays closed
-to it either way, and it gets nothing of the daemon's environment. The dialog shows the exact
-command and says which of the two it is. Read the command: it is what will run. The command is
-one program with its arguments; shell operators (`&&`, a pipe, `$(...)`) are refused. Where
-the machine has no sandbox, an agent cannot add a local server at all.
+more. For an agent in `safe` or `manual` mode that is its sandbox: its workspace, its private
+home folder and the network, and pine's home is closed to the program by the operating system.
+For an agent in `auto` or `bypass` mode (the main agent, unless you say otherwise) there is
+no sandbox: the program runs with your rights, your home folder and the network, and nothing
+of the operating system keeps it out of pine's home. Either way it gets nothing of the
+daemon's environment. The dialog shows the exact command and says which of the two it is.
+Read the command: it is what will run. The command is one program with its arguments; shell
+operators (`&&`, a pipe, `$(...)`) are refused. Where the machine has no sandbox, an agent in
+`safe` or `manual` mode cannot add a local server at all.
 
 If a local server needs a sign-in, its documentation names a command for it (often the same
 command with `login` at the end). The agent runs that in its shell and gives you the link it
@@ -159,7 +162,7 @@ and the keys pine adds (besides `agents` and `enabled` from the table at the top
 | Key | Meaning |
 |---|---|
 | `pine` | Use a server that ships with pine (`"web"`, `"browser"`, `"commands"` or `"computer"`), configured through `options`. |
-| `sandboxed` | For a local server: `true` runs its program inside the sandbox of the agent that uses it, with that agent's home folder and environment, instead of as a process of yours. Written by `add_mcp_server` for every local server an agent adds. Add it to a server of your own to hold it the same way; take it out only if you trust the program with your account and pine's home. |
+| `sandboxed` | For a local server: `true` runs its program where the commands of the agent that uses it run, with that agent's home folder and environment, instead of as a process of the daemon's: inside the sandbox for an agent in `safe` or `manual` mode, with your rights for one in `auto` or `bypass` mode. Written by `add_mcp_server` for every local server an agent adds. Add it to a server of your own to hold it the same way; take it out only if you trust the program with your account and pine's home. |
 | `session` | In an `agent.json` only, written by `add_mcp_server`: the one conversation the server was added for. Other conversations of the agent do not get it, and it is removed with that conversation. |
 | `taints` | `true` when the server returns content written by others (web pages, mail, tickets, chat). A session that calls it becomes tainted. Default `false`, `true` for the bundled `web`, `browser` and `computer`. |
 | `approve` | `"always"`: every call needs your approval, each time (except in bypass mode, where nothing asks). `"tainted"`: once the session has seen outside content, the server's tools that act need approval (its read-only tools do not), and you can answer "always in this conversation"; use it for servers that change things or send things out. Default `"never"`. |
@@ -168,7 +171,7 @@ Each session starts its own copy of a local server and stops it when the session
 local server that you added yourself (`pine mcp add <name> -- <command>`, or an entry you
 wrote) is a normal process of yours: it is not sandboxed, and what it can reach, agents can
 reach through it. Give it the narrowest credentials that do the job, or set `"sandboxed": true`.
-One that an agent added is sandboxed from the start.
+One that an agent added has that from the start; it is in a sandbox when the agent is.
 
 What a server says about its own tools counts in two places. A tool it declares read-only
 (`readOnlyHint`) is not asked about (unless the server has `"approve": "always"`), and it is
@@ -264,7 +267,7 @@ need a shell for it.
 | `params.<name>` | `type` (`string`, `number`, `boolean`), `description`, `enum`, `pattern` (must match the whole value), `default`, `required` (default true). |
 | `timeoutSec` | Default 30. |
 | `cwd`, `env` | Working folder (default: where the conversation's tools start: the agent's workspace, or the folder opened for the conversation) and extra environment. |
-| `sandbox` | `true` runs the command inside the agent's sandbox (the variant in which instruction files are read-only). It has no effect for an agent with `"sandbox": false` or on a machine without a working sandbox. Default `false`: these are your commands, and most need the network. |
+| `sandbox` | `true` runs the command inside the agent's sandbox (the variant in which instruction files are read-only). It has no effect on a machine without a working sandbox. Default `false`: these are your commands, and most need the network. |
 | `maxOutput` | Characters of output returned. Default 30000. |
 
 Arguments are passed as a list, never through a shell: a parameter value of `x; rm -rf ~` is one
@@ -389,11 +392,11 @@ opens the address and waits.
 - `allowHosts` and `denyHosts` still apply.
 
 A server the agent starts from its own shell (`npm run dev`) can only listen on a port when the
-shell has network access. The main agent has it (the scope `account`); an agent in the
-workspace scope needs `request_access` with `network: true`, or `sandbox.network`. Start the
-server in the background and give it a moment before opening the page. An agent with the
-scope `account` can also stop it again with `kill`; in the workspace scope a command cannot
-stop what an earlier command started.
+shell has network access. The main agent has it (`auto` mode); an agent in the sandbox
+(`safe` or `manual` mode) needs `request_access` with `network: true`, or `sandbox.network`.
+Start the server in the background and give it a moment before opening the page. An agent in
+`auto` mode can also stop it again with `kill`; in the sandbox a command cannot stop what an
+earlier command started.
 
 ## Bundled: computer
 

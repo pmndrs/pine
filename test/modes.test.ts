@@ -3,8 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { loadConfig, sandboxScope } from "../src/config.ts";
-import { audit, rootsFor, sandboxAvailable, shellEnv, sandboxKind } from "../src/security.ts";
+import { pineOwn } from "../src/actions.ts";
+import { loadConfig } from "../src/config.ts";
+import { audit, levelOf, rootsFor, sandboxAvailable, sandboxRecheck, shellEnv } from "../src/security.ts";
 import { harness, MCP_STUB, mockMsg, notesOf, until, refused } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
@@ -70,15 +71,14 @@ test("auto mode: beyond the sandbox is refused, and opens for the conversation o
 	await h.close();
 });
 
-/** The harness keeps every agent in its workspace. These tests ask for what pine does by itself. */
-const asShipped = { defaults: { scope: undefined } };
+/** The harness keeps every agent in safe mode. These tests ask for what pine does by itself. */
+const asShipped = { defaults: { mode: undefined } };
 
 test("auto mode, main agent: the owner's whole account without a question, and a program one command started is stopped by the next", mac, async (t) => {
 	const dir = elsewhere(t);
 	const tools = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 	const h = await harness({ pine: asShipped, agents: { main: { agent: { tools } }, helper: { agent: { tools } } } });
-	assert.equal(sandboxScope(h.pine.cfg, h.pine.cfg.agents.main), "account");
-	assert.equal(sandboxScope(h.pine.cfg, h.pine.cfg.agents.helper), "workspace");
+	assert.deepEqual([h.pine.cfg.agents.main.mode, h.pine.cfg.agents.helper.mode], ["auto", "safe"], "what an agent that names no mode gets");
 	const asked = answering(h, () => false);
 	const repo = path.resolve(import.meta.dirname, "..");
 	await h.pine.agents.run({
@@ -114,7 +114,8 @@ test("auto mode, main agent: the owner's whole account without a question, and a
 	assert.equal(first[3].trim(), os.homedir(), "the owner's home, so their git, ssh and toolchains are found");
 	assert.equal(first[4].trim(), "200", "the network");
 	assert.match(first[5], /not accessible to agents/);
-	assert.ok(!first[6].includes("sk-mock") && refused.test(first[6]), first[6]);
+	// No sandbox keeps the shell out of pine's home here: the command that names it is not run.
+	assert.ok(!first[6].includes("sk-mock") && /^Not run: .*models\.json is part of pine itself, which is closed to every agent in every mode/.test(first[6]), first[6]);
 	assert.match(first[7], /pine's own code, which agents cannot change/);
 	const kill = h.toolResults().at(-5)!;
 	assert.ok(kill.includes("stopped") && kill.includes("gone"), kill);
@@ -131,13 +132,24 @@ test("auto mode, main agent: the owner's whole account without a question, and a
 	assert.match(h.toolResults().at(-1)!, /outside the paths this agent may read.*request_access/, "said the same way, and how to ask");
 	await h.close();
 
-	const wide = await harness({ pine: asShipped, agents: { main: { agent: { sandbox: { scope: "workspace" } } }, helper: { agent: { sandbox: { scope: "account" } } } }, start: false });
+	const wide = await harness({ pine: asShipped, agents: { main: { agent: { mode: "safe" } }, helper: { agent: { mode: "auto" } }, third: {} }, start: false });
 	const cfg = loadConfig(wide.home);
-	assert.deepEqual([sandboxScope(cfg, cfg.agents.main), sandboxScope(cfg, cfg.agents.helper)], ["workspace", "account"]);
-	assert.ok(audit(cfg).some((n) => /agent helper: its shell and file tools reach your whole account/.test(n)));
+	assert.deepEqual([cfg.agents.main.level, cfg.agents.helper.level, cfg.agents.third.level], ["safe", "auto", "safe"]);
+	assert.ok(audit(cfg).some((n) => /agent helper: auto mode\. Its shell and file tools reach your whole account/.test(n)));
+	assert.ok(!audit(cfg).some((n) => /agent (main|third)/.test(n)), "an agent in its sandbox is no note");
 	await wide.close();
-	const bad = await harness({ agents: { main: { agent: { sandbox: { scope: "everything" } } } }, start: false });
-	assert.throws(() => loadConfig(bad.home), /sandbox.scope is "workspace"/);
+	// What said this before the mode did is gone. A file that still has it does not load, and says what to write instead.
+	for (const [spec, error] of [
+		[{ agents: { main: { agent: { sandbox: { scope: "account" } } } } }, /agents\/main\/agent\.json: sandbox\.scope is gone\. .*set "mode" to "auto" .* or "safe"/],
+		[{ agents: { main: { agent: { sandbox: false } } } }, /agents\/main\/agent\.json: "sandbox": false is gone\. .*set "mode" to "auto"/],
+		[{ pine: { defaults: { scope: "workspace" } }, agents: { main: {} } }, /pine\.json: defaults\.scope is gone\. .*set defaults\.mode to "safe"/],
+	] as const) {
+		const old = await harness({ ...spec, start: false } as any);
+		assert.throws(() => loadConfig(old.home), error);
+		await old.close();
+	}
+	const bad = await harness({ agents: { main: { agent: { mode: "everything" } } }, start: false });
+	assert.throws(() => loadConfig(bad.home), /mode must be one of auto, safe, manual, bypass, plan/);
 	await bad.close();
 });
 
@@ -163,7 +175,7 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 
 	// The agent is told, and can put it to the owner again with a reason.
 	answer = true;
-	await run("a", [{ tools: [call("request_access", { account: true, reason: "the notes are part of the task" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}; echo $HOME` }), call("write", { path: "MEMORY.md", content: "LEARNED: where the notes are\n" })] }, { tools: [call("bash", { command: "echo EVIL | tee CLAUDE.md .pi" })] }]);
+	await run("a", [{ tools: [call("request_access", { account: true, reason: "the notes are part of the task" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}; echo $HOME` }), call("write", { path: "MEMORY.md", content: "LEARNED: where the notes are\n" })] }, { tools: [call("write", { path: "CLAUDE.md", content: "EVIL" })] }]);
 	assert.ok(notesOf(h.mock.state.requests.at(-1)).join("\n").includes("limited this conversation to your workspace"), notesOf(h.mock.state.requests.at(-1)).join("\n"));
 	out = h.toolResults().slice(-5);
 	assert.equal(asked.length, 2, "one yes covers the account, the shell and the agent's memory");
@@ -174,10 +186,8 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 	// Its own memory is part of what it keeps. What else would be read as instructions stays closed.
 	assert.match(out[3], /Successfully wrote/);
 	assert.equal(fs.readFileSync(path.join(h.workspace("main"), "MEMORY.md"), "utf8"), "LEARNED: where the notes are\n");
-	// macOS refuses the write. Linux cannot forbid a file that is not there yet: the command
-	// makes it, and pine takes it away again before anything reads it. Either way it is not there.
-	assert.ok(refused.test(out[4]) || sandboxKind() === "linux", out[4]);
-	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "CLAUDE.md")) && !fs.existsSync(path.join(h.workspace("main"), ".pi")));
+	assert.match(out[4], /CLAUDE\.md holds agent instructions and cannot be changed in a run that has handled outside content/);
+	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "CLAUDE.md")));
 
 	// A yes: one question for the conversation, whatever comes after.
 	await run("b", [outside, { tools: [call("bash", { command: `cat ${file}` })] }, { tools: [call("bash", { command: "echo again" }), call("read", { path: file })] }]);
@@ -300,7 +310,7 @@ test("plan mode: the agent looks and reads, nothing is changed, run or sent, nob
 	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "from-outside.txt")));
 
 	// The owner switches it off: the agent is told so, and the same call now runs.
-	h.pine.agents.setMode("main", "auto");
+	h.pine.agents.setMode("main", "safe");
 	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("write", { path: "new.txt", content: "x" })] }]), trust: "owner" });
 	assert.ok(fs.existsSync(path.join(h.workspace("main"), "new.txt")));
 	const told = h.mock.state.requests.flatMap((q: any) => notesOf(q)).join("\n");
@@ -337,9 +347,9 @@ test("bypass mode: no questions and the whole account, but never pine's own home
 	assert.ok(fs.existsSync(path.join(dir, "by-tool.txt")));
 	assert.equal(out[3].trim(), "200", "the network is open in bypass mode");
 	assert.match(out[4], /not accessible to agents/);
-	assert.ok(!out[5].includes("sk-mock") && refused.test(out[5]), out[5]);
+	assert.ok(!out[5].includes("sk-mock") && /^Not run: .*models\.json is part of pine itself/.test(out[5]), out[5]);
 	assert.match(out[6], /pine's own code, which agents cannot change/);
-	assert.match(out[7], refused);
+	assert.match(out[7], /^Not run: .*evil\.ts is part of pine's own code, which agents cannot change/);
 	assert.ok(!fs.existsSync(path.join(repo, "src", "evil.ts")));
 	assert.equal(asked.length, 0, "nothing was asked, not even what the approve list names");
 	assert.ok(notesOf(h.mock.state.requests[0])[0].includes("Mode: bypass."));
@@ -369,7 +379,9 @@ test("bypass does not survive outside content, and never applies to runs started
 	assert.ok(out[0].includes("ELSEWHERE-CONTENT"), "before the taint: bypass");
 	assert.match(out[2], /outside the paths this agent may read/, "after the taint: the sandbox is back");
 	assert.match(out[3], /not approved \(timeout\)/, "and sending out waits for the owner");
-	assert.equal(asked.length, 1);
+	// Paused, bypass is auto: the owner is asked once whether the conversation keeps the account, and has not answered.
+	assert.deepEqual(asked.map((a) => a.tool), ["read", "publish_event"]);
+	assert.ok(asked[0].summary.includes("keep full rights in this conversation"));
 	assert.equal(h.pine.agents.status().sessions.find((s) => s.session === "main")!.mode, "auto");
 	assert.equal(r.status, "done");
 	await h.close();
@@ -388,7 +400,7 @@ test("the mode can be changed while the daemon runs, and a wrong mode is a confi
 		const res = await fetch(`http://127.0.0.1:${h.pine.http!.port}${url}`, { method: body ? "POST" : "GET", headers: { authorization: `Bearer ${h.pine.token}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
 		return { status: res.status, json: (await res.json()) as any };
 	};
-	assert.equal((await api("/agents")).json[0].mode, "auto");
+	assert.equal((await api("/agents")).json[0].mode, "safe");
 	assert.equal((await api("/agents/main/mode", { mode: "manual" })).status, 200);
 	assert.equal((await api("/agents")).json[0].mode, "manual");
 	assert.equal((await api("/agents/main/mode", { mode: "yolo" })).status, 400);
@@ -399,7 +411,7 @@ test("the mode can be changed while the daemon runs, and a wrong mode is a confi
 
 	const bad = await harness({ agents: { main: { agent: { mode: "yolo" } } }, start: false });
 	const { loadConfig } = await import("../src/config.ts");
-	assert.throws(() => loadConfig(bad.home), /mode must be one of manual, auto, bypass/);
+	assert.throws(() => loadConfig(bad.home), /mode must be one of auto, safe, manual, bypass, plan/);
 	await bad.close();
 });
 
@@ -643,5 +655,93 @@ test("download: an agent with web access fetches public files without a question
 	assert.equal(asked.length, 0, "a download that will be refused is not put to the owner first");
 	await run("plain", [{ tools: [call("request_access", { network: true, reason: "fetch a file" })] }, { tools: [call("bash", { command: "echo with-network" }), call("download", { url: "https://127.0.0.1/a.png", path: "a.png" })] }, { tools: [call("bash", { command: "echo again" })] }]);
 	assert.deepEqual(asked.map((a) => a.tool), ["request_access"], "one question, not one per command or download");
+	await h.close();
+});
+
+test("auto mode runs a command without a sandbox, safe mode runs it in one", { skip: process.platform !== "darwin" || !sandboxAvailable() }, async () => {
+	// A program that sandboxes itself is refused inside a sandbox, whatever that sandbox allows: so it tells the two apart.
+	const nested = call("bash", { command: "/usr/bin/sandbox-exec -p '(version 1)(allow default)' /bin/echo NESTED-RAN" });
+	const h = await harness({ pine: asShipped, agents: { main: {}, helper: {} } });
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [nested] }]), ...owner });
+	assert.ok(h.toolResults().at(-1)!.includes("NESTED-RAN"), h.toolResults().at(-1)!);
+	await h.pine.agents.run({ agent: "helper", prompt: mockMsg([{ tools: [nested] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /sandbox_apply: Operation not permitted/);
+	// The mode is the switch, and it holds from the next call.
+	h.pine.agents.setMode("main", "safe");
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [nested] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /sandbox_apply: Operation not permitted/);
+	// Planning lies on top of the mode: a look in plan mode reaches what the mode beneath reaches.
+	h.pine.agents.setMode("helper", "auto");
+	h.pine.agents.setMode("helper", "plan");
+	assert.deepEqual([h.pine.cfg.agents.helper.mode, h.pine.cfg.agents.helper.level], ["plan", "auto"]);
+	await h.close();
+});
+
+test("without a sandbox, a command that names pine's own files, program or control port is not run", (t) => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-own-")));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+	const home = path.join(dir, ".pine");
+	const code = path.join(dir, "opt", "pine");
+	const workspace = path.join(home, "agents", "main", "workspace");
+	for (const d of [workspace, path.join(home, "sandbox", "main"), path.join(code, "src")]) fs.mkdirSync(d, { recursive: true });
+	const o = { home, own: [workspace, path.join(home, "sandbox", "main")], code, cwd: workspace, ownerHome: dir, port: 7463 };
+	const no = (command: string, why: RegExp) => assert.match(pineOwn(command, o) ?? "", why, command);
+	const yes = (command: string) => assert.equal(pineOwn(command, o), undefined, command);
+
+	// pine's home, however it is written: in full, from the owner's home, or from where the shell starts.
+	for (const c of [`cat ${home}/.env`, "cat ~/.pine/pine.json", `ls "$HOME/.pine/data"`, `grep -r token ${home}`, "ls ..", "cat ../agent.json", "cd ../.. && ls", `cp ${home}/data/http-token /tmp/t`]) no(c, /is part of pine itself, which is closed to every agent in every mode/);
+	// The agent's own folders in it are its own, and a path with ".." after a cd is somewhere else.
+	for (const c of ["cat notes.txt", `ls ${workspace}/sub`, `echo x | tee ${home}/sandbox/main/tmp.txt`, "cd /somewhere/else && cat ../x", "ls ~ && ls ~/dev"]) yes(c);
+
+	// The pine program is the owner's way to run and change pine. A word in a message is not a command.
+	for (const c of ["pine approve 1a2b", "echo done; /opt/homebrew/bin/pine mode main bypass", "env X=1 pine status", "node bin/pine.js check"]) no(c, /the pine program is your owner's way to run and change pine/);
+	for (const c of ['git commit -m "fix; pine works"', "echo pine", "ls pine"]) yes(c);
+
+	// pine's program files can be read. What a command plainly writes there is not run.
+	for (const c of [`echo x > ${code}/src/evil.ts`, `touch ${code}/src/evil.ts`, `cp a.js ${code}/bin/pine.js`, `rm -rf ${code}/src`]) no(c, /is part of pine's own code, which agents cannot change/);
+	for (const c of [`cat ${code}/src/agents.ts`, `ls ${code}/docs`, `grep -rn sandbox ${code}/src`]) yes(c);
+
+	// pine's control port answers to whoever holds its token. Another port is a server like any other.
+	for (const c of ["curl -s localhost:7463/agents", "curl http://127.0.0.1:7463/approvals", "nc localhost 7463"]) no(c, /port 7463 on this computer is pine's own control port/);
+	for (const c of ["curl localhost:5173", "curl https://example.com:7463/x"]) yes(c);
+	assert.equal(pineOwn("curl localhost:7463", { ...o, port: undefined }), undefined, "no control API, no port to guard");
+});
+
+test("a machine without a sandbox: a mode nobody chose becomes auto, safe mode by hand has no shell, a run from outside has none either", async (t) => {
+	// A system pine has no sandbox for stands in for a container that was started without the rights for one.
+	const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+	Object.defineProperty(process, "platform", { value: "freebsd" });
+	sandboxRecheck();
+	t.after(() => {
+		Object.defineProperty(process, "platform", platform);
+		sandboxRecheck();
+	});
+	assert.equal(sandboxAvailable(), false);
+	const h = await harness({
+		pine: { ...asShipped, routes: [{ on: "hook/in", agent: "helper" }] },
+		agents: { main: {}, helper: { agent: { untrusted: { tools: ["read", "bash"] } }, files: { "a.txt": "IN-THE-WORKSPACE\n" } }, boxed: { agent: { mode: "safe" }, files: { "a.txt": "IN-THE-WORKSPACE\n" } } },
+	});
+	const { helper, boxed } = h.pine.cfg.agents;
+	// As configured, helper is "safe" like every agent that names no mode. Here that cannot be had, and nobody asked for it.
+	assert.deepEqual([helper.mode, levelOf(helper), levelOf(boxed), levelOf(h.pine.cfg.agents.main)], ["safe", "auto", "safe", "auto"]);
+	const notes = audit(h.pine.cfg);
+	assert.ok(notes.some((n) => /^no sandbox on this machine: .*An agent set to safe mode gets no shell/.test(n)), notes.join("\n"));
+	assert.ok(notes.some((n) => /^agent helper: works in auto mode, with your rights and no sandbox, because this machine has no sandbox and nobody chose its mode/.test(n)), notes.join("\n"));
+	assert.ok(!notes.some((n) => /^agent boxed: works in auto mode/.test(n)));
+
+	await h.pine.agents.run({ agent: "helper", prompt: mockMsg([{ tools: [call("bash", { command: "echo RAN-AS-THE-OWNER" })] }]), ...owner });
+	assert.ok(h.toolResults().at(-1)!.includes("RAN-AS-THE-OWNER"), h.toolResults().at(-1)!);
+	assert.ok(notesOf(h.requestsFor("PERSONA-HELPER").at(-1))[0].includes("Mode: auto."), "and it is told so");
+
+	// Set by hand, safe mode is not widened silently: no shell, and the agent can say why. Its file tools work.
+	await h.pine.agents.run({ agent: "boxed", prompt: mockMsg([{ tools: [call("bash", { command: "echo NEVER" }), call("read", { path: "a.txt" })] }]), ...owner });
+	const [shell, read] = h.toolResults().slice(-2);
+	assert.match(shell, /^Not run: you are in safe mode, which runs your shell in a sandbox, and this machine has none\..*switch you to auto mode/);
+	assert.ok(read.includes("IN-THE-WORKSPACE"), read);
+
+	// A run that an event from outside started has no shell here, whatever its profile lists and whatever the agent's mode.
+	h.pine.bus.publish("hook/in", { text: mockMsg([{ tools: [call("bash", { command: "echo NEVER" })] }]) }, { source: "http" });
+	await until(() => h.pine.tasks.list({ status: "done" }).some((x) => x.kind === "event"));
+	assert.equal(h.toolResults().at(-1), "Tool bash not found");
 	await h.close();
 });

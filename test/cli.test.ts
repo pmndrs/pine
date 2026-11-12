@@ -86,7 +86,7 @@ test("pine agent list, add, update and remove: in the files when no daemon runs,
 	// ---- no daemon: the files are changed, and checked the way pine checks them at a start
 	let list = await pine("agent", "list");
 	assert.match(list, /^main \(main\): /);
-	assert.match(list, /old: Kept the old books\n    model mock\/m \(the default\) · reasoning off · mode auto · reach workspace\n    conversations: none · sources: none · MCP servers: none · schedules: none · skills: none · routes: wake-old · 1 file in /);
+	assert.match(list, /old: Kept the old books\n    model mock\/m \(the default\) · reasoning off · mode safe · reach its own folders \(sandbox\)\n    conversations: none · sources: none · MCP servers: none · schedules: none · skills: none · routes: wake-old · 1 file in /);
 	assert.match(await pine("agent", "add", "books", "--description", "Keeps the books", "--tools", "read,grep"), /^Created the agent books \(tools: read, grep\)\. Its workspace is .*agents\/books\/workspace\. It is there when pine is started\.$/);
 	assert.deepEqual(json(file("agents", "books", "agent.json")), { description: "Keeps the books", tools: ["read", "grep"] });
 	assert.equal(fs.readFileSync(file("agents", "books", "workspace", "AGENTS.md"), "utf8"), "You are books. Keeps the books.\n");
@@ -135,7 +135,7 @@ test("pine agent list, add, update and remove: in the files when no daemon runs,
 	assert.equal(await pine("send", "scout", "are you there"), "ECHO[are you there]", "it exists without a restart");
 	assert.deepEqual(JSON.parse(await pine("agents")).map((a: any) => a.id).sort(), ["aide", "books", "main", "scout"]);
 	// The daemon changes a running agent at once; it holds from its next message on.
-	assert.match(await pine("agent", "update", "scout", "--thinking", "high", "--mode", "manual"), /^Updated the agent scout; it holds from its next message on:\n  reasoning: off -> high\n  mode: auto -> manual$/);
+	assert.match(await pine("agent", "update", "scout", "--thinking", "high", "--mode", "manual"), /^Updated the agent scout; it holds from its next message on:\n  reasoning: off -> high\n  mode: safe -> manual$/);
 	assert.match(await pine("agent", "list"), /scout: Looks things up\n    model .* · reasoning high · mode manual/);
 	const out = await pine("agent", "remove", "scout", "--yes", "--keep-files");
 	assert.match(out, /Its folder is kept: moved to .*removed/);

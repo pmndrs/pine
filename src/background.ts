@@ -93,11 +93,11 @@ export async function tailOf(cfg: PineConfig, agent: AgentConfig, file: string):
 	const roots = rootsFor(cfg, agent);
 	const argv = ["tail", "-c", String(TAIL_BYTES), file];
 	try {
-		if (agent.sandbox.enabled && sandboxAvailable()) {
+		if (sandboxAvailable()) {
 			const r = await sandboxExec({ cwd: roots.workspace, prefix: () => sandboxArgv(cfg, agent, roots, "restricted"), env: () => shellEnv(agent, roots, {}) }, argv, { timeoutMs: 5000 });
 			return r.code === 0 ? r.stdout.toString("utf8") : "";
 		}
-		// No sandbox on this agent: its own shell reads the same way.
+		// No sandbox on this machine: its own shell reads the same way.
 		return await new Promise<string>((resolve) => execFile(bin(argv[0]), argv.slice(1), { cwd: roots.workspace, env: shellEnv(agent, roots, {}), timeout: 5000, maxBuffer: TAIL_BYTES * 2 }, (error, stdout) => resolve(error ? "" : String(stdout))));
 	} catch {
 		return "";

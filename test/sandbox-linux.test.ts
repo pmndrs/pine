@@ -99,16 +99,6 @@ test("linux sandbox: the same rules as on macOS, said with mounts", async (t) =>
 	// What does not exist is not mounted: bwrap would otherwise create it on the real disk.
 	assert.ok(!bwrapArgs({ ...m.jail, read: [...m.jail.read, path.join(m.root, "nope")] }).includes(path.join(m.root, "nope")));
 
-	// Bypass: the whole account, except pine's home and pine's program.
-	const open = bwrapArgs({ ...m.jail, variant: "open", closed: m.jail.closed.slice(0, 3) });
-	assert.deepEqual(open.slice(0, 3), ["--dev-bind", "/", "/"]);
-	assert.equal(fate(open, path.join(m.userHome, ".ssh", "id")), "dev-bind");
-	assert.equal(fate(open, path.join(m.pineHome, "pine.json")), "tmpfs");
-	assert.equal(fate(open, path.join(m.workspace, "x")), "bind");
-	assert.equal(fate(open, path.join(m.jail.pineCode, "src", "pine.js")), "ro-bind");
-	assert.ok(!open.includes("--unshare-net") && open.at(-1) === "--");
-	assert.ok(open.join(" ").includes("--cap-drop ALL"), "started by root, a command could otherwise take the mounts away again");
-
 	// The services of the machine listen on sockets in /run. The session's folder is empty, and
 	// every other socket there is covered where it lies, for a command that was given the network.
 	const docker = await service(t, path.join(m.root, "run", "d.sock"));
@@ -124,7 +114,6 @@ test("linux sandbox: the same rules as on macOS, said with mounts", async (t) =>
 	assert.equal(fate(withTemp, session), "tmpfs");
 	assert.equal(fate(withTemp, path.join(m.root, "run", "resolv.conf")), "ro-bind", "what is not a socket stays readable");
 	assert.equal(fate(withTemp, path.join(temp, "scratch.txt")), "bind", "and temp stays writable");
-	assert.ok(!bwrapArgs({ ...m.jail, variant: "open" }).includes(docker), "bypass is the owner's own session");
 
 	// A helper: reads everything, writes only where it is told, no network, no services.
 	assert.equal(fate(helperArgs([m.sandboxHome], m.jail.shared, [path.join(m.root, "run", "user")]), bus), "ro-bind:null");

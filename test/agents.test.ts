@@ -319,7 +319,7 @@ test("what a model server has already read never changes: later requests only ad
 	extends_(1, 0);
 	extends_(2, 1);
 	assert.equal(notesOf(h.mock.state.requests[2]).length, 1, "the first message carried a note; the second, with nothing changed, did not");
-	assert.match(notesOf(h.mock.state.requests[0])[0], /It is \d\d:\d\d on \d{4}-\d\d-\d\d \(\w+day, .*\nMode: auto\./);
+	assert.match(notesOf(h.mock.state.requests[0])[0], /It is \d\d:\d\d on \d{4}-\d\d-\d\d \(\w+day, .*\nMode: safe\./);
 	assert.ok(!/\d\d:\d\d|\d{4}-\d\d-\d\d/.test(h.system(h.mock.state.requests[0])), "no clock and no date in the system prompt");
 
 	// Something the agent must know changes: it arrives as a note at the end; the beginning stays as it was.

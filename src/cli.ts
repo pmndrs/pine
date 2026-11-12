@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig, sandboxScope } from "./config.ts";
-import { audit } from "./security.ts";
+import { ConfigError, defaultHome, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig, unsandboxed } from "./config.ts";
+import { audit, levelOf } from "./security.ts";
 import { pineManual, showRead, showSearch } from "./manual.ts";
 import { modelKeys } from "./models.ts";
 import { allSkills, listSkills } from "./skills.ts";
@@ -73,8 +73,8 @@ Agents (the main agent does the same when you ask it: create_agent, update_agent
   pine agent add <id> --description "what it is for" [--instructions "who it is and how it works"]
        [--instructions-file <file>] [--model provider/model] [--tools read,bash,...]
   pine agent update <id> [--description ...] [--instructions ... | --instructions-file <file>]
-       [--model provider/model|default] [--thinking off|low|...|max] [--mode auto|manual|bypass|plan]
-       [--tools read,bash,...] [--delegates id,id|*] [--scope workspace|account|default]
+       [--model provider/model|default] [--thinking off|low|...|max]
+       [--mode auto|safe|manual|bypass|plan|default] [--tools read,bash,...] [--delegates id,id|*]
        [--network | --no-network] [--read /path,/path] [--write /path] [--forget /path]
                                   change an agent's settings; give only what changes, the rest stays
   pine agent remove <id> [--keep-files] [--yes]
@@ -172,7 +172,7 @@ async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) =
 		case "list": {
 			for (const a of [cfg.agents[main], ...Object.values(cfg.agents).filter((x) => x.id !== main)]) {
 				const has = holdingsOf(cfg, a.id);
-				out(`${a.id}${a.id === main ? " (main)" : ""}: ${a.description || "no description"}\n    model ${a.model ?? `${cfg.defaults.model ?? "none"} (the default)`} · reasoning ${a.thinking} · mode ${a.mode} · reach ${sandboxScope(cfg, a)}${a.sandbox.network ? " + network" : ""}\n    conversations: ${some(has.conversations)} · sources: ${some(has.sources)} · MCP servers: ${some(has.servers)} · schedules: ${some(has.schedules)} · skills: ${some(has.skills)}${has.routes.length ? ` · routes: ${has.routes.join(", ")}` : ""} · ${has.files} file${has.files === 1 ? "" : "s"} in ${a.workspace}`);
+				out(`${a.id}${a.id === main ? " (main)" : ""}: ${a.description || "no description"}\n    model ${a.model ?? `${cfg.defaults.model ?? "none"} (the default)`} · reasoning ${a.thinking} · mode ${a.mode} · reach ${unsandboxed(levelOf(a)) ? "your account + network (no sandbox)" : `its own folders (sandbox)${a.sandbox.network ? " + network" : ""}`}\n    conversations: ${some(has.conversations)} · sources: ${some(has.sources)} · MCP servers: ${some(has.servers)} · schedules: ${some(has.schedules)} · skills: ${some(has.skills)}${has.routes.length ? ` · routes: ${has.routes.join(", ")}` : ""} · ${has.files} file${has.files === 1 ? "" : "s"} in ${a.workspace}`);
 			}
 			return;
 		}
@@ -192,7 +192,7 @@ async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) =
 		}
 		case "update": {
 			const id = rest[0];
-			const usage = 'usage: pine agent update <id> [--description "..."] [--instructions "..." | --instructions-file <file>] [--model provider/model|default] [--thinking off|minimal|low|medium|high|xhigh|max] [--mode auto|manual|bypass|plan] [--tools read,bash,...] [--delegates id,id|*] [--scope workspace|account|default] [--network | --no-network] [--read /path,/path] [--write /path] [--forget /path]';
+			const usage = 'usage: pine agent update <id> [--description "..."] [--instructions "..." | --instructions-file <file>] [--model provider/model|default] [--thinking off|minimal|low|medium|high|xhigh|max] [--mode auto|safe|manual|bypass|plan|default] [--tools read,bash,...] [--delegates id,id|*] [--network | --no-network] [--read /path,/path] [--write /path] [--forget /path]';
 			if (!id) throw new Error(usage);
 			const agent = cfg.agents[id];
 			if (!agent) throw new Error(`there is no agent "${id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
@@ -207,7 +207,6 @@ async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) =
 				mode: str(flags.mode),
 				tools: list(flags.tools),
 				delegates: list(flags.delegates),
-				scope: str(flags.scope),
 				network: typeof flags.network === "boolean" ? flags.network : undefined,
 				read: list(flags.read),
 				write: list(flags.write),
@@ -567,17 +566,18 @@ async function main(): Promise<void> {
 			out(`  mcp        ${Object.keys(effectiveMcp(cfg, a)).join(", ") || "none"}`);
 			// App control is given by where pine runs and how far the agent reaches, not by the list above alone.
 			if (Object.values(effectiveMcp(cfg, a)).some((s) => s.pine === "computer")) {
-				out(`  apps       ${process.platform !== "darwin" ? "not on this system: app control works on macOS only" : sandboxScope(cfg, a) !== "account" ? "no: app control is for an agent that reaches your whole account" : "it can operate the apps on this Mac in your own conversations; you are asked once per app"}`);
+				out(`  apps       ${process.platform !== "darwin" ? "not on this system: app control works on macOS only" : !unsandboxed(levelOf(a)) ? "no: app control is for an agent in auto or bypass mode, which works with your whole account" : "it can operate the apps on this Mac in your own conversations; you are asked once per app"}`);
 			}
 			out(`  skills     ${listSkills(cfg, a, "main").map((s) => s.name).join(", ") || "none"}`);
 			out(`  delegates  ${a.delegates.join(", ") || "none"}; sub-agents ${a.subagents.enabled ? `up to ${a.subagents.maxParallel}` : "off"}`);
 			out(`  mode       ${a.mode}`);
 			// What that means for this agent, so that nobody has to read code to know.
-			const reach = sandboxScope(cfg, a) === "account" ? "your whole account and the network" : `its own folder${a.sandbox.network ? " and the network" : ""}`;
+			const open = unsandboxed(levelOf(a));
+			const reach = open ? "your whole account and the network" : `its own folder${a.sandbox.network ? " and the network" : ""}`;
 			const after = cfg.security.taint === "off" ? "nothing changes" : cfg.security.review === "model" ? "it keeps that; what reaches out, sends or changes its memory is checked by the reviewer" : cfg.security.review === "ask" ? "it loses that until you say, once, that the conversation keeps it" : "it keeps that, and nothing is checked";
-			out(`  reaches    ${a.sandbox.enabled ? reach : "everything the daemon can (no sandbox)"}`);
+			out(`  reaches    ${reach}`);
 			out(`  after outside content: ${a.mode === "bypass" && cfg.security.bypassWhenTainted ? "nothing changes (bypass)" : after}`);
-			out(`  sandbox    ${a.sandbox.enabled ? `on, network ${a.sandbox.network ? "allowed" : "blocked"}` : "OFF"}; untrusted events: ${a.untrusted === false ? "refused" : a.untrusted.tools.join(", ") || "no tools"}`);
+			out(`  sandbox    ${open ? `off in ${levelOf(a)} mode; on for runs that events from outside start` : `on, network ${a.sandbox.network ? "allowed" : "blocked"}`}; untrusted events: ${a.untrusted === false ? "refused" : a.untrusted.tools.join(", ") || "no tools"}`);
 		}
 		const keys = modelKeys(cfg.home).problems;
 		if (keys.length) out(`\nModel notes:\n${keys.map((k) => `  ! ${k}`).join("\n")}`);
@@ -691,7 +691,7 @@ async function main(): Promise<void> {
 		case "deny":
 			return out(await api.post(`/approvals/${rest[0]}`, { allow: cmd === "approve", always: flags.always === true }));
 		case "mode": {
-			if (!rest[0]) throw new Error("usage: pine mode <agent> [auto|plan|manual|bypass]");
+			if (!rest[0]) throw new Error("usage: pine mode <agent> [auto|safe|manual|bypass|plan]");
 			if (rest[1]) return out(await api.post(`/agents/${rest[0]}/mode`, { mode: rest[1] }));
 			const agent = ((await api.get("/agents")) as any[]).find((a) => a.id === rest[0]);
 			if (!agent) throw new Error(`unknown agent "${rest[0]}"`);

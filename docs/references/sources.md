@@ -313,9 +313,9 @@ Event `changed`: `{ command, code, previousCode?, value, previous }` with `match
 `previousCode` is there when it changed, so `test -f build/done` or `ping -c1 nas` report by
 how they end.
 
-The command runs **like a command in that agent's own shell in the workspace scope**: in the
+The command runs **like a command in the shell of an agent in `safe` mode**: in the
 agent's sandbox, with its private home folder and without your environment, also for an agent
-that has your whole account in your conversations (nobody is there to answer for what a
+that works in `auto` mode and has your whole account in your conversations (nobody is there to answer for what a
 command on a clock does). It reaches the agent's own folders and nothing else: no network
 unless `sandbox.network` is set, none of your home folder beyond `sandbox.read`, none of
 pine's files. A source of all agents runs as the main agent. You are shown the

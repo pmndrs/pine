@@ -195,7 +195,7 @@ test("background: the sandbox holds for a command in the background as for any o
 
 test("background: with the owner's account it works the same, and a command that ends but leaves a program behind says so", mac, async (t) => {
 	// The agent as pine ships it. (In the workspace sandbox Linux ends what a command leaves behind together with the command.)
-	const h = await harness({ pine: { defaults: { scope: undefined } }, agents: { main: {} } });
+	const h = await harness({ pine: { defaults: { mode: undefined } }, agents: { main: {} } });
 	const list = () => h.pine.agents.programsOf("main", "main");
 	t.after(() => {
 		for (const p of list()) h.pine.agents.stopProgram("main", "main", p.id);

@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type AgentConfig, agentSkillsDir, conversationsDir, globalSkillsDir, mainAgentId, PINE_ROOT, type PineConfig, sandboxScope, userFile, WORKSPACE_FILES } from "./config.ts";
+import { type AgentConfig, agentSkillsDir, conversationsDir, globalSkillsDir, type Level, mainAgentId, PINE_ROOT, type PineConfig, unsandboxed, userFile, WORKSPACE_FILES } from "./config.ts";
 import type { DenialTools } from "./access.ts";
 import { bwrapArgs, Guard, helperArgs, jailed, type Protected, protectedNow, SESSIONS } from "./sandbox-linux.ts";
 import type { Bus } from "./store.ts";
@@ -95,16 +95,19 @@ export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
 }
 
 /**
- * Which sandbox applies to a call.
- * normal:     the agent's own folders.
+ * How far a call reaches.
+ * normal:     the agent's own folders, inside the sandbox ("safe" and "manual").
  * restricted: the same, and its instruction files are read-only (the run has handled outside content).
- * open:       the whole user account, except pine's home and pine's own code: bypass mode, and
- *             an agent whose scope is the account in a conversation of its owner's.
- * open-restricted: the same reach, in a conversation that has read outside content and that the
- *             owner let keep it. What is read into the agent's prompt stays as it is.
+ * open:       no sandbox: the whole user account ("auto" and "bypass", in a conversation of the
+ *             owner's). pine's home and pine's own code stay closed, by the checks in this file
+ *             and in actions.ts, not by the operating system.
+ * open-restricted: the same reach, in a conversation that has read outside content. The file
+ *             tools do not write what is read into the agent's prompt.
  */
 export type SandboxVariant = "normal" | "restricted" | "open" | "open-restricted";
 export const isOpen = (v: SandboxVariant | boolean): v is "open" | "open-restricted" => v === "open" || v === "open-restricted";
+/** The two variants a sandbox is made for. `true` is "restricted", `false` "normal". */
+export type Boxed = "normal" | "restricted" | boolean;
 
 /** pine's own program files. Never writable by an agent, in any mode. */
 const PINE_CODE = realish(PINE_ROOT);
@@ -250,12 +253,12 @@ const subpaths = (list: string[]) => list.map((p) => `(subpath ${q(p)})`).join("
  * other processes (signals, their arguments and environment), launching apps, AppleScript,
  * the keychain, the clipboard, and the network unless the agent's configuration turns it on.
  */
-export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false, tag?: string): string {
+export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: Boxed, network = false, tag?: string): string {
 	const userHome = realish(os.homedir());
 	// The system reports every refusal in its log, with this text: how pine finds out what a
 	// command was refused (src/access.ts). It changes nothing about what is refused.
 	const said = tag ? ` (with message ${q(tag)})` : "";
-	const restricted = variant === true || variant === "restricted" || variant === "open-restricted";
+	const restricted = variant === true || variant === "restricted";
 	// What is read into the prompt cannot be rewritten by a run that outside content may steer.
 	const frozen = () => {
 		const out = [`(deny file-write* ${[roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))].map((f) => `(literal ${q(f)})`).join(" ")}${said})`];
@@ -267,22 +270,6 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		if (roots.ownOpen) out.push(`(allow file-write* ${ownFiles(roots).map((f) => `(literal ${q(f)})`).join(" ")})`);
 		return out;
 	};
-	if (isOpen(variant)) {
-		// The owner's own rights: bypass mode, or an agent whose scope is the account. What stays
-		// closed is what would let an agent rewrite the system that runs it: pine's home
-		// (configuration, secrets) and pine's code.
-		return `${[
-			"(version 1)",
-			"(allow default)",
-			`(deny file-read* file-write* (subpath ${q(roots.home)})${said})`,
-			`(allow file-read-metadata (subpath ${q(roots.home)}))`,
-			`(allow file-read* ${subpaths(roots.ownedRead.filter((r) => isInside(roots.home, r)))})`,
-			`(allow file-write* ${subpaths(roots.ownedWrite.filter((r) => isInside(roots.home, r)))})`,
-			`(deny file-read* file-write* ${subpaths(roots.secrets)}${said})`,
-			`(deny file-write* (subpath ${q(PINE_CODE)})${said})`,
-			...(restricted ? frozen() : []),
-		].join("\n")}\n`;
-	}
 	const lines = [
 		"(version 1)",
 		`(deny default${said})`,
@@ -398,7 +385,7 @@ export function sandboxKind(): "macos" | "linux" | undefined {
 				bwrapSaid = said;
 				userNamespacesRestricted = apparmor;
 				const why = inContainer()
-					? `This is a container that was started without the rights for one. Start it with: docker run ${containerFlags()} ...`
+					? `This is a container that was started without the rights for one. To have safe mode in it, start it with: docker run ${containerFlags()} ...`
 					: apparmor
 						? 'AppArmor keeps it from creating user namespaces. Run "pine init": it adds the rule that allows it'
 						: "Ordinary users may not create user namespaces here (a system that has switched them off)";
@@ -426,6 +413,16 @@ export function sandboxRecheck(): void {
 }
 
 export const sandboxAvailable = () => sandboxKind() !== undefined;
+
+/**
+ * The level an agent works at. "safe" needs a sandbox. On a machine that has none (a container,
+ * usually, which is then the wall around all of pine), an agent whose mode nobody chose works
+ * in "auto" instead. One that was set to "safe" stays there and gets no shell: what somebody
+ * asked for is not widened silently.
+ */
+export function levelOf(agent: AgentConfig): Level {
+	return agent.level === "safe" && !agent.modeSet && !sandboxAvailable() ? "auto" : agent.level;
+}
 /** Why this machine has no sandbox, in words for the owner. */
 export const sandboxMissing = () => (sandboxKind() ? "" : whyNot);
 
@@ -443,11 +440,11 @@ const protectedOf = (roots: Roots): Protected => ({
  * both systems, said to Apple's sandbox as a profile and to bubblewrap as mounts. Made anew for
  * every command, because on Linux what exists at that moment is part of it.
  */
-export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false, tag?: string): string[] {
+export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: Boxed, network = false, tag?: string): string[] {
 	if (sandboxKind() !== "linux") return ["/usr/bin/sandbox-exec", "-p", sandboxProfile(cfg, agent, roots, variant, network, tag)];
-	const v: SandboxVariant = variant === true ? "restricted" : variant === false ? "normal" : variant;
+	const v = variant === true ? "restricted" : variant === false ? "normal" : variant;
 	const net = agent.sandbox.network || network;
-	// With the whole account it is the owner's own session. Otherwise sockets between programs go with the network, as on macOS.
+	// Sockets between programs go with the network, as on macOS.
 	return jailed(
 		bwrap,
 		bwrapArgs({
@@ -459,12 +456,12 @@ export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, v
 			write: roots.write.filter(present),
 			ownedRead: roots.ownedRead,
 			ownedWrite: roots.ownedWrite,
-			closed: isOpen(v) ? roots.secrets : [...roots.secrets, ...roots.others, ...SESSIONS],
+			closed: [...roots.secrets, ...roots.others, ...SESSIONS],
 			network: net,
-			variant: isOpen(v) ? "open" : v,
-			frozen: v === "restricted" || v === "open-restricted" ? protectedNow(protectedOf(roots)) : undefined,
+			variant: v,
+			frozen: v === "restricted" ? protectedNow(protectedOf(roots)) : undefined,
 		}),
-		isOpen(v) || net,
+		net,
 	);
 }
 
@@ -487,7 +484,7 @@ export function denialTools(): DenialTools {
  * not is removed again. On macOS the profile forbids it outright and there is nothing to do.
  */
 export function sandboxGuard(roots: Roots, variant: SandboxVariant | boolean): Guard | undefined {
-	return sandboxKind() === "linux" && (variant === true || variant === "restricted" || variant === "open-restricted") ? new Guard(protectedOf(roots)) : undefined;
+	return sandboxKind() === "linux" && (variant === true || variant === "restricted") ? new Guard(protectedOf(roots)) : undefined;
 }
 
 /**
@@ -693,16 +690,17 @@ export function audit(cfg: PineConfig): string[] {
 		const m = mode(path.join(cfg.home, f));
 		if (m !== undefined && m & 0o077) out.push(`${f} is readable by other users (mode ${m.toString(8)}); run: chmod 600 ${path.join(cfg.home, f)}`);
 	}
-	if (!sandboxAvailable()) out.push(`no sandbox on this machine: ${sandboxMissing()}. Agents with the sandbox on get no shell, and command sources do not run; an agent with "sandbox": false runs its shell with the daemon's full permissions`);
+	if (!sandboxAvailable()) out.push(`no sandbox on this machine: ${sandboxMissing()}. An agent in auto or bypass mode works as everywhere, with your rights. An agent set to safe mode gets no shell, runs that events from outside start get none either, and command sources do not run`);
 	const homeMode = mode(cfg.home);
 	if (homeMode !== undefined && homeMode & 0o077) out.push(`pine's home is open to other users (mode ${homeMode.toString(8)}); run: chmod 700 ${cfg.home}`);
 	for (const a of Object.values(cfg.agents)) {
 		const tools = a.tools ?? ["read", "bash", "edit", "write"];
-		if (!a.sandbox.enabled && tools.includes("bash")) out.push(`agent ${a.id}: sandbox is off and bash is enabled; its commands can read and change anything the daemon user can`);
-		if (a.sandbox.enabled && a.sandbox.network && tools.includes("bash")) out.push(`agent ${a.id}: shell has network access; a prompt injection could send workspace files anywhere (approval is required once the session has seen outside content)`);
-		if (a.mode === "bypass") out.push(`agent ${a.id}: bypass mode. It never asks, and its shell reaches your whole account and the network${cfg.security.bypassWhenTainted ? ", even after it has read outside content (security.bypassWhenTainted)" : " (it asks again once a session has read outside content)"}`);
-		// The main agent has the account unless told otherwise; that is how pine comes, and not a note. Another agent has it by somebody's choice.
-		if (a.sandbox.enabled && a.mode !== "bypass" && a.id !== mainAgentId(cfg) && sandboxScope(cfg, a) === "account" && tools.includes("bash")) out.push(`agent ${a.id}: its shell and file tools reach your whole account and the network in your own conversations (scope "account"); once a conversation has read outside content you are asked whether it keeps that`);
+		const level = levelOf(a);
+		if (level !== a.level) out.push(`agent ${a.id}: works in auto mode, with your rights and no sandbox, because this machine has no sandbox and nobody chose its mode. Set its mode to say what you want`);
+		if (!unsandboxed(level) && a.sandbox.network && tools.includes("bash")) out.push(`agent ${a.id}: shell has network access; a prompt injection could send workspace files anywhere (approval is required once the session has seen outside content)`);
+		if (level === "bypass") out.push(`agent ${a.id}: bypass mode. It never asks, and its shell reaches your whole account and the network${cfg.security.bypassWhenTainted ? ", even after it has read outside content (security.bypassWhenTainted)" : " (it asks again once a session has read outside content)"}`);
+		// The main agent works in auto mode unless told otherwise; that is how pine comes, and not a note. Another agent does by somebody's choice.
+		if (level === "auto" && a.level === "auto" && a.id !== mainAgentId(cfg) && tools.includes("bash")) out.push(`agent ${a.id}: auto mode. Its shell and file tools reach your whole account and the network in your own conversations, without a sandbox; what is critical is checked, and after outside content what reaches out, sends or changes its memory`);
 		if (a.trustWorkspace) out.push(`agent ${a.id}: trustWorkspace is on; code in ${a.workspace}/.pi/extensions runs inside the daemon`);
 		if (isInside(realish(a.workspace), realish(cfg.home))) out.push(`agent ${a.id}: the workspace contains pine's home directory`);
 		if (a.untrusted && a.untrusted.tools.some((t) => ["bash", "write", "edit"].includes(t))) out.push(`agent ${a.id}: runs triggered by untrusted events may use ${a.untrusted.tools.filter((t) => ["bash", "write", "edit"].includes(t)).join(", ")}`);

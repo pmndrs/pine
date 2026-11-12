@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_TOOLS } from "./agent-admin.ts";
-import { type AgentConfig, loadConfig, mainAgentId, type Mode, MODES, PINE_ROOT, type PineConfig, RESERVED_TOPICS, type RouteConfig, sandboxScope } from "./config.ts";
+import { type AgentConfig, loadConfig, mainAgentId, type Mode, MODES, PINE_ROOT, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed } from "./config.ts";
 import { unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
 import { isInside, realish } from "./security.ts";
@@ -26,12 +26,11 @@ export interface AgentChange {
 	/** "default" goes back to pine's default model. */
 	model?: string;
 	thinking?: string;
+	/** A mode, or "default" for what pine gives an agent that names none (auto for the main agent, safe for the others). */
 	mode?: string;
 	tools?: string[];
 	/** Agents it may hand work to; "*" is every agent. */
 	delegates?: string[];
-	/** "workspace", "account", or "default" for what pine gives an agent that does not say. */
-	scope?: string;
 	network?: boolean;
 	/** Folders outside its workspace it may read from now on. */
 	read?: string[];
@@ -75,10 +74,17 @@ export function checkAgentChange(cfg: PineConfig, agent: AgentConfig, change: Ag
 		steps.push((raw) => (raw.thinking = change.thinking));
 	}
 	if (change.mode !== undefined) {
-		if (!MODES.includes(change.mode as Mode)) throw new Error(`"mode" is one of ${MODES.join(", ")}`);
-		lines.push(`mode: ${agent.mode} -> ${change.mode}`);
-		if (change.mode === "bypass") warnings.push("in bypass mode it never asks, and its shell reaches your whole account and the network");
-		steps.push((raw) => (raw.mode = change.mode));
+		if (change.mode !== "default" && !MODES.includes(change.mode as Mode)) throw new Error(`"mode" is one of ${MODES.join(", ")}, or default`);
+		const next = change.mode === "default" ? (cfg.defaults.mode ?? (main ? "auto" : "safe")) : (change.mode as Mode);
+		lines.push(`mode: ${agent.mode} -> ${next}${change.mode === "default" ? " (the default)" : ""}`);
+		if (next === "bypass") warnings.push("in bypass mode it never asks, and its shell reaches your whole account and the network");
+		else if (next === "auto" && !unsandboxed(agent.level)) warnings.push("in auto mode its shell and file tools work without a sandbox: they reach your whole user account and the network in your own conversations");
+		steps.push((raw) => {
+			if (change.mode === "default") delete raw.mode;
+			else raw.mode = change.mode;
+			// What said this before the mode did. Left in place, it would decide again.
+			if (raw.sandbox && typeof raw.sandbox === "object") delete raw.sandbox.scope;
+		});
 	}
 	if (change.tools !== undefined) {
 		const unknown = change.tools.filter((t) => !AGENT_TOOLS.includes(t));
@@ -91,18 +97,6 @@ export function checkAgentChange(cfg: PineConfig, agent: AgentConfig, change: Ag
 		if (unknown.length) throw new Error(`"delegates" names ${unknown.join(", ")}, which ${unknown.length === 1 ? "is" : "are"} not another agent. Agents: ${Object.keys(cfg.agents).filter((id) => id !== agent.id).join(", ") || "none"}; "*" is every agent`);
 		lines.push(`may hand work to: ${agent.delegates.join(", ") || "nobody"} -> ${change.delegates.join(", ") || "nobody"}`);
 		steps.push((raw) => (raw.delegates = change.delegates));
-	}
-	if (change.scope !== undefined) {
-		if (!["workspace", "account", "default"].includes(change.scope)) throw new Error('"scope" is workspace (its own folders), account (your owner\'s whole user account and the network), or default');
-		const now = sandboxScope(cfg, agent);
-		const next = change.scope === "default" ? (cfg.defaults.scope ?? (main ? "account" : "workspace")) : change.scope;
-		lines.push(`reach: ${now} -> ${next}${change.scope === "default" ? " (the default)" : ""}`);
-		if (next === "account" && now !== "account") warnings.push("with the account its shell and file tools reach your whole user account and the network in your own conversations");
-		steps.push((raw) => {
-			raw.sandbox = typeof raw.sandbox === "object" && raw.sandbox ? raw.sandbox : {};
-			if (change.scope === "default") delete raw.sandbox.scope;
-			else raw.sandbox.scope = change.scope;
-		});
 	}
 	if (change.network !== undefined) {
 		lines.push(`network from its shell: ${agent.sandbox.network ? "yes" : "no"} -> ${change.network ? "yes" : "no"}`);
@@ -152,7 +146,7 @@ export function checkAgentChange(cfg: PineConfig, agent: AgentConfig, change: Ag
 		if (!instructions) throw new Error("instructions cannot be empty: they are who the agent is and how it works");
 		lines.push(`instructions (its AGENTS.md) replaced by:\n${instructions.length > 1200 ? `${instructions.slice(0, 1200)}...` : instructions}`);
 	}
-	if (!lines.length) throw new Error("nothing to change: give at least one of description, instructions, model, thinking, mode, tools, delegates, scope, network, read, write, forget");
+	if (!lines.length) throw new Error("nothing to change: give at least one of description, instructions, model, thinking, mode, tools, delegates, network, read, write, forget");
 	return { lines, warnings, json: (raw) => steps.forEach((s) => s(raw)), instructions };
 }
 
@@ -496,18 +490,11 @@ export const SETTINGS: Record<string, Setting> = {
 	"defaults.model": { about: "The model of every agent that has none of its own, as provider/model.", kind: "model", now: (c) => String(c.defaults.model ?? "none"), live: true },
 	"defaults.thinking": { about: "How much an agent reasons before it answers, unless it says otherwise.", kind: { one: THINKING }, now: (c) => c.defaults.thinking, live: true },
 	"defaults.mode": {
-		about: "How much an agent does without asking, unless it says otherwise: manual (every action waits), auto, bypass (nothing waits), plan (nothing is done).",
+		about: "The mode of every agent that names none: auto (no sandbox: your whole account and the network; critical actions are checked), safe (in the sandbox: its own folders), manual (in the sandbox, every action waits), bypass (no sandbox, nothing waits), plan (nothing is done). Not set: auto for the main agent, safe for the others.",
 		kind: { one: [...MODES] },
-		now: (c) => c.defaults.mode,
+		now: (c) => c.defaults.mode ?? "not set (main: auto, others: safe)",
 		live: true,
-		wider: (v) => (v === "bypass" ? "in bypass mode no agent asks, and every agent's shell reaches your whole account and the network" : undefined),
-	},
-	"defaults.scope": {
-		about: "What an agent's shell and file tools reach when it does not say: workspace (its own folders) or account (your whole user account and the network). Not set: account for the main agent, workspace for the others.",
-		kind: { one: ["workspace", "account"] },
-		now: (c) => c.defaults.scope ?? "not set (main: account, others: workspace)",
-		live: true,
-		wider: (v) => (v === "account" ? "every agent that does not say otherwise then reaches your whole account and the network" : undefined),
+		wider: (v) => (v === "bypass" ? "in bypass mode no agent asks, and every agent's shell reaches your whole account and the network" : v === "auto" ? "every agent that names no mode then works without a sandbox: its shell and file tools reach your whole account and the network" : undefined),
 	},
 	"defaults.bashTimeoutSec": { about: "Seconds after which a shell command is ended.", kind: { from: 5, to: 86_400 }, now: (c) => String(c.defaults.bashTimeoutSec), live: false },
 	"defaults.taskTimeoutSec": { about: "Seconds after which a task is ended.", kind: { from: 30, to: 604_800 }, now: (c) => String(c.defaults.taskTimeoutSec), live: false },
@@ -611,5 +598,5 @@ export function applySetting(cfg: PineConfig, checked: { key: string; setting: S
 	Object.assign(cfg.security, { ...fresh.security, approvalTimeoutMs: cfg.security.approvalTimeoutMs });
 	// What an agent takes from the defaults when it does not say.
 	if (checked.key === "defaults.thinking") for (const a of Object.values(cfg.agents)) a.thinking = fresh.agents[a.id]?.thinking ?? a.thinking;
-	if (checked.key === "defaults.mode") for (const a of Object.values(cfg.agents)) a.mode = fresh.agents[a.id]?.mode ?? a.mode;
+	if (checked.key === "defaults.mode") for (const a of Object.values(cfg.agents)) Object.assign(a, { mode: fresh.agents[a.id]?.mode ?? a.mode, level: fresh.agents[a.id]?.level ?? a.level, modeSet: fresh.agents[a.id]?.modeSet ?? a.modeSet });
 }

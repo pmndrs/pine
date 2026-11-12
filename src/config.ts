@@ -166,17 +166,30 @@ export interface HookConfig {
 }
 
 /**
- * How much an agent may do without asking.
- * manual: every action that changes or sends something waits for approval.
- * auto:   works freely inside its sandbox; asks for what the rules single out, and for access beyond it.
- * bypass: never asks, and its shell and file tools reach the whole user account (pine's own home and code stay closed).
+ * How much an agent does without asking, and whether its shell and file tools run in a sandbox.
+ * One setting says both.
+ * bypass: no sandbox, and nothing asks.
+ * auto:   no sandbox: the owner's whole user account and the network, like the owner at the
+ *         terminal. Critical actions are checked, and after outside content what reaches out,
+ *         sends something or changes the agent's memory.
+ * safe:   in the sandbox: its own folders, and what the owner grants. Critical actions are checked.
+ * manual: in the sandbox where the machine has one; every action that changes or sends something
+ *         waits for approval.
+ * pine's own home and code are closed to an agent in every mode. A run that outside content
+ * started is held to "safe" whatever the agent's mode.
  */
-/** "plan": the agent looks, reads and asks, and changes nothing; its answer is what it would do. */
-export type Mode = "manual" | "auto" | "bypass" | "plan";
-export const MODES: Mode[] = ["manual", "auto", "bypass", "plan"];
+export type Level = "manual" | "safe" | "auto" | "bypass";
+/**
+ * "plan": the agent looks, reads and asks, and changes nothing; its answer is what it would do.
+ * It lies on top of a level (`AgentConfig.level`), which says how far the looking reaches.
+ */
+export type Mode = Level | "plan";
+export const LEVELS: Level[] = ["auto", "safe", "manual", "bypass"];
+export const MODES: Mode[] = [...LEVELS, "plan"];
+/** Whether a level leaves the sandbox off: the owner's whole account and the network. */
+export const unsandboxed = (level: Level) => level === "auto" || level === "bypass";
 
 export interface SandboxConfig {
-	enabled: boolean;
 	/** Shell commands may open network connections. */
 	network: boolean;
 	/** Extra paths the agent may read / write, besides its workspace. */
@@ -185,17 +198,6 @@ export interface SandboxConfig {
 	/** Allow the shared temp directories (/tmp and the user's temp dir). */
 	sharedTmp: boolean;
 	env: Record<string, string>;
-	/**
-	 * How far the agent's shell and file tools reach in the owner's own conversations.
-	 * "workspace": its own folders, and what the owner grants. "account": the owner's whole user
-	 * account and the network, like a person at the terminal. Not set: see `sandboxScope`.
-	 */
-	scope?: "workspace" | "account";
-}
-
-/** An agent's reach: as configured for it or for all agents, and otherwise the whole account for the main agent and the workspace for the others. */
-export function sandboxScope(cfg: PineConfig, agent: AgentConfig): "workspace" | "account" {
-	return agent.sandbox.scope ?? cfg.defaults.scope ?? (agent.id === mainAgentId(cfg) ? "account" : "workspace");
 }
 
 /** What a run triggered by an untrusted event may use. */
@@ -239,6 +241,10 @@ export interface AgentConfig {
 	state: { read: string[]; write: string[]; inject: string[] };
 	trustWorkspace: boolean;
 	mode: Mode;
+	/** The mode beneath "plan": what the agent had before, and what decides its sandbox while it plans. The same as `mode` otherwise. */
+	level: Level;
+	/** Whether somebody chose the mode (agent.json, or defaults.mode). One that nobody chose follows what the machine can do: see `levelOf` in security.ts. */
+	modeSet: boolean;
 	sandbox: SandboxConfig;
 	/** Tool calls that always need the owner's approval: "tool" or "tool:argument-glob". */
 	approve: string[];
@@ -258,7 +264,8 @@ export interface PineConfig {
 	dataDir: string;
 	logLevel: LogLevel;
 	main?: string;
-	defaults: { model?: string; thinking: string; mode: Mode; bashTimeoutSec: number; taskTimeoutSec: number; idleMs: number; settings: Record<string, unknown>; scope?: "workspace" | "account" };
+	/** `mode`: for every agent that names none. Not set: auto for the main agent, safe for the others. */
+	defaults: { model?: string; thinking: string; mode?: Mode; bashTimeoutSec: number; taskTimeoutSec: number; idleMs: number; settings: Record<string, unknown> };
 	limits: {
 		maxConcurrentRuns: number;
 		maxDelegationDepth: number;
@@ -388,7 +395,11 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 	const workspace = raw.workspace ? resolvePath(raw.workspace, dir) : path.join(dir, "workspace");
 	if (!raw.workspace) fs.mkdirSync(workspace, { recursive: true });
 	else if (!fs.existsSync(workspace)) problems.push(`${where}: workspace ${workspace} does not exist`);
-	if (raw.sandbox?.scope !== undefined && raw.sandbox.scope !== "workspace" && raw.sandbox.scope !== "account") problems.push(`${where}: sandbox.scope is "workspace" (the agent's own folders) or "account" (your whole user account)`);
+	// The mode is the one setting that says whether an agent works in a sandbox and how far it
+	// reaches. What said it before is gone, and a file that still has it says what to write instead.
+	if (raw.sandbox === false || raw.sandbox?.enabled === false) problems.push(`${where}: "sandbox": false is gone. The mode says whether an agent works in a sandbox: set "mode" to "auto" to work without one, and take the "sandbox" entry out`);
+	if (raw.sandbox?.scope !== undefined) problems.push(`${where}: sandbox.scope is gone. The mode says how far an agent reaches: set "mode" to "auto" (your whole account, no sandbox) or "safe" (its own folders, in the sandbox), and take the "scope" entry out`);
+	const chosen: Mode | undefined = raw.mode ?? cfg.defaults.mode;
 	const sub = raw.subagents === false ? { enabled: false } : raw.subagents === true || raw.subagents === undefined ? {} : raw.subagents;
 	const state = raw.state ?? {};
 	return {
@@ -412,15 +423,16 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 		publish: strings(raw.publish, []),
 		state: { read: strings(state.read, ["#"]), write: strings(state.write, [`agent/${id}/#`]), inject: strings(state.inject, []) },
 		trustWorkspace: raw.trustWorkspace === true,
-		mode: raw.mode ?? cfg.defaults.mode,
+		// What nobody chose is settled once all agents are known: the main agent is "auto", the others "safe".
+		mode: chosen ?? "safe",
+		level: "safe",
+		modeSet: chosen !== undefined,
 		sandbox: {
-			enabled: raw.sandbox !== false && raw.sandbox?.enabled !== false,
 			network: raw.sandbox?.network === true,
 			read: paths(raw.sandbox?.read, dir),
 			write: paths(raw.sandbox?.write, dir),
 			sharedTmp: raw.sandbox?.sharedTmp !== false,
 			env: raw.sandbox?.env ?? {},
-			scope: raw.sandbox?.scope === "workspace" || raw.sandbox?.scope === "account" ? raw.sandbox.scope : undefined,
 		},
 		approve: strings(raw.approve, []),
 		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "send"]),
@@ -521,6 +533,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 	const raw = interpolate(readJson(file, problems), "pine.json", problems, env);
 	noPlugins(raw?.plugins, "pine.json: plugins", problems);
 	const d = raw.defaults ?? {};
+	if (d.scope !== undefined) problems.push('pine.json: defaults.scope is gone. The mode says how far an agent reaches: set defaults.mode to "safe" to keep every agent in its sandbox or to "auto" to give every agent your whole account, and take the "scope" entry out');
 	// Source types of the owner's own: a name and the module behind it.
 	const sourceTypes: Record<string, string> = {};
 	for (const [name, file] of Object.entries(raw.sourceTypes && typeof raw.sourceTypes === "object" ? raw.sourceTypes : {})) {
@@ -537,12 +550,11 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		defaults: {
 			model: d.model,
 			thinking: d.thinking ?? "off",
-			mode: d.mode ?? "auto",
+			mode: d.mode,
 			bashTimeoutSec: d.bashTimeoutSec ?? 900,
 			taskTimeoutSec: d.taskTimeoutSec ?? 7200,
 			idleMs: parseDuration(d.idleMs ?? "15m"),
 			settings: d.settings ?? {},
-			scope: d.scope === "workspace" || d.scope === "account" ? d.scope : undefined,
 		},
 		limits: {
 			maxConcurrentRuns: l.maxConcurrentRuns ?? 2,
@@ -609,6 +621,10 @@ export function loadConfig(home = defaultHome()): PineConfig {
 	if (ids.length === 0) problems.push(`no agents found in ${agentsDir} (each agent is a folder with an agent.json)`);
 	if (cfg.main && !cfg.agents[cfg.main]) problems.push(`pine.json: main agent "${cfg.main}" does not exist`);
 	for (const a of Object.values(cfg.agents)) {
+		// The mode of an agent that names none, and the level beneath "plan".
+		const plain: Level = cfg.defaults.mode && cfg.defaults.mode !== "plan" && MODES.includes(cfg.defaults.mode) ? cfg.defaults.mode : a.id === mainAgentId(cfg) ? "auto" : "safe";
+		if (!a.modeSet) a.mode = plain;
+		a.level = a.mode === "plan" || !MODES.includes(a.mode) ? plain : a.mode;
 		if (!MODES.includes(a.mode)) problems.push(`agents/${a.id}/agent.json: mode must be one of ${MODES.join(", ")} (got "${a.mode}")`);
 		if (!(a.model ?? cfg.defaults.model)) problems.push(`agents/${a.id}/agent.json: no model (set "model" or defaults.model in pine.json)`);
 		for (const t of a.delegates) if (t !== "*" && !cfg.agents[t]) problems.push(`agents/${a.id}/agent.json: delegates names unknown agent "${t}"`);

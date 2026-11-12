@@ -61,8 +61,8 @@ confirm it. `remove_mcp_server` takes one out again. Do not probe the URL first;
 with `/mcp login <name>` in the terminal UI or `pine mcp login <name>` in a shell. Tell them
 that. You do not have a new server's tools in the turn in which you added it: end that turn,
 and pine calls you again at once in the same conversation, with the tools in your list. Never
-tell your owner to start a new chat for it. A local server runs in your sandbox, with your
-home folder. If it needs a sign-in, its
+tell your owner to start a new chat for it. A local server runs where your commands run (in your
+sandbox, or without one when you work in auto mode), with your home folder. If it needs a sign-in, its
 documentation says how (often the same line with `login` at the end): run that with bash, give
 your owner the link it prints, and wait until they are done.
 
@@ -144,7 +144,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 | You want to | Read |
 |---|---|
 | See what an agent is given (events, schedules, MCP servers, skills) and how events, tasks and sessions fit together | [references/overview.md](references/overview.md) |
-| Chat with agents in the terminal: tabs, slash commands (`/goal`, `/compact`, `/copy`, `/export`, `/undo`), keys, the four modes (auto, plan, manual, bypass), approvals, an agent's questions and its list of steps, what a model thinks, pictures, switching models | [references/tui.md](references/tui.md) |
+| Chat with agents in the terminal: tabs, slash commands (`/goal`, `/compact`, `/copy`, `/export`, `/undo`), keys, the five modes (auto, safe, manual, bypass, plan), approvals, an agent's questions and its list of steps, what a model thinks, pictures, switching models | [references/tui.md](references/tui.md) |
 | Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output, what an agent left running, what it runs in the background, and taking a message back with `/undo` and `/redo` | [references/coding.md](references/coding.md) |
 | Install it, start it, update it, use the CLI (every `pine` command), the control API for scripts, run it at login or in a container, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |

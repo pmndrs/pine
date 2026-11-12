@@ -707,10 +707,11 @@ const REASONING_ITEMS: SelectItem[] = [
 ];
 
 const MODE_ITEMS: SelectItem[] = [
-	{ value: "auto", label: "auto", description: "works inside its sandbox, asks for the rest" },
+	{ value: "auto", label: "auto", description: "no sandbox: your whole account and the network; critical actions are checked" },
+	{ value: "safe", label: "safe", description: "works inside its sandbox, asks for the rest" },
+	{ value: "manual", label: "manual", description: "inside its sandbox, and asks before every action" },
+	{ value: "bypass", label: "bypass", description: "no sandbox, and never asks" },
 	{ value: "plan", label: "plan", description: "looks, reads and asks, changes nothing: you get a plan first" },
-	{ value: "manual", label: "manual", description: "asks before every action" },
-	{ value: "bypass", label: "bypass", description: "never asks; reaches your whole account" },
 ];
 
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -1638,7 +1639,7 @@ export class PineTui {
 		// As in Claude Code and opencode: shift+tab steps through the modes.
 		if (matchesKey(data, "shift+tab") && empty && this.active.kind === "chat") {
 			const info = this.agents.find((a) => a.id === this.active.agent);
-			const order = ["auto", "plan", "manual", "bypass"];
+			const order = ["auto", "plan", "safe", "manual", "bypass"];
 			return void this.setMode(this.active, order[(order.indexOf(info?.mode ?? "auto") + 1) % order.length]).catch((e) => this.flash(errText(e))), true;
 		}
 		if (matchesKey(data, "ctrl+t")) return void this.run("new"), true;
@@ -1844,7 +1845,7 @@ export class PineTui {
 		await this.client.setMode(t.agent, mode, anyway);
 		info.mode = mode as any;
 		t.pauseNoted = false;
-		const note = mode === "bypass" ? c.yellow(" Nothing waits for approval now, and its shell and file tools reach your whole account and the network.") : mode === "plan" ? c.gray(" It looks, reads and asks, and changes nothing: ask for what you want, read its plan, then switch to auto to have it carried out.") : "";
+		const note = mode === "bypass" ? c.yellow(" Nothing waits for approval now, and its shell and file tools reach your whole account and the network.") : mode === "plan" ? c.gray(" It looks, reads and asks, and changes nothing: ask for what you want, read its plan, then switch the mode back to have it carried out.") : mode === "auto" ? c.gray(" Its shell and file tools work without a sandbox: your whole account and the network. What is critical is still checked.") : mode === "safe" ? c.gray(" Its shell and file tools work inside its sandbox: its own folders, and what you allow it.") : "";
 		this.say(t, `${c.gray(`${t.agent} is now in`)} ${c.bold(mode)} ${c.gray("mode (until the daemon restarts; set \"mode\" in agent.json to keep it).")}${note}`);
 		await this.refreshTaints();
 	}
@@ -2092,13 +2093,14 @@ export class PineTui {
 				},
 			},
 			{
-				name: "mode", description: "How much this agent may do without asking", argumentHint: "[auto|plan|manual|bypass]",
+				name: "mode", description: "How much this agent may do without asking", argumentHint: "[auto|safe|manual|bypass|plan]",
 				getArgumentCompletions: (prefix) =>
 					[
-						{ value: "manual", label: "manual", description: "ask before every action" },
-						{ value: "auto", label: "auto", description: "work freely within the agent's reach, ask for the rest" },
+						{ value: "auto", label: "auto", description: "no sandbox: shell and files reach your whole account; critical actions are checked" },
+						{ value: "safe", label: "safe", description: "work freely inside the sandbox, ask for the rest" },
+						{ value: "manual", label: "manual", description: "inside the sandbox, and ask before every action" },
+						{ value: "bypass", label: "bypass", description: "no sandbox, and never ask" },
 						{ value: "plan", label: "plan", description: "look and plan only; nothing is changed or sent" },
-						{ value: "bypass", label: "bypass", description: "never ask; shell and files reach your whole account" },
 					].filter((m) => m.value.startsWith(prefix.trim())),
 				run: async (args) => {
 					const t = chat();
@@ -2788,7 +2790,7 @@ export class PineTui {
 			.add(c.gray(" · "))
 			.add(c.gray(`reasoning ${info?.thinking ?? "off"}`), () => void this.pickReasoning())
 			.add(c.gray(" · "))
-			.add(mode === "bypass" ? c.red(modeText) : mode === "manual" ? c.cyan(modeText) : mode === "plan" ? c.magenta(modeText) : c.gray(modeText), () => void this.pickMode());
+			.add(mode === "bypass" ? c.red(modeText) : mode === "manual" ? c.cyan(modeText) : mode === "plan" ? c.magenta(modeText) : mode === "safe" ? c.green(modeText) : c.gray(modeText), () => void this.pickMode());
 		// How full the context window is. pi compacts the conversation by itself when it gets close to full.
 		if (t.context !== undefined) line.add(c.gray(" · ")).add((t.context >= 85 ? c.red : t.context >= 65 ? c.yellow : c.gray)(`context ${t.context}%`));
 		// How much of the last request the model server took from its cache. Low figures on a local model mean slow turns.

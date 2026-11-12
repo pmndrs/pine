@@ -24,14 +24,15 @@ who may operate apps, and who may not.
 | Who | App control |
 |---|---|
 | The main agent, in a conversation with its owner | Yes. The owner is asked once per app (below) |
-| Another agent whose `sandbox.scope` is `"account"`, in a conversation with its owner | Yes, the same way |
-| An agent that is kept to its workspace (every agent but the main one, unless configured otherwise) | No. The tools are not in its list. Operating apps is acting with the owner's whole account, which such an agent does not have |
+| Another agent whose mode is `auto` or `bypass`, in a conversation with its owner | Yes, the same way |
+| An agent that works in its sandbox: `safe` or `manual` mode (every agent but the main one, unless configured otherwise) | No. The tools are not in its list. Operating apps is acting with the owner's whole account, which such an agent does not have |
 | A run that an event from outside started (a mail, a webhook, a message from somebody else) | Never, whatever the agent's `untrusted` profile lists |
 | Sub-agents of a conversation that has it | Yes, when the agent's `subagents.mcp` is on; they share the conversation's answers |
 
 An agent without the tools cannot get them by asking: `request_access` does not give app
-control. The owner gives it by making the agent's scope the account
-([security.md](security.md), "The whole account").
+control. The owner gives it by putting the agent in `auto` mode (`/mode auto`, or `mode` in
+its `agent.json`; [security.md](security.md), "The whole account"). To be asked about every
+action in an app, not once per app, set `"approve": "always"` on the server.
 
 ## Two ways to work
 
@@ -206,7 +207,7 @@ Under `options` of the server's entry.
 | "not approved" | The owner said no to that app in this conversation |
 | "Not done: you are in plan mode" | The agent's mode is `plan`: it may look at apps and acts in none. The owner switches the mode when the plan is to be carried out |
 | "Operating apps uses your owner's whole account, which this conversation does not have" | `security.review` is `"ask"`, the conversation has read outside content, and the owner has not said that it keeps its full rights |
-| The tools are not in the agent's list | The agent's scope is its workspace, the run was started from outside, the system is not macOS, or the server is not configured |
+| The tools are not in the agent's list | The agent is in `safe` or `manual` mode (it works in its sandbox), the run was started from outside, the system is not macOS, or the server is not configured |
 
 An app that draws its window itself (some games, some cross-platform apps) describes little
 of it: the outline is short or empty. Use pictures there. Apps built on a browser (Slack,

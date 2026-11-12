@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import { reaches, verbs } from "./access.ts";
 import { isInside, ownFileOf, realish, type Roots, tilde } from "./security.ts";
 import { truncate } from "./util.ts";
 
@@ -95,6 +96,34 @@ export function criticalCommand(command: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * What a shell without a sandbox ("auto" and "bypass" mode) is refused because it is pine's own:
+ * pine's home (configuration, secrets, the other agents' folders), writing pine's program files,
+ * the pine program, and pine's control port. In a sandbox the operating system keeps these closed. Here it is this reading
+ * of the command line, so it is a net and not a wall: what a script or a variable holds is not
+ * seen, and a command that walks a whole folder is not followed into it.
+ */
+export function pineOwn(command: string, o: { home: string; own: string[]; code: string; cwd: string; ownerHome: string; port?: number }): string | undefined {
+	const where = { cwd: o.cwd, shellHome: o.ownerHome, ownerHome: o.ownerHome };
+	const closed = (p: string) => isInside(o.home, p) && !o.own.some((r) => isInside(r, p));
+	// A path with ".." is read from where the shell starts. After a "cd" that is no longer where
+	// the command is, so only what stands up to the first one is read that way.
+	const moved = /(^|[;&|(\n])\s*(cd|pushd)\s+("[^"]*"|'[^']*'|[^\s;&|)]+)/.exec(command);
+	const start = moved ? command.slice(0, moved.index + moved[0].length) : command;
+	const named = [...reaches(command, where).filter((r) => !r.text.startsWith("..")), ...reaches(start, where).filter((r) => r.text.startsWith(".."))];
+	const hit = named.find((r) => closed(realish(r.path)));
+	if (hit) return `${hit.text} is part of pine itself, which is closed to every agent in every mode`;
+	// pine's program files can be read. What a command plainly writes there (a redirect, touch, rm, cp to it) is not run.
+	const written = named.find((r) => r.write && isInside(o.code, realish(r.path)));
+	if (written) return `${written.text} is part of pine's own code, which agents cannot change`;
+	if (verbs(command).some((v) => v === "pine" || v === "pine.js") || /(^|[\s"'/])bin\/pine\.js(\s|$)/.test(command)) return "the pine program is your owner's way to run and change pine, and not for agents";
+	if (o.port && new RegExp(`(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[?::1\\]?)(:|\\s+)${o.port}\\b`).test(command)) return `port ${o.port} on this computer is pine's own control port, which is closed to every agent`;
+	return undefined;
+}
+
+/** What an agent is told when `pineOwn` refuses a command. */
+export const pineOwnRefusal = (why: string) => `Not run: ${why}. Do not look for another way. What pine holds for you, your tools tell you (sources, schedules, mcp_servers, skills, manual).`;
+
 export interface ActionContext {
 	roots: Roots;
 	/** What a relative path is relative to. */
@@ -111,6 +140,8 @@ export interface ActionContext {
 	canSendOut(agent: string): boolean;
 	/** Whether an address is one the agent can read anyway. */
 	reachable(url: unknown): boolean;
+	/** For a shell without a sandbox: why a command is critical because of what it names (pine's own program files), or undefined. */
+	names?(command: string): string | undefined;
 }
 
 export interface Action {
@@ -134,7 +165,7 @@ export function classify(tool: string, input: any, ctx: ActionContext): Action {
 	if (ctx.mcp) return ctx.mcp.readOnly ? { cls: "look" } : ctx.mcp.watched ? { cls: "send", note: "a tool of a server that acts on your behalf" } : { cls: "local" };
 	if (tool === "bash") {
 		const command = String(input?.command ?? "");
-		const critical = criticalCommand(command);
+		const critical = criticalCommand(command) ?? (readOnlyCommand(command) ? undefined : ctx.names?.(command));
 		if (critical) return { cls: "critical", note: critical };
 		if (readOnlyCommand(command)) return { cls: "look" };
 		return { cls: ctx.shellReaches ? "reach" : "local" };

@@ -4,7 +4,9 @@
 
 - macOS or Linux. The agent sandbox is built on the system's own: `sandbox-exec` on macOS,
   [bubblewrap](https://github.com/containers/bubblewrap) on Linux, which `pine init` installs
-  and sets up. Without a sandbox pine starts, but withholds the shell tool, and `pine check`
+  and sets up. Agents in `safe` and `manual` mode work in it; an agent in `auto` mode (the
+  main agent, as pine comes) needs none. Without a sandbox pine starts and works: agents
+  whose mode you did not choose work in `auto`, one you set to `safe` has no shell, and `pine check`
   says why. See [security.md](security.md), "On Linux".
 - Optional: `ffmpeg` for videos in the terminal UI (on Linux also for pictures other than
   png, and its `ffplay` for sound; `mpv`, `pw-play`, `paplay` or `aplay` do as well. macOS plays
@@ -53,7 +55,8 @@ sets everything up in one step:
   AppArmor rule bubblewrap needs there. It shows the commands first and asks once; they run
   with `sudo`, which asks for your password itself. `pine init --yes` does not ask, for a
   script or a container build. Where pine cannot do it (no `sudo`, a container without the
-  rights), it says what would; pine runs either way, without a shell for agents until then.
+  rights), it says what would; pine runs either way: until then agents whose mode you did
+  not choose work in `auto` mode, without a sandbox, and one you set to `safe` has no shell.
   The same question covers the system libraries the browser needs, which a server or a
   container image lacks (installed with apt, through Playwright).
 - It downloads the Chromium build the bundled browser tools drive (about 600 MB, into
@@ -149,18 +152,35 @@ the model file.
 
 ## In a container
 
-A container may only make a sandbox when it is started with the rights for one:
+A container needs nothing special:
+
+```bash
+docker run -it -v pine:/root/.pine node:24 bash
+```
+
+Inside, `npm install -g @pmndrs/pine` and `pine init` as anywhere. `-v pine:/root/.pine`
+keeps pine's home when the container is replaced. A container started like this cannot make
+a sandbox, and need not: the container is the wall around pine, every agent whose mode you
+did not choose works in `auto` mode inside it, and `pine check` says so. An agent you set to
+`safe` has no shell there, and runs that events from outside start have none.
+
+| In a container | Without the rights for a sandbox | With them |
+|---|---|---|
+| An agent whose mode you did not choose | Works in `auto` mode: no sandbox, the container's whole file system and network | The main agent in `auto`, the others in `safe`, as on any machine |
+| An agent you set to `safe` | No shell; its file tools work | Works in its sandbox |
+| A run that an event from outside started | No shell | Works in the sandbox |
+| A `command` source | Is not run | Runs in the sandbox |
+
+To have `safe` mode in a container, start it with the rights for a sandbox. They take away
+most of what Docker itself protects:
 
 ```bash
 docker run -it --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined -v pine:/root/.pine node:24 bash
 ```
 
-Inside, `npm install -g @pmndrs/pine` and `pine init` as anywhere; `pine init` installs
-bubblewrap and the browser's libraries, which the image does not have, and names the flags if
-one is missing. `-v pine:/root/.pine` keeps pine's home when the container is replaced. What
-each flag is for, and the one more an ordinary user in the container needs, is in
-[security.md](security.md), "On Linux". Without the rights pine runs, but agents get no
-shell, and the container is the only wall around all of them.
+`pine init` then installs bubblewrap and the browser's libraries, which the image does not
+have, and names the flags if one is missing. What each flag is for, and the one more an
+ordinary user in the container needs, is in [security.md](security.md), "On Linux".
 
 ## Updating
 
@@ -210,7 +230,7 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine agents` | Configured agents, as the daemon has them (JSON) |
 | `pine agent list` | The agents, readable: what each is for, model, reasoning, mode, reach, and what it has (conversations, sources, MCP servers, schedules, skills, routes that wake it, files in its workspace). Read from the files; needs no daemon |
 | `pine agent add <id> --description "..." [--instructions "..."] [--instructions-file <file>] [--model provider/model] [--tools read,bash,...]` | Create an agent, as `create_agent` does: its folder with `agent.json` and a workspace with its instructions. Without instructions it starts from its description. A running daemon has it at once; without one it is there at the next start |
-| `pine agent update <id> [--description ...] [--instructions ... \| --instructions-file <file>] [--model ...\|default] [--thinking ...] [--mode ...] [--tools read,bash,...] [--delegates id,id\|*] [--scope workspace\|account\|default] [--network \| --no-network] [--read /p,/p] [--write /p] [--forget /p]` | Change an agent's settings, as `update_agent` does: give only what changes, the rest stays. It holds from the agent's next message on. A running daemon applies it at once; without one the files are changed and it is there at the next start, except a model change, which needs the daemon (it checks the model exists) |
+| `pine agent update <id> [--description ...] [--instructions ... \| --instructions-file <file>] [--model ...\|default] [--thinking ...] [--mode auto\|safe\|manual\|bypass\|plan\|default] [--tools read,bash,...] [--delegates id,id\|*] [--network \| --no-network] [--read /p,/p] [--write /p] [--forget /p]` | Change an agent's settings, as `update_agent` does: give only what changes, the rest stays. It holds from the agent's next message on. A running daemon applies it at once; without one the files are changed and it is there at the next start, except a model change, which needs the daemon (it checks the model exists) |
 | `pine agent remove <id> [--keep-files] [--yes]` | Remove an agent and everything it has, so that nothing of it is left: conversations, sources, schedules, servers, skills, the routes that wake it, what pine stored under its name, its folder and its private home. It lists what goes and asks before it deletes; `--yes` answers for a script. `--keep-files` moves the folder to `removed/` in pine's home instead of deleting it. Through a running daemon when there is one, in the files when not. See "Changing and removing an agent" in [setup.md](setup.md) |
 | `pine send <agent> <text...>` | Give an agent a task as yourself and print the answer. `--session <key>`, `--no-wait` |
 | `pine emit <topic> [json]` | Publish an event as yourself |
@@ -224,7 +244,7 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine subscribe --global <source> [--note text] ...`, `pine unsubscribe --global <source>` | The same for every agent that can use the source |
 | `pine approvals`, `pine approve <id> [--always]`, `pine deny <id>` | Answer approval requests; `--always` stops the question for the rest of that conversation |
 | `pine reset <agent> [session]` | Start a conversation over; also clears its taint |
-| `pine mode <agent> [auto\|plan\|manual\|bypass]` | Show or change an agent's mode until the daemon restarts. `plan`: the agent only looks and answers with a plan. See "Modes" in [security.md](security.md) |
+| `pine mode <agent> [auto\|safe\|manual\|bypass\|plan]` | Show or change an agent's mode until the daemon restarts. `auto` and `bypass` work without a sandbox, `safe` and `manual` in one. `plan`: the agent only looks and answers with a plan. See "Modes" in [security.md](security.md) |
 | `pine mcp list` | MCP servers, who gets them (all agents, one agent, or one conversation of an agent), whether they connect. `--offline` lists without connecting |
 | `pine skills` | Lists every skill: whom it is for (all agents, an agent, one conversation) and where it lies |
 | `pine schedules` | Lists what is scheduled: for whom, when, and the task |
@@ -350,11 +370,11 @@ are JSON with `Content-Type: application/json`.
 | A goal is paused with "gave no verdict" | The judge did not answer in time (`security.reviewTimeout`) or not with MET, CONTINUE or BLOCKED. `/goal resume` goes on; if it happens often, give the judge a model that follows a format (`security.reviewer`). |
 | The agent says a call was "blocked by pine's reviewer" | After outside content, and for critical actions always, a reviewer checks an action against what you asked for. Open **Blocked** in the code pane (`/code blocked`): it shows the reason, and `✓ allow once` lets the call through. If it blocks too much, say what you want more exactly, add an entry to `security.rules.allow`, or give it a better model (`security.reviewer`). |
 | The agent says it is limited to its workspace, or cannot change its memory | Only with `security.review: "ask"`: the conversation has read outside content, and you answered no to the one question about its rights, or did not answer. Tell the agent to ask again (`request_access` with `account: true`), or `/reset` the conversation for a clean one. |
-| The agent says a file is "not permitted" | It is outside what the agent reaches. The main agent has your whole account (`sandbox.scope`); other agents have their workspace. After outside content the main agent keeps that reach, except for files that are read as instructions (the `AGENTS.md` of the folder it works in, for example); with `security.review: "ask"` it keeps it only if you said yes to the question. You are asked when a call needs something outside (by pine, or by the agent with `request_access`); if you said no, pine does not ask again in that conversation. To open a folder for good, use `sandbox.read` / `sandbox.write`. |
+| The agent says a file is "not permitted" | It is outside what the agent reaches. The main agent works in `auto` mode and has your whole account; other agents work in `safe` mode, in a sandbox, and have their workspace (`mode`: `pine mode <agent> auto` gives another agent the account). pine's own home is closed to every agent in every mode. After outside content the main agent keeps that reach, except for files that are read as instructions (the `AGENTS.md` of the folder it works in, for example); with `security.review: "ask"` it keeps it only if you said yes to the question. You are asked when a call needs something outside (by pine, or by the agent with `request_access`); if you said no, pine does not ask again in that conversation. To open a folder for good, use `sandbox.read` / `sandbox.write`. |
 | An approval `request_access` appears that the agent did not ask for | pine asked on the agent's behalf: a file tool or a shell command needed a file or folder outside the agent's sandbox, or the network. The first lines say what, the line `for:` which call. Yes holds for that conversation; no is remembered there. See "When a call needs something outside" in [security.md](security.md). |
-| An agent says "No such file" for a folder in your home that exists (`~/Documents/scans`) | In the shell of an agent in the workspace scope `~` is its own private home (`sandbox/<id>/` in pine's home), not yours. pine catches this where the path is written out in the command, asks you for the folder in your home, and tells the agent to use the full path. Tell the agent the full path (`/Users/you/Documents/scans`) if it built the name some other way. |
-| The agent cannot stop a program it started (`kill: Operation not permitted`) | In the workspace scope every command has a sandbox of its own and cannot signal what an earlier one started. The agent's `stop_program` tool works in every scope, and so does `■ stop` under Running in the code pane. |
-| `git` complains about identity | In the workspace scope the agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
+| An agent says "No such file" for a folder in your home that exists (`~/Documents/scans`) | In the shell of an agent in the sandbox (`safe` or `manual` mode) `~` is its own private home (`sandbox/<id>/` in pine's home), not yours. pine catches this where the path is written out in the command, asks you for the folder in your home, and tells the agent to use the full path. Tell the agent the full path (`/Users/you/Documents/scans`) if it built the name some other way. |
+| The agent cannot stop a program it started (`kill: Operation not permitted`) | In the sandbox (`safe` or `manual` mode) every command has a sandbox of its own and cannot signal what an earlier one started. The agent's `stop_program` tool works in every mode, and so does `■ stop` under Running in the code pane. |
+| `git` complains about identity | In the sandbox (`safe` or `manual` mode) the agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
 | A command needs the network | `sandbox.network: true` for that agent, or better a `commands` tool for that one command. |
 | Telegram bot does not react | `pine sources`: is the `telegram` source running, and is a conversation subscribed? A new bot waits to be paired: write to it, and type the code it sends you into the question in the terminal UI (`pine sources` says whom it listens to). Otherwise another program polls the same bot token. |
 | An event arrives but no task starts | See "When nothing happens" in [events.md](events.md) for routes and in [sources.md](sources.md) for subscriptions. |

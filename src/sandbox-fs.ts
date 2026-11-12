@@ -28,9 +28,11 @@ const MAX_OUT = 40_000;
 
 export function sandboxExec(fs: SandboxFs, argv: string[], opts: { stdin?: string | Buffer; signal?: AbortSignal; maxBytes?: number; timeoutMs?: number } = {}): Promise<{ code: number; stdout: Buffer; stderr: string; truncated: boolean }> {
 	return new Promise((resolve, reject) => {
+		// Empty where the call meets no sandbox ("auto" and "bypass" mode): the program runs as it is.
 		const jail = fs.prefix();
 		// The programs are named by where they lie on this system, never looked up on a PATH an agent could shape.
-		const child = spawn(jail[0], [...jail.slice(1), bin(path.basename(argv[0])), ...argv.slice(1)], { cwd: fs.cwd, env: fs.env(), stdio: ["pipe", "pipe", "pipe"] });
+		const argv0 = [...jail, bin(path.basename(argv[0])), ...argv.slice(1)];
+		const child = spawn(argv0[0], argv0.slice(1), { cwd: fs.cwd, env: fs.env(), stdio: ["pipe", "pipe", "pipe"] });
 		const max = opts.maxBytes ?? MAX_READ;
 		const chunks: Buffer[] = [];
 		let size = 0;

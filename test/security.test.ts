@@ -414,12 +414,12 @@ test("tool patterns and the configuration audit", async () => {
 	assert.ok(matchesToolPattern(["publish_event:out/mqtt/*"], "publish_event", "out/mqtt/door") && !matchesToolPattern(["publish_event:out/mqtt/*"], "publish_event", "out/telegram/main"));
 	const h = await harness({
 		pine: { http: { host: "0.0.0.0", port: 0, token: "long-enough-token-1", hooks: { open: { open: true } } }, routes: [{ on: "mqtt/#", agent: "main", trust: "owner" }] },
-		agents: { main: { agent: { sandbox: false, trustWorkspace: true, untrusted: { tools: ["read", "bash"] } } }, net: { agent: { sandbox: { network: true } } } },
+		agents: { main: { agent: { trustWorkspace: true, untrusted: { tools: ["read", "bash"] } } }, net: { agent: { sandbox: { network: true } } } },
 		start: false,
 	});
 	const { loadConfig } = await import("../src/config.ts");
 	const notes = audit(loadConfig(h.home)).join("\n");
-	for (const expected of ["agent main: sandbox is off", "agent main: trustWorkspace is on", "untrusted events may use bash", "agent net: shell has network access", "http listens on 0.0.0.0", 'hook "open" has no secret', 'route "route0" treats events on mqtt/# as coming from you', "pine.json is readable by other users"]) assert.ok(notes.includes(expected), `missing: ${expected}\n${notes}`);
+	for (const expected of ["agent main: trustWorkspace is on", "untrusted events may use bash", "agent net: shell has network access", "http listens on 0.0.0.0", 'hook "open" has no secret', 'route "route0" treats events on mqtt/# as coming from you', "pine.json is readable by other users"]) assert.ok(notes.includes(expected), `missing: ${expected}\n${notes}`);
 	await sleep(1);
 	await h.close();
 });

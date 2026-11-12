@@ -69,8 +69,8 @@ export async function harness(spec: { pine?: Record<string, unknown>; agents: Re
 		JSON.stringify({ providers: { mock: { name: "Mock", baseUrl: mock.baseUrl, api: "openai-completions", apiKey: mock.apiKey ?? "sk-mock", models: [{ id: "m", name: "Mock", contextWindow: 128000, maxTokens: 4096, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...(spec.model ?? {}) }] } } }),
 	);
 	// Tests script the model, and a scripted command must not reach the account of whoever runs
-	// them: every agent stays in its workspace unless a test asks for the account by name.
-	const defaults = { model: "mock/m", scope: "workspace", ...((spec.pine?.defaults as Record<string, unknown> | undefined) ?? {}) };
+	// them: every agent works in safe mode, in its sandbox, unless a test asks for another by name.
+	const defaults = { model: "mock/m", mode: "safe", ...((spec.pine?.defaults as Record<string, unknown> | undefined) ?? {}) };
 	// The same goes for what happens after outside content: the tests that are about the one
 	// question say so here, and the tests about the reviewer ask for it and script its answers.
 	// And for the question pine asks itself when a call needs something outside the sandbox: a

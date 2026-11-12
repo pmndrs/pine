@@ -39,10 +39,10 @@ src/
   agent-admin.ts    create_agent: checks a proposed agent and writes its folder
   admin.ts          what only the main agent administers: a change to an agent (`checkAgentChange`), pine's settings
                     (`SETTINGS`), routes (`checkRoute`), and everything that goes with a removed agent (`eraseAgent`)
-  security.ts       the sandbox's rules (macOS profile; `sandboxArgv` for either system), path checks, approvals, redaction, configuration audit
+  security.ts       the sandbox's rules (macOS profile; `sandboxArgv` for either system), the level an agent works at (`levelOf`), path checks, approvals, redaction, configuration audit
   sandbox-linux.ts  the same rules as bubblewrap mounts; what a mount cannot forbid is removed after the command (`Guard`)
   sandbox-setup.ts  what `pine init` does on Linux: installs bubblewrap, the AppArmor rule and the browser's libraries after one yes
-  sandbox-fs.ts     read/write/edit/grep/find/ls executed inside the sandbox
+  sandbox-fs.ts     read/write/edit/grep/find/ls executed inside the sandbox (as they are, in a mode that has none)
   access.ts         what a call needs beyond its sandbox, found so that the owner can be asked: the paths a command
                     names (`reaches`), the system's reports of what a sandbox refused (`Denials`, macOS), a failed command's words
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
@@ -60,7 +60,7 @@ src/
   programs.ts       what a conversation's commands left running: found by process group, listed, stopped;
                     commands in the background: started, found again after a restart, seen to end
   background.ts     what an agent reads about commands in the background: the shell tool's words, the message when one has ended
-  actions.ts        what a tool call is (`classify`), the protected paths, and the reviewer: its rules, its prompt, its verdict
+  actions.ts        what a tool call is (`classify`), the protected paths, what a shell without a sandbox is refused (`pineOwn`), and the reviewer: its rules, its prompt, its verdict
   computer.ts       app control: who gets the server (`computerSession`) and which app a call is about (`appTarget`); shared by the gate, classify() and the server
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   snapshots.ts      the state of a folder as a git tree in a git directory of pine's own: recorded, compared, restored
@@ -106,7 +106,12 @@ These are invariants. A change that breaks one needs a test that shows why it is
 
 1. **Nothing an agent can write is ever executed or trusted by the daemon.** Agents write only
    to their workspace, their sandbox home and temp. Extensions, `agent.json` and
-   `pine.json` live elsewhere in pine's home, which the sandbox closes. Agents change
+   `pine.json` live elsewhere in pine's home, which the sandbox closes: in `safe` and `manual`
+   mode, and in every run started from outside. In `auto` and `bypass` mode there is no
+   sandbox (rule 2), and pine's home and code are kept from the agent by `checkPath` for the
+   file tools and by `pineOwn` in `src/actions.ts` for the shell. `pineOwn` reads the command
+   line: it is a net, said to be one in the manual, and not a wall. Do not widen what those
+   two let through. Agents change
    configuration only through the setup tools in `src/tools.ts`. There are four things an
    agent can be given, each with the same three scopes (a conversation, the agent, all agents):
    events (`add_source`, `remove_source`, `subscribe`, `unsubscribe`), MCP servers
@@ -116,9 +121,11 @@ These are invariants. A change that breaks one needs a test that shows why it is
    `remove_model_server`. What an agent has of the four it is told by a tool, never by a file:
    `sources`, `mcp_servers`, `skills`, `schedules`; a new kind of thing gets its list too. Each validates its input, writes only
    the entry it is for, and asks the owner where `docs/references/setup.md` says so. A server
-   is a remote URL, or a command that runs inside the sandbox of the agent that uses it
-   (`sandboxed`, set by `add_mcp_server` and wrapped where the session registers it): never a
-   program with the daemon's rights or environment, and never through a shell. Global scope, agent creation and new source types are
+   is a remote URL, or a command that runs where the commands of the agent that uses it run
+   (`sandboxed`, set by `add_mcp_server` and wrapped where the session registers it): inside
+   that agent's sandbox in `safe` and `manual` mode, with the owner's rights in `auto` and
+   `bypass`, which the owner's dialog says. Never a program with the daemon's environment,
+   and never through a shell. Global scope, agent creation and new source types are
    refused to every agent but the main one. Removing something must leave things as they were
    before it was added.
    The main agent is pine's administrator: besides `create_agent` it has `agents`,
@@ -151,30 +158,42 @@ These are invariants. A change that breaks one needs a test that shows why it is
    reviewer like a write to the agent's memory; with `security.review: "ask"`, in a
    conversation the owner has not let keep its rights, it is put to the owner with its
    instructions, as `add_schedule` does with a task.
-2. **File access is enforced by the OS, not by a path check.** (What the OS enforces depends on
-   the mode, the agent's scope and what the conversation has read: `live.variant()` picks the
-   normal, restricted or open profile for each call, and access the owner granted with
-   `request_access` is written into that session's profiles.)
-   App control (`mcp/computer.ts`) is the same reach by another road: it acts in the owner's
-   apps, outside any sandbox. So it follows the open profile and adds nothing to it:
-   `computerSession()` gives the server only to an agent whose scope is the account, in the
-   owner's own conversations, and the gate refuses it where `live.wide()` is false.
-   The open profile is the owner's whole account. It is for bypass mode and for an agent whose
-   scope is the account (`sandboxScope` in `src/config.ts`: the main agent, unless configured
-   otherwise), in the owner's own conversations only (`live.wide()`). What a conversation
-   that has read outside content keeps is `security.review`'s to say, and `live.keeps()` is
-   the one thing other code asks. With `"model"` (the default) and `"off"` it keeps
-   everything, and runs in `open-restricted`: the agent's own files can be written, nothing
-   else that is read as instructions. With `"ask"` it loses its full rights until the owner
-   says, once, that it keeps them (`keepWide`; a yes is stored with the conversation's
-   outside-content mark and goes with it on a reset). A run started from outside never has
-   any of it. Do not add a third way to the open profile.
-   In every variant pine's home and pine's code stay closed. Shell commands and all six file
-   tools run behind `sandboxArgv()`: `sandbox-exec` with the profile from `sandboxProfile()` on
-   macOS, `bwrap` with the mounts from `bwrapArgs()` on Linux. A rule goes into both or into
-   neither, and a helper that touches bytes from anywhere goes behind `helperArgv()`; nothing
-   else names either program. `checkPath()` only produces a clear error early; do not rely on it. Never add a tool that reads or writes files in
+2. **The mode says whether there is a sandbox, and where there is one the OS enforces file
+   access, not a path check.** One setting says how much an agent asks and how far it reaches
+   (`Level` in `src/config.ts`): `safe` and `manual` work in the sandbox, `auto` and `bypass`
+   without one, with the owner's whole account, in the owner's own conversations only
+   (`live.wide()`, from `effectiveLevel()` in `src/agents.ts`). `plan` lies on top of a level
+   (`AgentConfig.level`). A run started from outside is held to `safe` whatever the agent's
+   mode. Do not add a second setting that decides the sandbox, and do not add another way to
+   work without one.
+   In the sandbox, shell commands and all six file tools run behind `sandboxArgv()`:
+   `sandbox-exec` with the profile from `sandboxProfile()` on macOS, `bwrap` with the mounts
+   from `bwrapArgs()` on Linux. A rule goes into both or into neither, and a helper that
+   touches bytes from anywhere goes behind `helperArgv()`; nothing else names either program.
+   What the OS enforces there depends on what the conversation has read: `live.variant()`
+   picks the normal or restricted profile for each call, and access the owner granted with
+   `request_access` is written into that session's profiles. `checkPath()` only produces a
+   clear error early there; do not rely on it. Never add a tool that reads or writes files in
    the daemon process on a path the model chose.
+   Without a sandbox (`live.variant()` is `open` or `open-restricted`, and the session's
+   `jail` is an empty prefix) the same tools run as they are. pine's home and pine's code stay
+   closed all the same, by `checkPath` and `pineOwn` (rule 1); after outside content the file
+   tools refuse what is read as instructions, and the shell is the reviewer's (rule 5).
+   App control (`mcp/computer.ts`) is the same reach by another road: it acts in the owner's
+   apps, outside any sandbox. So it follows the modes without a sandbox and adds nothing to
+   them: `computerSession()` gives the server only to an agent in `auto` or `bypass` mode, in
+   the owner's own conversations, and the gate refuses it where `live.wide()` is false.
+   What a conversation that has read outside content keeps is `security.review`'s to say, and
+   `live.keeps()` is the one thing other code asks. With `"model"` (the default) and `"off"`
+   it keeps everything. With `"ask"` an agent in `auto` mode loses its full rights, and works
+   in the sandbox, until the owner says, once, that it keeps them (`keepWide`; a yes is stored
+   with the conversation's outside-content mark and goes with it on a reset). A run started
+   from outside never has any of it.
+   On a machine without a sandbox `safe` cannot be had. `levelOf()` in `src/security.ts`
+   gives an agent whose mode nobody chose `auto` there, and `audit()` names it; an agent that
+   was set to `safe` gets no shell (the gate), and a run started from outside gets none
+   (`profileFor`). Never start a shell for a run from outside where there is no sandbox, and
+   never move an agent that was set to `safe` out of it.
    What a call needs beyond its sandbox, pine asks the owner for (`seek` in `coreExtension`):
    before the call for what a file tool is given or a command names (`reaches` in
    `src/access.ts`), after a command for what the system reports the sandbox refused it
@@ -414,7 +433,8 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   an unsubscribed source must cost nothing and listen to nothing.
 - The approval gate lives in one place, the `tool_call` handler in `coreExtension`
   (`src/agents.ts`). Plan mode comes before all of it: a call that is not class `look` is
-  refused there and never asked about. Then the order: bypass, then what is configured to always ask, then what is
+  refused there and never asked about. Before that, for a shell without a sandbox, what is pine's own
+  (`pineOwn`) is refused in every mode, bypass included. Then the order: bypass, then what is configured to always ask, then what is
   reviewed (critical always; reach, send and own after outside content), then what never asks
   (read-only tools, a remembered "always"), then manual mode, then the taint rules of
   `security.review: "ask"`.

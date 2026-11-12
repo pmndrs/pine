@@ -31,7 +31,7 @@ export interface AgentInfo {
 	description: string;
 	workspace: string;
 	model: string;
-	mode: "manual" | "auto" | "bypass" | "plan";
+	mode: "manual" | "safe" | "auto" | "bypass" | "plan";
 	thinking: string;
 	delegates: string[];
 }

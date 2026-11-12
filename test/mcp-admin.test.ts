@@ -441,19 +441,19 @@ test("an agent proposes a local server by its command; the owner confirms the co
 	assert.equal(agentJson().mcp, undefined);
 	await h.close();
 
-	// For an agent with the owner's account, the program reaches the account too, and still not pine's home.
-	const wide = await harness({ pine: { defaults: { scope: undefined } }, agents: { main: { files } } });
+	// For an agent in auto mode, the program runs like its commands: without a sandbox, with the
+	// owner's rights. The dialog says so, and nothing of the daemon's environment goes along.
+	const wide = await harness({ pine: { defaults: { mode: undefined } }, agents: { main: { files } } });
 	wide.pine.bus.subscribe("approval/requested", (e) => {
 		asked.push(e.payload);
 		wide.pine.approvals.decide((e.payload as any).id, true, "test");
 	});
 	const run = (steps: any[]) => wide.pine.agents.run({ agent: "main", prompt: mockMsg(steps), ...owner });
 	await run([{ tools: [call("add_mcp_server", { name: "cad", command })] }]);
-	assert.ok(asked.at(-1).summary.includes("your whole account"), asked.at(-1).summary);
-	await run([{ tools: [call("mcp__cad__peek", { path: path.join(dir, "notes.txt") }), call("mcp__cad__peek", { path: path.join(wide.home, "pine.json") }), call("mcp__cad__home", {})] }]);
-	const reach = wide.toolResults().slice(-3);
+	assert.ok(asked.at(-1).summary.includes("It runs like a command of main: without a sandbox, with your rights and the network"), asked.at(-1).summary);
+	await run([{ tools: [call("mcp__cad__peek", { path: path.join(dir, "notes.txt") }), call("mcp__cad__home", {})] }]);
+	const reach = wide.toolResults().slice(-2);
 	assert.ok(reach[0].includes("ELSEWHERE-CONTENT"), reach[0]);
-	assert.match(reach[1], /FAILED E(PERM|ACCES|NOENT)/);
-	assert.ok(reach[2].includes(`HOME=${os.homedir()}`) && reach[2].includes("TOKEN=undefined"), reach[2]);
+	assert.ok(reach[1].includes(`HOME=${os.homedir()}`) && reach[1].includes("TOKEN=undefined"), reach[1]);
 	await wide.close();
 });

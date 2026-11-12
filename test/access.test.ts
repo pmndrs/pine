@@ -175,7 +175,7 @@ test("access: a shell command that names a path outside is asked about before it
 test("access: an agent whose scope is the account is not asked path by path once its owner has taken the account away", sandbox, async () => {
 	const file = put("plans/a.txt", "PLAN\n");
 	const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
-	const h = await harness({ pine: { main: "main", security: { askAccess: true, review: "ask" } }, agents: { main: { agent: { sandbox: { scope: "account", sharedTmp: false }, mcp: { feed } } } } } as any);
+	const h = await harness({ pine: { main: "main", security: { askAccess: true, review: "ask" } }, agents: { main: { agent: { mode: "auto", sandbox: { sharedTmp: false }, mcp: { feed } } } } } as any);
 	const asked = answering(h, () => false);
 	await h.pine.agents.run({ agent: "main", session: "work", prompt: mockMsg([{ tools: [call("read", { path: file })] }, { tools: [call("mcp__feed__echo", { text: "from outside" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}` })] }]), ...owner });
 	const out = h.toolResults();
@@ -347,7 +347,7 @@ test("access: the sandbox of an agent that works in its own folders points progr
 	assert.ok(tagged.includes('(deny default (with message "pine-x:c:1"))'));
 	// The text is all that differs: what is allowed and refused is the same.
 	assert.equal(tagged.replaceAll(' (with message "pine-x:c:1")', ""), plain);
-	for (const variant of ["restricted", "open", "open-restricted"] as const) assert.equal(sandboxProfile(h.pine.cfg, agent, roots, variant, false, "t").replaceAll(' (with message "t")', ""), sandboxProfile(h.pine.cfg, agent, roots, variant));
+	assert.equal(sandboxProfile(h.pine.cfg, agent, roots, "restricted", false, "t").replaceAll(' (with message "t")', ""), sandboxProfile(h.pine.cfg, agent, roots, "restricted"));
 	await h.close();
 });
 

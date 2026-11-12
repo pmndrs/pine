@@ -26,7 +26,7 @@ async function reviewed(verdict: (shown: string) => string, extra: Record<string
 	const shown: string[] = [];
 	const h = await harness({
 		// The agent as pine ships it: the owner's account, and a reviewer after outside content.
-		pine: { defaults: { scope: undefined }, ...extra, security: { review: "model", approvalTimeout: "2s", ...((extra.security as Record<string, unknown>) ?? {}) } },
+		pine: { defaults: { mode: undefined }, ...extra, security: { review: "model", approvalTimeout: "2s", ...((extra.security as Record<string, unknown>) ?? {}) } },
 		agents: { main: { agent: { mcp: { feed }, publish: ["out/#"], ...agent } } },
 		mockOptions: {
 			withoutTools: ({ user }: { user: string }) => {

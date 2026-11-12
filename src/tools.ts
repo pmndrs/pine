@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type AgentConfig, effectiveMcp, mainAgentId, type McpServerConfig, PINE_ROOT, RESERVED_TOPICS, sandboxScope } from "./config.ts";
+import { type AgentConfig, effectiveMcp, mainAgentId, type McpServerConfig, PINE_ROOT, RESERVED_TOPICS, unsandboxed } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
 import { addRoute, type AgentChange, applyAgentChange, applySetting, checkAgentChange, checkRoute, checkSetting, dropRoute, routesText, SETTINGS, settingsText } from "./admin.ts";
 import type { AgentManager, Live, Profile } from "./agents.ts";
@@ -10,7 +10,7 @@ import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { addServer, mcpEnvName, removeServer, splitCommand, validateServer } from "./mcp-config.ts";
 import { setEnv } from "./env-file.ts";
-import { isInside, realish } from "./security.ts";
+import { isInside, levelOf, realish } from "./security.ts";
 import { type Part, pineManual, showRead, showSearch } from "./manual.ts";
 import { addModelServer, checkServerName, listModelServers, lookAt, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
 import { allSkills, checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
@@ -625,7 +625,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					if (p.command && !argv.length) throw new Error("the command is empty");
 					// A local server runs in the sandbox of the agent that uses it. Where that sandbox is
 					// missing, nothing would hold the program, so it is the owner's to add.
-					if (p.command && agent.sandbox.enabled && !live.sandboxed) throw new Error(`a local server has to run in your sandbox, and this machine has none. Your owner can add it themselves with: pine mcp add ${p.name} -- ${p.command}`);
+					if (p.command && !live.sandboxed && !unsandboxed(levelOf(agent))) throw new Error(`a local server has to run in your sandbox, and this machine has none. Your owner can add it themselves with: pine mcp add ${p.name} -- ${p.command}`);
 					// The owner confirms the server, so its results are theirs, not a stranger's: it does not
 					// taint a conversation. Its tools that act (not the ones that only read) still ask once
 					// in a conversation that has read outside content, e.g. a web page.
@@ -637,7 +637,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const widened = scope === "agent" ? before?.session : undefined;
 					if (widened === undefined && (p.name in cfg.mcp || Object.values(cfg.agents).some((a) => p.name in a.mcp))) throw new Error(taken(p.name));
 					validateServer(cfg, p.name, server, target);
-					const reach = scope === "global" ? "It runs in the sandbox of each agent that uses it and reaches what that agent's shell reaches, with the network" : `It runs in the sandbox of ${agent.id} and reaches what its shell reaches (${sandboxScope(cfg, agent) === "account" ? "your whole account" : "its workspace"}), with the network`;
+					const reach = scope === "global" ? "It runs where the commands of each agent that uses it run and reaches what that agent's shell reaches, with the network: in a sandbox for an agent in safe or manual mode, with your rights for one in auto or bypass mode" : unsandboxed(levelOf(agent)) ? `It runs like a command of ${agent.id}: without a sandbox, with your rights and the network` : `It runs in the sandbox of ${agent.id} and reaches what its shell reaches (its workspace), with the network`;
 					const summary = `add MCP server "${p.name}" for ${whoIs(scope)}\n${p.command ? `a program on this computer: ${argv.join(" ")}\n${reach}` : p.url}${secrets.length ? `\nIt needs ${secrets.join(", ")}, which you type here; pine keeps ${secrets.length === 1 ? "it" : "them"} in its .env file` : ""}${widened !== undefined ? `\nIt takes the place of the server of that name that only the conversation "${widened}" had` : ""}${p.description ? `\n${p.description}` : ""}`;
 					const why = `adding a server changes pine's configuration; it will be able to offer tools to ${scope === "global" ? "every agent" : scope === "agent" ? "this agent" : "this conversation"}${p.command ? ", and its program runs while they work" : ""}${careful()}`;
 					// Asked in every mode, bypass included: this is a change to pine itself.
@@ -974,7 +974,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 			const some = (list: string[]) => list.join(", ") || "none";
 			const about = (a: AgentConfig) => {
 				const has = manager.holdings(a.id);
-				const reach = `${sandboxScope(cfg, a)}${a.sandbox.network ? " + network" : ""}`;
+				const reach = unsandboxed(levelOf(a)) ? "your owner's whole account + network, no sandbox" : `its own folders, in the sandbox${a.sandbox.network ? " + network" : ""}`;
 				const opened = [...a.sandbox.read.map((p) => `${p} (read)`), ...a.sandbox.write.map((p) => `${p} (read and change)`)];
 				return `- ${a.id}${a.id === mainId ? " (the main agent: you)" : ""}: ${a.description || "no description"}
     model ${a.model ?? `${cfg.defaults.model} (the default)`} · reasoning ${a.thinking} · mode ${a.mode} · reach ${reach} · built-in tools ${some(a.tools ?? AGENT_TOOLS)}
@@ -1004,10 +1004,9 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						instructions: Type.Optional(Type.String({ description: "The whole new text of its instructions, written to the agent itself. It replaces what is there: read the present text with agents (id) first and give back all of it with your change" })),
 						model: Type.Optional(Type.String({ description: 'As provider/model. "default" for pine\'s default model' })),
 						thinking: Type.Optional(Type.String({ description: "How much it reasons: off, minimal, low, medium, high, xhigh, max" })),
-						mode: Type.Optional(Type.String({ description: "manual (every action waits for your owner), auto, bypass (nothing waits), plan (nothing is done)" })),
+						mode: Type.Optional(Type.String({ description: "auto (no sandbox: its shell and file tools reach your owner's whole account and the network), safe (in the sandbox: its own folders), manual (in the sandbox, every action waits for your owner), bypass (no sandbox, nothing waits), plan (nothing is done), or default" })),
 						tools: Type.Optional(Type.String({ description: `Its built-in tools, all of them, separated by commas, from: ${AGENT_TOOLS.join(", ")}` })),
 						delegates: Type.Optional(Type.String({ description: 'The agents it may hand work to, all of them, separated by commas. "*" is every agent' })),
-						scope: Type.Optional(Type.String({ description: 'How far its shell and file tools reach: workspace (its own folders), account (your owner\'s whole user account and the network), or default' })),
 						network: Type.Optional(Type.Boolean({ description: "Whether its shell may use the network" })),
 						read: Type.Optional(Type.Array(Type.String(), { description: "Folders outside its workspace that it may read from now on, each as a full path" })),
 						write: Type.Optional(Type.Array(Type.String(), { description: "Folders outside its workspace that it may read and change from now on, each as a full path" })),
@@ -1018,7 +1017,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						notHere("changing an agent");
 						const target = cfg.agents[p.id];
 						if (!target) throw new Error(`there is no agent "${p.id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
-						const change: AgentChange = { description: p.description, instructions: p.instructions, model: p.model, thinking: p.thinking, mode: p.mode, tools: listOf(p.tools), delegates: listOf(p.delegates), scope: p.scope, network: p.network, read: p.read, write: p.write, forget: p.forget };
+						const change: AgentChange = { description: p.description, instructions: p.instructions, model: p.model, thinking: p.thinking, mode: p.mode, tools: listOf(p.tools), delegates: listOf(p.delegates), network: p.network, read: p.read, write: p.write, forget: p.forget };
 						const checked = checkAgentChange(cfg, target, change, p.model && p.model !== "default" ? await manager.availableModels() : []);
 						const decision = await confirm("update_agent", `change the agent "${target.id}"\n${checked.lines.join("\n")}`, `this changes an agent in pine's configuration${checked.warnings.length ? `. Note: ${checked.warnings.join("; ")}` : ""}`, signal);
 						if (!decision.allow) throw new Error(`not changed (${decision.by}). Do not retry; tell your owner what you proposed.`);

@@ -39,9 +39,8 @@ export interface Jail {
 	 */
 	shared?: string[];
 	network: boolean;
-	/** "open" is the whole account, except pine's home and pine's code: bypass mode, or an agent whose scope is the account. */
-	variant: "normal" | "restricted" | "open";
-	/** For a run that has read outside content, in either reach: what exists and may not be changed, and repositories whose folder may not be moved aside. */
+	variant: "normal" | "restricted";
+	/** For a run that has read outside content: what exists and may not be changed, and repositories whose folder may not be moved aside. */
 	frozen?: { paths: string[]; repositories: string[] };
 }
 
@@ -175,27 +174,6 @@ export function bwrapArgs(jail: Jail): string[] {
 		for (const p of shallowFirst(jail.ownedRead.filter((r) => isInside(jail.pineHome, r)))) ro(p);
 		for (const p of shallowFirst(jail.ownedWrite.filter((r) => isInside(jail.pineHome, r)))) rw(p);
 	};
-
-	if (jail.variant === "open") {
-		// Bypass: the owner has said "act with my rights". What stays closed is what would let an
-		// agent rewrite the system that runs it.
-		// One mount of everything, devices and /proc included, as the owner has them.
-		args.push("--dev-bind", "/", "/");
-		owned();
-		const own = [...jail.ownedRead, ...jail.ownedWrite];
-		for (const p of shallowFirst(jail.closed)) if (!isInside(jail.pineHome, p) || own.some((r) => isInside(r, p))) close(p);
-		if (exists(jail.pineCode)) ro(jail.pineCode);
-		if (jail.frozen) {
-			// The whole account, kept by a conversation that has read outside content: what is read
-			// into the agent's prompt stays as it is, as in the restricted variant.
-			const closed = (p: string) => jail.closed.some((c) => isInside(c, p)) || (isInside(jail.pineHome, p) && !jail.ownedWrite.some((r) => isInside(r, p)));
-			for (const p of shallowFirst(jail.frozen.repositories.filter((p) => !closed(p)))) rw(p);
-			for (const p of shallowFirst(jail.frozen.paths.filter((p) => !closed(p)))) ro(p);
-		}
-		seal();
-		args.push(...POWERLESS, "--die-with-parent", "--");
-		return args;
-	}
 
 	// Everything can be read and nothing written; devices and /proc are the sandbox's own.
 	args.push("--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc");

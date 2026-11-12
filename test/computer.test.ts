@@ -108,10 +108,10 @@ test("computer: on a system that is not macOS nothing is offered, and a call is 
 		assert.equal(available({}, system), false);
 	}
 	assert.match(unavailable("linux"), /^App control is not available on this system \(Linux\)\. It works on macOS only\./);
-	assert.equal(computerSession({ owner: true, scope: "account", dataDir: "/home/x/data", platform: "linux" }), undefined, "the daemon does not start the server there");
+	assert.equal(computerSession({ owner: true, level: "auto", dataDir: "/home/x/data", platform: "linux" }), undefined, "the daemon does not start the server there");
 	assert.equal(toolsOffered({}, "darwin").length, TOOLS.length);
 	// A stand-in for the helper runs anywhere: that is how the rest of this file runs on Linux.
-	assert.ok(available({ helper: "/x" }, "linux") && computerSession({ owner: true, scope: "account", dataDir: "/d", platform: "linux", standIn: true }));
+	assert.ok(available({ helper: "/x" }, "linux") && computerSession({ owner: true, level: "auto", dataDir: "/d", platform: "linux", standIn: true }));
 
 	// The server as a process. Where it has no helper to build, this is the whole of it.
 	if (process.platform === "darwin") return;
@@ -192,10 +192,10 @@ test("computer: which app a call is about, and who gets the server at all", () =
 	assert.equal(appTarget("app_click", { x: 1, y: 2 }), undefined, "no app named: the server refuses the call");
 	assert.equal(appTarget("app_press", { app: 7 }), undefined);
 
-	const on = { owner: true, scope: "account" as const, dataDir: "/home/pine/data", platform: "darwin" };
+	const on = { owner: true, level: "auto" as const, dataDir: "/home/pine/data", platform: "darwin" };
 	assert.deepEqual(computerSession(on), { helperDir: "/home/pine/data/computer" });
 	assert.equal(computerSession({ ...on, owner: false }), undefined, "never a run started from outside");
-	assert.equal(computerSession({ ...on, scope: "workspace" }), undefined, "never an agent that is kept to its workspace");
+	assert.equal(computerSession({ ...on, level: "safe" }), undefined, "never an agent that works in its sandbox");
 });
 
 // ---- the server's logic, on a stand-in for the helper --------------------------------------------
@@ -576,7 +576,7 @@ test("computer: the bundled server is configured like the others and marks sessi
 	const server = effectiveMcp(cfg, cfg.agents.main).computer;
 	assert.equal(mcpTaints(server), true, "what a screen shows was written by others");
 	// Where the helper is kept is pine's to say, whatever the options say.
-	const pi = toPiMcp("computer", server, computerSession({ owner: true, scope: "account", dataDir: cfg.dataDir, platform: "darwin" })) as any;
+	const pi = toPiMcp("computer", server, computerSession({ owner: true, level: "auto", dataDir: cfg.dataDir, platform: "darwin" })) as any;
 	assert.ok(pi.args[0].endsWith("mcp/computer.ts"));
 	assert.deepEqual(JSON.parse(pi.env.PINE_MCP_OPTIONS), { images: false, helperDir: path.join(cfg.dataDir, "computer") });
 	// The example home has it, and loads on any system.
@@ -597,7 +597,7 @@ async function withApps(t: { after(fn: () => void): void }, pine: Record<string,
 	const reviews: string[] = [];
 	const h = await harness({
 		// The main agent as pine ships it: the owner's account, a reviewer after outside content.
-		pine: { defaults: { scope: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options: { helper: [process.execPath, script, log, ...flags] } } }, ...pine },
+		pine: { defaults: { mode: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options: { helper: [process.execPath, script, log, ...flags] } } }, ...pine },
 		agents: { main: { agent: { untrusted: { tools: ["read"], mcp: ["computer"] }, ...main } }, clerk: { agent: {} } },
 		mockOptions: {
 			withoutTools: ({ user }: { user: string }) => {
@@ -694,22 +694,25 @@ test("computer: the owner is asked once per app in a conversation, and after the
 	await h.close();
 });
 
-test("computer: bypass asks nothing; manual asks for every action but not for a look; a conversation that lost its rights cannot operate apps", { timeout: 60_000 }, async (t) => {
+test("computer: bypass asks nothing; an agent in its sandbox has no app control; a conversation that lost its rights cannot operate apps", { timeout: 60_000 }, async (t) => {
 	const bypass = await withApps(t, {}, { mode: "bypass" });
 	await bypass.use([["app_press", { app: "TextEdit", ref: "e3" }]]);
 	assert.equal(bypass.asked.length, 0);
 	assert.deepEqual(bypass.did(), ["press e3"]);
 	await bypass.h.close();
 
-	const manual = await withApps(t, {}, { mode: "manual" });
-	await manual.use([["app_snapshot", { app: "TextEdit" }]]);
-	assert.equal(manual.asked.length, 1, "the app is asked about");
-	await manual.use([["app_snapshot", { app: "TextEdit" }], ["apps"]]);
-	assert.equal(manual.asked.length, 1, "looking again is not");
-	await manual.use([["app_press", { app: "TextEdit", ref: "e3" }]]);
-	assert.equal(manual.asked.length, 2);
-	assert.match(manual.asked[1].why, /manual mode/);
-	await manual.h.close();
+	// Manual and safe mode work inside the sandbox, and app control lies outside any sandbox: such an agent has none of it.
+	for (const mode of ["manual", "safe"]) {
+		const boxed = await withApps(t, {}, { mode });
+		await boxed.use([["app_press", { app: "TextEdit", ref: "e3" }]]);
+		assert.deepEqual(boxed.h.toolsOffered(boxed.h.requestsFor("PERSONA-MAIN").at(-1)).filter((n: string) => n.startsWith("mcp__computer__")), [], mode);
+		assert.deepEqual([boxed.asked.length, boxed.did()], [0, []], mode);
+		// Switched to auto while it runs, its next message has the tools: the session is made anew.
+		boxed.h.pine.agents.setMode("main", "auto");
+		await boxed.use([["apps"]]);
+		assert.equal(boxed.h.toolsOffered(boxed.h.requestsFor("PERSONA-MAIN").at(-1)).filter((n: string) => n.startsWith("mcp__computer__")).length, TOOLS.length, mode);
+		await boxed.h.close();
+	}
 
 	// security.review "ask": after outside content the conversation keeps its full rights only on the owner's yes.
 	const ask = await withApps(t, { security: { review: "ask" } });
@@ -771,7 +774,7 @@ test("live: through the daemon, the real helper operates a real window and the r
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pine-computer-live-"));
 	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const program = await buildHelper(path.join(dir, "bin"));
-	const h = await harness({ pine: { defaults: { scope: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options: { helper: [program, "--demo"] } } } }, agents: { main: {} } });
+	const h = await harness({ pine: { defaults: { mode: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options: { helper: [program, "--demo"] } } } }, agents: { main: {} } });
 	const asked: string[] = [];
 	h.pine.bus.subscribe("approval/requested", (e) => {
 		asked.push(String((e.payload as any).summary).split("\n")[0]);
@@ -844,7 +847,7 @@ async function liveAgent(t: { after(fn: () => unknown): void }, mock: any, optio
 	const h = await harness({
 		mock,
 		model: { contextWindow: 120000, maxTokens: 4096, input: ["text", "image"] },
-		pine: { defaults: { scope: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options } } },
+		pine: { defaults: { mode: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options } } },
 		agents: { main: { agent: { tools: ["read"], taskTimeoutSec: 600 }, persona: "You operate apps on your owner's Mac for them, with the tools whose names start with mcp__computer__. Do what is asked, step by step, and report what you found.\n" } },
 	});
 	const asked: string[] = [];

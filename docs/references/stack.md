@@ -13,7 +13,7 @@
 | `@earendil-works/pi-tui` | Terminal UI toolkit | pi's own: full-screen layout, editor with completion, Markdown rendering. Used by `src/tui/`. |
 | `highlight.js` | Code colours | Colours code blocks in the terminal UI. |
 | `@playwright/mcp` | Browser automation | Started as a child of `mcp/browser.ts`, which filters its tools and proxies its traffic. `pine init` downloads the browser it drives. |
-| `sandbox-exec`, `bwrap` | Containment | The system's sandbox: Apple's on macOS, driven by a generated profile; bubblewrap on Linux, driven by generated mounts. One set of rules for both (`src/security.ts`, `src/sandbox-linux.ts`). |
+| `sandbox-exec`, `bwrap` | Containment | The system's sandbox: Apple's on macOS, driven by a generated profile; bubblewrap on Linux, driven by generated mounts. One set of rules for both (`src/security.ts`, `src/sandbox-linux.ts`). Agents in `safe` and `manual` mode and every run started from outside work in it; `auto` and `bypass` mode work without. |
 | `git` | Changes, diffs and undo | The system's own. The code pane asks it what changed in a folder, and `/undo` keeps the states of a folder as git trees in `data/snapshots`. It always runs inside a sandbox, without network and with everything a repository's settings could make it start turned off; only undo may write, and only pine's own snapshot folder and the conversation's folder (`src/workspace-view.ts`, `src/snapshots.ts`). |
 | `swiftc` | App control on macOS | `mcp/computer.swift`, the helper that reads windows and sends clicks and keys, is compiled on the Mac it runs on the first time it is needed, and kept in pine's home. Needs Apple's command line developer tools (`xcode-select --install`). See [computer.md](computer.md). |
 | `sips`, `ffmpeg` | Pictures and video in the terminal UI | Convert what is shown: `sips` on macOS; `ffmpeg`, if installed, for video and on Linux. Both run confined, without network. |
@@ -35,7 +35,7 @@ Every agent session is a pi `AgentSessionRuntime` created in `AgentManager.creat
   settings and session files are per agent, all in one process;
 - pi's MCP, code-mode and tool-search extensions when the agent has MCP servers;
 - pine's core extension (`coreExtension()`), which registers the agent's MCP servers, replaces
-  the shell and file tools with sandboxed ones, adds the `download` tool, appends the `<pine>`
+  the shell and file tools with ones that run in the agent's sandbox where its mode has one, adds the `download` tool, appends the `<pine>`
   block to the system prompt (the same text every turn), and gates every tool call;
 - the tools from `tools.ts`.
 

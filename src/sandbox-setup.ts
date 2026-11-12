@@ -73,7 +73,7 @@ const INSTALL: Array<[string, string[]]> = [
 	["apk", ["apk", "add", "bubblewrap"]],
 ];
 
-const boxed = (root: boolean) => `This is a container that was started without the rights a sandbox needs, and they cannot be given from inside. Start it with:\n  docker run ${containerFlags(root)} ...`;
+const boxed = (root: boolean) => `This is a container that was started without the rights a sandbox needs, and they cannot be given from inside. pine works here all the same: agents whose mode you did not choose work in auto mode, and the container is the wall around them. To have safe mode in a container, start it with:\n  docker run ${containerFlags(root)} ...`;
 
 /** What has to be done on this machine for the sandbox to work. */
 export function sandboxPlan(m: Machine): Plan {

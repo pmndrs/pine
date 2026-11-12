@@ -267,10 +267,11 @@ conversation, or `/reset`, does it.
 |---|---|
 | `description` | One line on what the agent is for |
 | `instructions` | The whole new text of its `AGENTS.md`. It replaces the file, so the main agent reads the present text first (`agents` with `id`) |
-| `model`, `thinking`, `mode` | Its model (`"default"` for pine's default), how much it reasons, and `manual`, `auto`, `bypass` or `plan` |
+| `model`, `thinking` | Its model (`"default"` for pine's default) and how much it reasons |
+| `mode` | `auto` (no sandbox: its shell and file tools reach your whole account and the network), `safe` (in the sandbox: its own folders), `manual` (in the sandbox, every action waits), `bypass`, `plan`, or `default` for what pine gives an agent that names none. This is also how far its shell and file tools reach |
 | `tools` | Its built-in tools, all of them: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls` |
 | `delegates` | The agents it may hand work to, all of them; `*` is every agent |
-| `scope`, `network` | How far its shell and file tools reach (`workspace`, `account`, `default`), and whether its shell may use the network |
+| `network` | Whether its shell may use the network when it works in the sandbox |
 | `read`, `write`, `forget` | Folders outside its workspace that it may read, or read and change, from now on; and folders to take away again. This is how a folder is opened for an agent for good |
 
 You see every line of the change before it is made, with a note where it gives the agent more
@@ -326,7 +327,7 @@ a conversation that has read outside content.
 
 | Setting | What it is |
 |---|---|
-| `defaults.model`, `defaults.thinking`, `defaults.mode`, `defaults.scope` | What an agent gets that does not say otherwise: model, reasoning, mode, reach |
+| `defaults.model`, `defaults.thinking`, `defaults.mode` | What an agent gets that does not say otherwise: model, reasoning, mode (and with the mode, how far it reaches) |
 | `defaults.bashTimeoutSec`, `defaults.taskTimeoutSec` | Seconds a shell call and a task may run. From the next start |
 | `limits.maxConcurrentRuns` | How many agents work at the same time. From the next start |
 | `limits.maxDelegationDepth`, `limits.maxDownloadMb` | How often a task is handed on, and the largest download |

@@ -74,7 +74,7 @@ To hand the instructions over to the agent, move that file to `agents/<id>/works
 Its system prompt is put together from, in this order:
 
 1. pine's base prompt: that it is an agent in pine working for its owner, how to use its file
-   tools, how far its shell and file tools reach (its workspace, or the owner's account: `sandbox.scope`), that pine's setup is changed through tools and
+   tools, how far its shell and file tools reach (its workspace in `safe` and `manual` mode, the owner's account in `auto` and `bypass`: `mode`), that pine's setup is changed through tools and
    never by writing its files (which of them it has, and that creating agents and anything for
    all agents is the main agent's job), that what it has been given it asks a tool and never
    looks for in files (`sources`, `mcp_servers`, `skills`, `schedules`), that for everything

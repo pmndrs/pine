@@ -305,6 +305,16 @@ function words(command: string): Word[][] {
 	return out.filter((c) => c.length);
 }
 
+/** The program each simple command of a command line starts, without its folder ("git", "npm"). Quoted text is not taken for a command. */
+export function verbs(command: string): string[] {
+	return words(command.length > 20_000 ? command.slice(0, 20_000) : command).map((simple) => {
+		const args = simple.filter((w) => !w.redirect);
+		let first = 0;
+		while (first < args.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(args[first].text) || WRAPPERS.has(args[first].text))) first++;
+		return path.basename(args[first]?.text ?? "");
+	});
+}
+
 /**
  * The paths a command line names that are written out: absolute ones, and ones in a home folder
  * (~, $HOME). This is reading, not running: what a variable or a script holds is not seen, and
