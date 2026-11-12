@@ -123,6 +123,33 @@ async function open(spec: Parameters<typeof harness>[0]) {
 	return { h, term, app, text, send, sees, close: async () => (await app.stop(), await h.close()) };
 }
 
+test("pictures: an agent is told, in the tool's answer, that the picture a server made is already shown", async (t) => {
+	const { httpMcp } = await import("./support/http-mcp.ts");
+	const stub = await httpMcp({ picture: png(32, 20) });
+	t.after(() => stub.close());
+	const h = await harness({ agents: { main: { agent: { mcp: { media: { url: stub.url } } } } } });
+	const events: any[] = [];
+	h.pine.bus.subscribe("agent/main/tool", (e) => void events.push(e.payload));
+	const told = /\[pine: your owner already sees the picture that came with this answer, above your reply\. Do not put it into your reply: no !\[\.\.\.\]\(\.\.\.\) and no link to it\. Fetch it with the download tool only if your owner asks for it as a file\.\]$/;
+
+	// The answer of a server's tool that came with a picture says so, and the picture is the one shown.
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "mcp__media__lookup", args: { q: "a shiba" } }] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /^looked up: a shiba/);
+	assert.match(h.toolResults().at(-1)!, told);
+	assert.equal(events.find((e) => e.phase === "end").images?.length, 1);
+
+	// A picture the agent looked at itself is not one it was handed for its owner: nothing is added.
+	fs.writeFileSync(path.join(h.workspace("main"), "shot.png"), png(32, 20));
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "read", args: { path: "shot.png" } }] }]), ...owner });
+	assert.doesNotMatch(h.toolResults().at(-1)!, /\[pine: /);
+
+	// An answer that goes to a chat: nothing was drawn there, so nothing is claimed.
+	await h.pine.agents.run({ agent: "main", session: "chat", prompt: mockMsg([{ tools: [{ name: "mcp__media__lookup", args: { q: "a cat" } }] }]), reply: { topic: "out/chat" }, ...owner });
+	assert.match(h.toolResults().at(-1)!, /^looked up: a cat/);
+	assert.doesNotMatch(h.toolResults().at(-1)!, /\[pine: /);
+	await h.close();
+});
+
 test("tui: pictures from a tool, in an answer and attached to a message are drawn; a web picture waits for a click", mac, async () => {
 	const t = await open({ agents: { main: {} } });
 	await t.sees("type a message");

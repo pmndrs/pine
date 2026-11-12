@@ -198,6 +198,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    The way that avoids this is the default: a tool leaves the secret out, the approval request
    lists it under `inputs`, and the owner's answer brings the value straight to the tool
    (`ApprovalDecision.values`, never in an event). A new tool that needs a secret does the same.
+   A remote MCP server's `headers` are its key. Besides the server's own calls they go with one
+   thing: a `download` of an address that one of that server's tools returned in the same
+   conversation, as it was returned (`noteLinks` and `keyFor` in `coreExtension`). Not with an
+   address the agent wrote itself, not along a redirect, and not for a server that `taints`.
 7. **A source that sends decides where to.** Telegram sends only to the owner's chat; MQTT
    publishes only to `publish` topics. Do not move those checks into routes, prompts or the
    `send` tool. There is one way to connect pine to something outside, in or out: a source

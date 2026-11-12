@@ -150,7 +150,8 @@ An entry has the shape of an `mcpServers` entry in pi's `mcp.json`:
 | `exposure` | How tools reach the model. pine's default is `direct`: every tool is declared. `codemode` offers one scripting tool instead, `deferred` makes tools searchable, `hidden` hides them. Use `deferred` or `codemode` for servers with dozens of tools. |
 | `toolExposure` | Per-tool override, for example `{ "delete_*": "hidden" }`. |
 | `description` | One sentence for the model about what the server offers. |
-| `url` (remote servers) | Also decides where the `download` tool fetches from without asking: addresses on the same scheme, host and port. A server that hands out download links for its files on its own host works with it out of the box. |
+| `url` (remote servers) | Also decides where the `download` tool fetches from without asking: addresses on the same scheme, host and port. A server that hands out download links for its files on its own host works with it out of the box. See "Files and pictures from a remote server". |
+| `headers` (remote servers) | Sent with every call to the server, and by the `download` tool with a link that one of the server's own tools returned in the conversation. Never with any other address, and never for a server with `taints: true`. |
 | `timeout` | Seconds one call to this server may take before the agent is told it timed out. Default 60. Raise it for a server with slow tools, e.g. `"timeout": 180`. |
 
 and the keys pine adds (besides `agents` and `enabled` from the table at the top):
@@ -179,6 +180,32 @@ Every other tool is refused in plan mode, opening a page in the browser and the 
 pi's `mcp.json` files are not read. The daemon gives pi a folder of its own (`data/pi`) and
 agent sessions load no MCP configuration file, so servers you set up for your own interactive
 pi do not appear in agents.
+
+## Files and pictures from a remote server
+
+A server that makes files (pictures, sound, documents) keeps them where it runs. When it is
+reached over the network, that can be another computer, and three things follow:
+
+- **A picture in a tool's answer is already shown.** The terminal UI draws it where the tool
+  ran. pine adds a line to such an answer that tells the agent so, since a model that reads
+  only text sees a file name and a link there and no picture. The agent does not show it a
+  second time and does not fetch it unless you want the file. (The line is not added when the
+  answer goes to a chat such as Telegram, where nothing was drawn.)
+- **A file path in an answer is a path on the server's computer.** On the agent's own disk
+  that file does not exist: `cp` and `read` answer "No such file or directory". The agent's
+  prompt names the servers that are reached over the network (every `url` that is not
+  `localhost` or `127.0.0.1`) and says so.
+- **The agent gets the file with the `download` tool and the link from the answer.** A link on
+  the server's own address (same scheme, host and port as its `url`) is fetched without a
+  question. If the server has `headers` (its key), pine sends them with such a link itself:
+  only with an address that one of the server's own tools returned in this conversation, exactly
+  as it was returned, and not for a server with `taints: true`. The agent never sees the key and
+  cannot send it anywhere else. Any other address on the server is fetched without the key, and
+  a server that wants it answers HTTP 401: the agent calls the tool again and downloads the
+  link it gets. After a `/reset` or a restart of pine the links given before count no longer.
+
+A server of your own that returns its files' paths is better off returning only a name and a
+link: a path is of use to nobody who is not on the same computer.
 
 ## Bundled: web
 

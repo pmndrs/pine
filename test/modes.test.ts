@@ -566,6 +566,56 @@ test("download: files from the agent's own MCP servers arrive byte for byte; oth
 	await h2.close();
 });
 
+test("download: a server's key goes only with a link that server's own tool returned, and nowhere else", mac, async (t) => {
+	const { httpMcp } = await import("./support/http-mcp.ts");
+	const picture = Buffer.from("\x89PNG picture bytes");
+	const feed = await httpMcp({ token: "feed-key", filesNeedToken: true, files: { "a.png": picture } });
+	const stub = await httpMcp({ token: "studio-key", filesNeedToken: true, files: { "a.png": picture, "b.png": picture }, redirects: { away: `${new URL(feed.url).origin}/files/a.png` } });
+	t.after(() => Promise.all([stub.close(), feed.close()]));
+	const origin = new URL(stub.url).origin;
+	const feedOrigin = new URL(feed.url).origin;
+	const auth = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
+	const h = await harness({ agents: { main: { agent: { mcp: { media: { url: stub.url, ...auth("studio-key") }, feed: { url: feed.url, taints: true, ...auth("feed-key") } } } } } });
+	answering(h, () => true);
+	const run = (steps: any[], session = "main") => h.pine.agents.run({ agent: "main", session, prompt: mockMsg(steps), ...owner });
+	const ws = h.workspace("main");
+	const filesAsked = (from: { gets: Array<{ name: string; auth?: string }> }) => from.gets.map((g) => `${g.name} ${g.auth ?? "-"}`);
+
+	// The tool's answer names a file of the server's. That link, as it was returned, is fetched
+	// with the key; the agent never sees the key and never passes one.
+	await run([{ tools: [call("mcp__media__lookup", { q: `{"file":"a.png","url":"${origin}/files/a.png"}, also ${origin}/files/away.` })] }, { tools: [call("download", { url: `${origin}/files/a.png`, path: "a.png" })] }]);
+	assert.match(h.toolResults().at(-1)!, /^saved a\.png: /);
+	assert.ok(fs.readFileSync(path.join(ws, "a.png")).equals(picture));
+	assert.ok(!JSON.stringify(h.mock.state.requests.map((r: any) => r.body)).includes("studio-key"), "the key is in no request to the model");
+
+	// Another address on the same server was not handed out: it is fetched as before, without the
+	// key, and the refusal says which links work.
+	await run([{ tools: [call("download", { url: `${origin}/files/b.png`, path: "b.png" }), call("download", { url: `${origin}/files/a.png?x=1`, path: "a2.png" })] }]);
+	for (const out of h.toolResults().slice(-2)) assert.match(out, /HTTP 401: the server wants its key\. pine sends the key only with a link that one of this server's tools returned in this conversation/);
+	assert.ok(!fs.existsSync(path.join(ws, "b.png")) && !fs.existsSync(path.join(ws, "a2.png")));
+
+	// A link that leads on to another server takes no key with it: not this server's, and not the
+	// other one's either, which did not hand it out.
+	await run([{ tools: [call("download", { url: `${origin}/files/away`, path: "away.bin" })] }]);
+	assert.match(h.toolResults().at(-1)!, /HTTP 401/);
+	assert.deepEqual(filesAsked(feed), ["a.png -"], "the server it leads to is asked without a key");
+
+	// What one conversation was handed is not another's, and a reset forgets it.
+	await run([{ tools: [call("download", { url: `${origin}/files/a.png`, path: "other.png" })] }], "other");
+	assert.match(h.toolResults().at(-1)!, /HTTP 401/);
+	await h.pine.agents.resetSession("main");
+	await run([{ tools: [call("download", { url: `${origin}/files/a.png`, path: "again.png" })] }]);
+	assert.match(h.toolResults().at(-1)!, /HTTP 401/);
+
+	// A server that carries other people's content: a link in its answer may be somebody else's
+	// text, so its key never goes with a download.
+	await run([{ tools: [call("mcp__feed__lookup", { q: `${feedOrigin}/files/a.png` })] }, { tools: [call("download", { url: `${feedOrigin}/files/a.png`, path: "feed.png" })] }]);
+	assert.match(h.toolResults().at(-1)!, /HTTP 401/);
+	assert.deepEqual(filesAsked(feed), ["a.png -", "a.png -"]);
+	assert.deepEqual(filesAsked(stub).filter((g) => !g.endsWith(" -")), ["a.png Bearer studio-key", "away Bearer studio-key"], "the two links that were handed out had the key, each once, and nothing else");
+	await h.close();
+});
+
 test("download: an agent with web access fetches public files without a question, also after reading the web", mac, async (t) => {
 	const { httpMcp } = await import("./support/http-mcp.ts");
 	const site = await httpMcp({ files: { "meme.jpg": Buffer.from("not really a jpeg, but bytes") } });

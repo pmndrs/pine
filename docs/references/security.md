@@ -460,6 +460,11 @@ the workspace, byte for byte, and reports size and SHA-256.
 - An address on the origin of one of the agent's remote MCP servers (same scheme, host and port
   as the server's `url`) is fetched without a question. A redirect that leads elsewhere is not
   followed under this rule.
+- A server's `headers` (its key) go with a download only for an address that one of that
+  server's own tools returned in the same conversation, exactly as it was returned. The agent
+  cannot make pine send the key to an address it thought of itself, a redirect takes no key
+  along, and a server marked `taints: true` never has its key sent this way: a link in its
+  answers may be somebody else's text. The key itself stays out of the conversation.
 - An agent with the bundled `web` or `browser` server can already read any public address
   without asking, so it may also save what is there: any public https address is fetched without
   a question, also in a session that has read outside content. The `allowHosts` and `denyHosts`

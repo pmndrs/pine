@@ -91,7 +91,9 @@ Its system prompt is put together from, in this order:
 To show you a picture, an agent writes `![caption](path)` in its answer, with a file from its
 workspace. The terminal UI draws it (see [tui.md](tui.md)); pine's base prompt tells every agent
 this. A picture from the web it downloads first and then shows the file. A video file is shown
-the same way and can be played in the conversation.
+the same way and can be played in the conversation. A picture that a tool returned (a
+screenshot, an image an MCP server made) is drawn where the tool ran, and the agent is told not
+to show it a second time.
 
 Nothing in the system prompt changes from one turn to the next. That is deliberate: a model
 server keeps what it has already read (the prompt cache) only as long as the beginning of the

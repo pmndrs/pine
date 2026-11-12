@@ -81,8 +81,9 @@ export interface Fetched {
  * `trusted` are origins the owner has already connected the caller to (its MCP servers): they are
  * fetched as they are. Any other address is fetched only when `open` is set, and then only over
  * https and never from a private or local address. Redirects are followed by the same rules.
+ * `headers` says what to send along to a trusted address (a server's key, for a link it gave).
  */
-export async function fetchToFile(o: { url: string; trusted: Set<string>; open: boolean | ((host: string) => string | true); allowPrivate?: boolean; maxBytes: number; timeoutMs?: number; signal?: AbortSignal }): Promise<Fetched> {
+export async function fetchToFile(o: { url: string; trusted: Set<string>; open: boolean | ((host: string) => string | true); allowPrivate?: boolean; maxBytes: number; timeoutMs?: number; signal?: AbortSignal; headers?: (url: URL) => Record<string, string> | undefined }): Promise<Fetched> {
 	const timeoutMs = o.timeoutMs ?? 120_000;
 	const check = (raw: string): { url: URL; trusted: boolean } => {
 		let url: URL;
@@ -110,7 +111,9 @@ export async function fetchToFile(o: { url: string; trusted: Set<string>; open: 
 		let { url, trusted } = check(o.url);
 		for (let hop = 0; hop < 6; hop++) {
 			allTrusted &&= trusted;
-			const res = await fetch(url, { ...(trusted ? {} : { dispatcher: guarded }), redirect: "manual", headers: { accept: "*/*", "user-agent": "pine" }, signal });
+			// `headers` is asked for every hop, and only for a trusted origin: what a server's key is
+			// sent with is decided by the caller per address, never carried along a redirect.
+			const res = await fetch(url, { ...(trusted ? {} : { dispatcher: guarded }), redirect: "manual", headers: { ...(trusted ? o.headers?.(url) : undefined), accept: "*/*", "user-agent": "pine" }, signal });
 			if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
 				await res.body?.cancel();
 				({ url, trusted } = check(new URL(res.headers.get("location")!, url).href));

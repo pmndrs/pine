@@ -353,7 +353,7 @@ Pictures are drawn in the conversation:
 - pictures that arrive with an event: a photo you send on Telegram, an image a camera saved
   into a watched folder,
 - pictures a tool returns: a browser screenshot, an image file the agent reads, an image from an
-  MCP server,
+  MCP server (the agent knows that you have seen these and does not show them again),
 - pictures the agent points at in its answer with `![caption](path)`, where the path is a file
   in its workspace (png, jpg, gif or webp).
 

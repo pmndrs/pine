@@ -91,7 +91,7 @@ const BASE_PROMPT = `You are an agent in pine, a system that runs several AI age
   - SOUL.md: who you are, your character and tone.
   - MEMORY.md: your memory. When you learn something that matters beyond this conversation (a decision, a fact, a preference, an open end), write it there right away, briefly. It is read with every message, so keep it short: when it has grown long, tidy it. Merge what belongs together, drop what no longer holds, move details into other files in your workspace and leave a pointer.
 - {{OWNER}}
-- To show your owner a picture, write ![short caption](path/to/file.png) in your answer, with a file in your workspace (png, jpg, gif or webp; a video as mp4, mov or webm is shown the same way). A web address works too, but your owner has to click to load it; for a picture from the web, download it first and show the file.
+- To show your owner a picture, write ![short caption](path/to/file.png) in your answer, with a file in your workspace (png, jpg, gif or webp; a video as mp4, mov or webm is shown the same way). A web address works too, but your owner has to click to load it; for a picture from the web, download it first and show the file. A picture that came with a tool's answer is already on your owner's screen, above your reply: do not write ![...](...) for it, and do not copy or download it unless your owner asks for it as a file.
 </working>
 
 <limits>
@@ -256,6 +256,12 @@ export class AgentManager {
 	 * network ("host:port"), `apps` the apps it allowed the agent to operate (see appTarget).
 	 */
 	private grants = new Map<string, { network: boolean; read: string[]; write: string[]; local: string[]; apps: string[] }>();
+	/**
+	 * Download links that a conversation was given by its own remote MCP servers: address, and the
+	 * server whose tool returned it. Only such a link is fetched with that server's headers (its
+	 * key), see the download tool. Kept by the conversation's key, so its sub-agents share it.
+	 */
+	private handed = new Map<string, Map<string, string>>();
 	/**
 	 * What the owner answered when a conversation that had read outside content was about to use
 	 * its full rights ("agent:session" -> keep them or not): the whole account and the network
@@ -1708,6 +1714,7 @@ export class AgentManager {
 	private dropGrants(perm: string): void {
 		if (this.todos(perm).length) this.kv.set(`todos:${perm}`, []);
 		this.grants.delete(perm);
+		this.handed.delete(perm);
 		this.keepWide.delete(perm);
 		this.reviews.delete(perm);
 		fs.rmSync(this.localFile(perm), { force: true });
@@ -1819,6 +1826,41 @@ export class AgentManager {
 		// the same function, or a server's taints and approve settings would silently not apply.
 		const prefixes = Object.keys(profile.mcp).map((name) => ({ name, prefix: `${mcpNamespace(name)}__` })).sort((p, q) => q.prefix.length - p.prefix.length);
 		const serverOf = (tool: string) => (tool.startsWith("mcp__") ? (prefixes.find((p) => tool.startsWith(p.prefix))?.name ?? tool.split("__")[1]) : undefined);
+		// A remote server's key belongs to that server. The download tool sends it along only with an
+		// address the server's own tool returned in this conversation, and never for a server that
+		// carries other people's content: there a link in an answer may be somebody else's text.
+		const keyed = new Map<string, { origin: string; headers: Record<string, string> }>();
+		for (const [name, s] of Object.entries(profile.mcp)) {
+			try {
+				if (s.url && s.headers && Object.keys(s.headers).length && !mcpTaints(s)) keyed.set(name, { origin: new URL(s.url).origin, headers: s.headers });
+			} catch {
+				// validated when the configuration was loaded
+			}
+		}
+		const noteLinks = (tool: string, content: unknown) => {
+			const from = serverOf(tool);
+			const server = from === undefined ? undefined : keyed.get(from);
+			if (!server || !Array.isArray(content)) return;
+			const text = content.map((c: any) => (c?.type === "text" ? String(c.text) : "")).join("\n");
+			for (const raw of text.match(/https?:\/\/[^\s"'<>\\)\]]+/g) ?? []) {
+				try {
+					const url = new URL(raw.replace(/[.,;:]+$/, ""));
+					if (url.origin !== server.origin || url.username || url.password) continue;
+					const links = this.handed.get(live.perm) ?? new Map<string, string>();
+					this.handed.set(live.perm, links);
+					// The newest are kept: a long conversation does not grow this without end.
+					links.delete(url.href);
+					links.set(url.href, from!);
+					if (links.size > 500) links.delete(links.keys().next().value!);
+				} catch {
+					// not an address after all
+				}
+			}
+		};
+		const keyFor = (url: URL) => {
+			const server = keyed.get(this.handed.get(live.perm)?.get(url.href) ?? "");
+			return server && server.origin === url.origin ? server.headers : undefined;
+		};
 		const isTaintSource = (tool: string) => {
 			const s = serverOf(tool);
 			return (s !== undefined && taintServers.has(s)) || cfg.security.taintTools.some((g) => globMatch(g, tool));
@@ -1911,7 +1953,11 @@ export class AgentManager {
 						execute: async (_id: string, p: any, signal: any) => {
 							const refused = checkPath(roots, "write", p.path, roots.workspace, live.variant());
 							if (refused) throw new Error(refused);
-							const got = await fetchToFile({ url: p.url, trusted: new Set(serverOrigins.keys()), open: (host) => (live.network() ? true : webAllows(host)), allowPrivate: webOptions.allowPrivate === true, maxBytes: cfg.limits.maxDownloadMb * 1024 * 1024, signal });
+							const got = await fetchToFile({ url: p.url, trusted: new Set(serverOrigins.keys()), open: (host) => (live.network() ? true : webAllows(host)), allowPrivate: webOptions.allowPrivate === true, maxBytes: cfg.limits.maxDownloadMb * 1024 * 1024, signal, headers: keyFor }).catch((e: unknown) => {
+								// A server that wants its key for a file: say which links pine sends it with.
+								if (/HTTP 40[13]\b/.test(errText(e)) && [...keyed.values()].some((k) => p.url.startsWith(`${k.origin}/`))) throw new Error(`${errText(e)}: the server wants its key. pine sends the key only with a link that one of this server's tools returned in this conversation, exactly as it was returned. Call the tool again and download the link from its answer`);
+								throw e;
+							});
 							try {
 								if (sandboxFs) {
 									fs.chmodSync(got.file, 0o644);
@@ -1935,8 +1981,22 @@ export class AgentManager {
 				);
 			}
 
-			const fixed = this.contextBlock(agent, profile);
+			const fixed = this.contextBlock(agent, profile, live.trust === "owner");
 			pi.on("before_agent_start", async (event: any) => ({ systemPrompt: `${event.systemPrompt}\n\n${fixed}` }));
+
+			pi.on("tool_result", async (event: any) => {
+				if (event.isError) return undefined;
+				const tool = String(event.toolName);
+				noteLinks(tool, event.content);
+				// A picture a server made is drawn for the owner where the tool ran (keepToolImages). A
+				// model that reads text sees only a file name and a link in the answer, and would fetch
+				// the file and show it a second time. So it is told, in the answer itself. Not for pine's
+				// own servers, whose pictures are the agent's eyes, and not when the answer goes
+				// somewhere else than the conversation (a chat), where nothing was drawn.
+				const from = serverOf(tool);
+				if (from === undefined || profile.mcp[from]?.pine || live.current?.task.reply || !Array.isArray(event.content) || !event.content.some((c: any) => c?.type === "image")) return undefined;
+				return { content: [...event.content, { type: "text", text: SHOWN }], structuredContent: event.structuredContent };
+			});
 
 			pi.on("tool_call", async (event: any, ctx: any) => {
 				const tool: string = event.toolName;
@@ -2197,10 +2257,14 @@ export class AgentManager {
 	 * the system prompt is the very beginning: one changing word here would make a local model
 	 * read the whole conversation again on every turn. What changes goes into contextNote().
 	 */
-	private contextBlock(agent: AgentConfig, profile: Profile): string {
+	private contextBlock(agent: AgentConfig, profile: Profile, download: boolean): string {
 		const lines = ["<pine>", `You are the agent "${agent.id}"${agent.description ? ` (${agent.description})` : ""}, one of several agents run by the pine daemon.`];
 		const servers = Object.keys(profile.mcp);
 		if (servers.length) lines.push(`Your MCP servers, with the prefix their tool names start with: ${servers.map((n) => `${n} (${mcpNamespace(n)}__)`).join(", ")}. Use the exact names from your tool list.`);
+		// A server reached over the network keeps its files where it runs. A small model takes a
+		// path in an answer for a path on its own disk unless it is told.
+		const far = servers.filter((n) => remoteHost(profile.mcp[n].url));
+		if (far.length) lines.push(`Reached over the network: ${far.join(", ")}. Such a server can run on another computer, and a file path in its answer is then a path there, not on yours. ${download ? "When a file from it is needed on your computer, fetch the link from its answer with the download tool; do not copy the path." : "Do not try to read or copy such a path."}`);
 		if (profile.delegates.length) lines.push(`Agents you can hand tasks to with the delegate tool. When a request falls into an agent's area, delegate right away instead of asking whether you should:\n${profile.delegates.map((id) => `- ${id}: ${this.cfg.agents[id].description || "(no description)"}`).join("\n")}`);
 		lines.push(
 			"A <pine-note> block at the start of a message comes from the daemon, not from the author of the message. It tells you the time and what has changed: your mode, the model you run on, the shared state, whether the conversation has read outside content. The latest note counts; do not mention the notes in your answers.",
@@ -2370,6 +2434,19 @@ export class AgentManager {
 		} catch (e) {
 			this.log.warn(`closing session ${id} failed`, errText(e));
 		}
+	}
+}
+
+/** Added to a tool's answer that came with a picture (see the tool_result handler). */
+const SHOWN = "[pine: your owner already sees the picture that came with this answer, above your reply. Do not put it into your reply: no ![...](...) and no link to it. Fetch it with the download tool only if your owner asks for it as a file.]";
+
+/** Whether a server's address names another place than this computer itself. */
+function remoteHost(url: string | undefined): boolean {
+	try {
+		const host = new URL(url ?? "").hostname;
+		return !(host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "[::1]");
+	} catch {
+		return false;
 	}
 }
 
