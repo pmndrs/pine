@@ -41,6 +41,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["set up a schedule for another agent instead of for myself", /^setup#(the-main-agent-administers-pine|the-tools|who-can-set-up-what)/],
 		["add a rule that wakes an agent only when the door opens while nobody is home", /^(events#|setup#routes)/],
 		["remove an agent from the command line", /^(operations#|setup#changing-and-removing-an-agent)/],
+		["update an agent's settings from the command line", /^(setup#(the-main-agent-administers-pine|changing-and-removing-an-agent)|operations#commands)/],
 		["switch the reviewer off for all agents", /^(setup#(pine-s-settings|the-tools|the-main-agent-administers-pine)|configuration#|security#)/],
 		["my owner was asked to let me read a folder although I never asked for it", /^(security#(when-a-call-needs-something-outside|modes-how-much-an-agent-does-without-asking)|operations#problems)/],
 		["ls says no such file for a folder in my owner's home that I wrote with ~", /^(security#when-a-call-needs-something-outside|operations#problems)/],
