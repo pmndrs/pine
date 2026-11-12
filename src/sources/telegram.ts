@@ -147,8 +147,16 @@ export default async function telegram(source: SourceApi): Promise<void> {
 		source.on("approval/requested", async (e) => {
 			const r = e.payload as any;
 			const chat = ownerChat();
+			if (chat === undefined) return;
+			// A question of the agent's with answers to pick from: one button each. (Their own words they type on their machine.)
+			if (r.tool === "question" && Array.isArray(r.choices) && r.choices.length) {
+				const rows = r.choices.slice(0, 6).map((c: string, i: number) => [{ text: truncate(String(c), 60), callback_data: `ap:${r.id}:c${i}` }]);
+				const msg = await send(chat, `${r.agent} asks:\n${truncate(String(r.summary), 1200)}`, { reply_markup: { inline_keyboard: [...rows, [{ text: "No answer", callback_data: `ap:${r.id}:0` }]] } });
+				if (msg?.message_id) asked.set(r.id, msg.message_id);
+				return;
+			}
 			// A question the owner answers by typing a secret belongs on their own machine, not in a chat.
-			if (chat === undefined || r.inputs?.length) return;
+			if (r.inputs?.length) return;
 			const always = r.remember ? [{ text: `Always: ${truncate(String(r.remember), 30)}`, callback_data: `ap:${r.id}:2` }] : [];
 			const msg = await send(chat, `Approval needed\nAgent: ${r.agent}${r.task ? ` (task #${r.task})` : ""}\nAction: ${truncate(String(r.summary), 1200)}\nWhy you are asked: ${r.why}`, { reply_markup: { inline_keyboard: [[{ text: "Allow", callback_data: `ap:${r.id}:1` }, ...always, { text: "Deny", callback_data: `ap:${r.id}:0` }]] } });
 			if (msg?.message_id) asked.set(r.id, msg.message_id);
@@ -157,7 +165,7 @@ export default async function telegram(source: SourceApi): Promise<void> {
 			const d = e.payload as any;
 			const messageId = asked.get(d.id);
 			asked.delete(d.id);
-			if (messageId) await api("editMessageReplyMarkup", { chat_id: ownerChat(), message_id: messageId, reply_markup: { inline_keyboard: [[{ text: d.allow ? `Allowed (${d.by})` : `Denied (${d.by})`, callback_data: "noop" }]] } }).catch(() => {});
+			if (messageId) await api("editMessageReplyMarkup", { chat_id: ownerChat(), message_id: messageId, reply_markup: { inline_keyboard: [[{ text: d.tool === "question" ? (d.allow ? `Answered (${d.by})` : `No answer (${d.by})`) : d.allow ? `Allowed (${d.by})` : `Denied (${d.by})`, callback_data: "noop" }]] } }).catch(() => {});
 		});
 	}
 
@@ -236,8 +244,12 @@ export default async function telegram(source: SourceApi): Promise<void> {
 
 	const onCallback = async (c: any) => {
 		const userId = Number(c.from?.id);
-		const m = String(c.data ?? "").match(/^ap:(\w+):([012])$/);
+		const m = String(c.data ?? "").match(/^ap:(\w+):([012]|c\d)$/);
 		if (!heard(userId) || !m) return void api("answerCallbackQuery", { callback_query_id: c.id }).catch(() => {});
+		if (m[2].startsWith("c")) {
+			const chosen = source.approvals.choose(m[1], Number(m[2].slice(1)), `telegram:${userId}`);
+			return void api("answerCallbackQuery", { callback_query_id: c.id, text: chosen ? "Answered" : "Already answered or expired" }).catch(() => {});
+		}
 		const ok = source.approvals.decide(m[1], m[2] !== "0", `telegram:${userId}`, m[2] === "2");
 		await api("answerCallbackQuery", { callback_query_id: c.id, text: ok ? (m[2] === "0" ? "Denied" : m[2] === "2" ? "Allowed for this conversation" : "Allowed") : "Already answered or expired" }).catch(() => {});
 	};

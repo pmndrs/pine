@@ -51,7 +51,7 @@ Talking to a running daemon
   pine approvals                  open approval requests
   pine approve <id> [--always] | pine deny <id>     --always: do not ask again in that conversation
   pine reset <agent> [session]    forget a conversation (also clears its taint)
-  pine mode <agent> [manual|auto|bypass]
+  pine mode <agent> [auto|plan|manual|bypass]
                                   show or change how much an agent may do without asking
 
 Event sources
@@ -561,7 +561,7 @@ async function main(): Promise<void> {
 		case "deny":
 			return out(await api.post(`/approvals/${rest[0]}`, { allow: cmd === "approve", always: flags.always === true }));
 		case "mode": {
-			if (!rest[0]) throw new Error("usage: pine mode <agent> [manual|auto|bypass]");
+			if (!rest[0]) throw new Error("usage: pine mode <agent> [auto|plan|manual|bypass]");
 			if (rest[1]) return out(await api.post(`/agents/${rest[0]}/mode`, { mode: rest[1] }));
 			const agent = ((await api.get("/agents")) as any[]).find((a) => a.id === rest[0]);
 			if (!agent) throw new Error(`unknown agent "${rest[0]}"`);

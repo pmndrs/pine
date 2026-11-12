@@ -172,7 +172,10 @@ events use a twin of the session with `~u` appended,
 so they never see or extend your own conversation.
 
 Tasks for one session queue up. With `"whenBusy": "steer"` on a route, a new message is instead
-shown to the agent in the middle of what it is doing.
+shown to the agent in the middle of what it is doing: it reads it at its next step. The terminal
+UI sends your own messages this way (`alt+enter` makes one wait its turn). A steered message
+that the work did not get to read, because it ended or was stopped first, is answered next as
+work of its own.
 
 `pine reset <agent> [session]` (or `/reset` in the terminal UI) starts a session
 over. The old history is kept on disk next to it with a `.reset-<time>` suffix for
@@ -186,6 +189,72 @@ conversation: one you opened in the terminal UI, a delegation thread's, one a ro
 conversations in the terminal UI; see [tui.md](tui.md)), or set `limits.conversationDays` to
 `0` to keep them all. Everything that was set up for one conversation alone goes with it: its
 event sources and subscriptions, schedules, MCP servers and skills ([setup.md](setup.md)).
+
+## Goal mode
+
+Normally an agent ends its turn and waits for your next message, also when the work is not
+finished: "the first part is done, shall I go on?". With a goal it keeps working by itself.
+You say once what should be reached, and pine calls the agent again each time it ends a turn,
+until the objective is met:
+
+```
+/goal all tests in ~/dev/shop pass and the README says how to run them
+```
+
+That is typed in the terminal UI, in the conversation that should do the work. The objective
+is sent as your message, and from then on:
+
+1. The agent works and ends its turn, as always. That is one **round**.
+2. pine asks a **judge** one question: is the objective met? The judge is a short model call
+   without tools. It is shown your objective and the agent's last answer, and replies with one
+   word and one line of reason.
+3. `continue`: the agent is called again in the same conversation, with your objective and the
+   note that it is not met yet. `met`: the goal is done. `blocked`: the agent needs something
+   only you can give (a decision, a sign-in, an approval that was refused), and the goal stops
+   until you have answered and typed `/goal resume`.
+
+The conversation shows a line for each verdict with the judge's reason, and the status line
+shows the round the goal is in.
+
+| Command | What it does |
+|---|---|
+| `/goal <objective>` | Sets the goal of this conversation and starts on it. A goal that was there is replaced. At most 2000 characters: put details into a file and name the file. |
+| `/goal` | Shows the goal and where it stands: the round, the last verdict and its reason. |
+| `/goal pause` | No further rounds. A round that is running ends by itself; `esc` stops it at once. |
+| `/goal resume` | Goes on with a goal that stopped: paused, blocked, at its limit, or called met too early. |
+| `/goal clear` | Takes the goal off the conversation. |
+
+A goal stops by itself, and says why, in these cases:
+
+| What happened | What the goal does |
+|---|---|
+| The judge says "met" | It is done. `/goal resume` if you do not agree. |
+| The judge says "blocked" | It stops. Answer what the agent asked, then `/goal resume`. |
+| The judge gave no verdict (it did not answer in time, or not with one of the three words) | It is paused. No verdict never counts as "go on". |
+| It has had its rounds | It stops after `limits.goalRounds` rounds (20). `/goal resume` gives it as many again. |
+| Several rounds in a row ended "not met" without a single tool call | It is paused after `limits.goalIdleRounds` such rounds (3): the agent is going in circles. |
+| You wrote a message of your own in the conversation, typed or through Telegram | It is paused, so that your message is not overruled by the next round. |
+| You stopped the agent (esc, `/stop`), or a round failed | It is paused. |
+| pine was stopped or restarted | It is paused. The goal itself is kept; nothing goes on unseen after a restart. |
+| The conversation was reset or removed | The goal is gone with it. |
+
+A goal belongs to one conversation and is kept in pine's store, so it is still there after a
+restart. Only you set one: there is no tool for it, so an agent cannot give itself a goal, more
+rounds, or a different objective. If your owner asks you, as an agent, to "keep going until it
+is done", tell them to type `/goal` with what they want reached. Other programs use
+`POST /agents/<id>/goal` of the control API ([operations.md](operations.md)).
+
+The judge uses the model in `security.reviewer` if one is set, else the agent's own, and the
+time limit `security.reviewTimeout`. It is not the reviewer of risky actions: it only decides
+whether the agent is called again. What the agent may do in a round is decided as in any other
+task, by its mode, the approvals and the reviewer ([security.md](security.md), "A goal goes on
+in your name").
+
+On a local model each round costs a full turn, and the judge's call pushes the agent's
+conversation out of a model server's cache unless the judge has a model of its own
+(`security.reviewer`). Say in the objective how to tell that it is reached ("the tests pass",
+"the file exists and has all twelve entries"): the judge sees only the agent's answer, not the
+files.
 
 ## Handing work to another agent
 

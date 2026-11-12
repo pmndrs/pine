@@ -273,6 +273,41 @@ test("manual mode: looking is free, every action waits for the owner", async () 
 	await h.close();
 });
 
+test("plan mode: the agent looks and reads, nothing is changed, run or sent, nobody is asked, and leaving it is said", async () => {
+	const h = await harness({ agents: { main: { agent: { mode: "plan" }, files: { "a.txt": "content\n" } } } });
+	const asked = answering(h, () => true);
+	const acts = [
+		call("read", { path: "a.txt" }),
+		call("bash", { command: "cat a.txt" }),
+		call("bash", { command: "echo changed > a.txt" }),
+		call("write", { path: "new.txt", content: "x" }),
+		call("edit", { path: "a.txt", oldText: "content", newText: "other" }),
+		call("state_set", { key: "agent/main/x", value: "1" }),
+	];
+	const r = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: acts }, { text: "PLAN: first this, then that." }]), trust: "owner" });
+	const out = h.toolResults();
+	assert.ok(out[0].includes("content") && out[1].includes("content"), `looking works: ${out.slice(0, 2).join(" | ")}`);
+	for (const refusal of out.slice(2)) assert.match(refusal, /^Not done: you are in plan mode\./, out.join(" | "));
+	assert.equal(out.length, 6);
+	assert.deepEqual(asked, [], "a call that would act is not put to the owner");
+	assert.equal(fs.readFileSync(path.join(h.workspace("main"), "a.txt"), "utf8"), "content\n");
+	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "new.txt")));
+	assert.match(notesOf(h.mock.state.requests[0])[0], /Mode: plan\. Your owner wants a plan first, not the work\./);
+	assert.equal(r.text, "PLAN: first this, then that.");
+
+	// A run started from outside is held to it as well.
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("write", { path: "from-outside.txt", content: "x" })] }]), trust: "untrusted" });
+	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "from-outside.txt")));
+
+	// The owner switches it off: the agent is told so, and the same call now runs.
+	h.pine.agents.setMode("main", "auto");
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("write", { path: "new.txt", content: "x" })] }]), trust: "owner" });
+	assert.ok(fs.existsSync(path.join(h.workspace("main"), "new.txt")));
+	const told = h.mock.state.requests.flatMap((q: any) => notesOf(q)).join("\n");
+	assert.ok(told.includes("Plan mode is over: your owner has switched it off. Carry out what was planned"), told);
+	await h.close();
+});
+
 test("bypass mode: no questions and the whole account, but never pine's own home or code", mac, async (t) => {
 	const dir = elsewhere(t);
 	const h = await harness({ agents: { main: { agent: { mode: "bypass", approve: ["bash:*rm *"], publish: ["out/#"] } } } });

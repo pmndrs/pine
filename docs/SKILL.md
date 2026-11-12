@@ -130,11 +130,11 @@ hand work to the agents listed in your prompt, and write shared state under your
 |---|---|
 | See what an agent is given (events, schedules, MCP servers, skills) and how events, tasks and sessions fit together | [references/overview.md](references/overview.md) |
 | Chat with agents in the terminal: tabs, slash commands, approvals, switching models | [references/tui.md](references/tui.md) |
-| Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output | [references/coding.md](references/coding.md) |
+| Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output, what an agent left running, what it runs in the background, and taking a message back with `/undo` and `/redo` | [references/coding.md](references/coding.md) |
 | Install it, start it, use the CLI, run it at login, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
 | Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types | [references/setup.md](references/setup.md) |
-| Add an agent, give it a workspace, tools and a persona; skills; how agents look pine up (the `manual` tool); delegation, sub-agents, sessions, shared state | [references/agents.md](references/agents.md) |
+| Add an agent, give it a workspace, tools and a persona; skills; how agents look pine up (the `manual` tool); delegation, sub-agents, sessions, goal mode (`/goal`: working until an objective is met), shared state | [references/agents.md](references/agents.md) |
 | Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
 | Have something done at a time (schedules); write rules for events yourself: set state, publish, single model calls, debounce | [references/events.md](references/events.md) |
 | Add MCP servers globally or per agent; web search, page reading and the bundled browser; turn shell commands into tools | [references/mcp.md](references/mcp.md) |
@@ -207,6 +207,7 @@ pine start
 | route | A rule in `pine.json` that reacts to topics |
 | source | A named thing that reports events from outside: a folder, an MQTT broker, a web address, a command, a webhook, an FTP drop, a Telegram bot. It runs only while something is subscribed to it (or always, with `"start": "always"`) |
 | schedule | Something done at a time: at set times, every so often, or once. With a task it wakes an agent to do it |
+| goal | An objective you give a conversation with `/goal`: the agent is called again, round after round, until a judge says it is met |
 | subscription | A conversation of an agent listens to a source: each event arrives there as a message and wakes the agent |
 | task | One piece of work for one agent; has a status, a result and statistics |
 | session | A conversation of one agent with history. The manual also says "conversation". Named ones are kept until removed (unused ones after `limits.conversationDays`); `new` is one-off |

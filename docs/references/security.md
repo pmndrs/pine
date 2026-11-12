@@ -167,6 +167,7 @@ What differs from macOS:
 | Programs on the same machine (the session bus, the keyring, a container daemon, a terminal multiplexer, an editor's helper) | Without the network, no connection of any kind. Keychain, clipboard, AppleScript and launching apps are refused by name, also with the network | Without the network a command cannot make a socket to another program (a system call filter, on x86-64 and arm64; programs built for 32 bit do not run then). The session's folder (`/run/user`) is empty and the sockets in `/run` are covered, also with the network |
 | With the network granted | Addresses only: the internet and your local network. Socket files stay closed, except in the agent's own folders (not the shared temp folder), where its own programs talk to each other | Also programs that listen on a socket file where the agent can read outside `/run` (a tmux server or an ssh agent in the temp folder), and those that listen on a socket without a file (an X server does) |
 | Processes a command leaves in the background | Not ended by the sandbox ([coding.md](coding.md) says where they show) | The same for an agent that works with your account. In the workspace sandbox they end with the command: its processes are a group of their own that ends with it |
+| A command started in the background in a conversation that has read outside content | Runs with the same limits as one that is waited for | Refused. What such a command may not create is taken away when the command ends, and that is no protection while a command runs for hours. The agent runs it without `background` |
 | pine run as root | Commands run as root | Commands run as root without root's special powers (capabilities), which they could otherwise use to undo the sandbox |
 
 The file tools refuse a protected name at any depth on both systems; the rows above about
@@ -377,7 +378,9 @@ example), until the conversation is reset or the daemon restarts. Three things t
 
 Taint lasts for the life of the session (`security.taint: "session"`), because the text is still
 in the context. `/reset` in the terminal UI, or `pine reset`, clears it along with the
-conversation.
+conversation. `/undo` clears it only when the message that is taken back is the one that
+brought the outside content in: that text then leaves the context with the message, and
+what you allowed the conversation while the message was worked on is taken back too.
 `"run"` forgets it after each task, which is more convenient and weaker. `"off"` means no tool
 call marks a conversation at all: what a subscribed source reports then arrives with full tools
 and no questions, and an agent with your whole account is never asked whether it keeps it. Runs that an outside event started stay restricted in every setting.
@@ -534,6 +537,15 @@ Two ways to have bypass regardless:
 With either, the guards on instruction files and git settings (layer 4) no longer hold in that
 conversation: they are part of the sandbox that bypass lifts.
 
+**Plan mode** is a fourth mode, for a different question: not how much the agent may do, but
+whether it does anything yet. In `plan` the gate lets through what only looks (reading files,
+searching, read-only shell commands such as `ls`, `cat`, `git status`, the web tools, the
+manual) and refuses everything else with a fixed sentence, without asking you. The agent is
+told so with every message, answers with a plan, and is told again when you switch the mode
+off. A run started from outside is held to it too. Plan mode is a way of working, not a wall:
+which shell command only looks is decided by what the command is, and the sandbox is the same
+as in `auto`. What holds an agent that is not to be trusted is the sandbox, not the mode.
+
 Set the mode where it should last, or switch it while running:
 
 ```json
@@ -595,6 +607,30 @@ nothing is marked as outside content. So a schedule must really be your wish:
   shows all of them with their tasks; an agent's `schedules` tool shows its own and those for
   all agents.
 
+### A goal goes on in your name
+
+With `/goal` an agent is called again and again until an objective is met ("Goal mode" in
+[agents.md](agents.md)). Each of those calls counts as your wish, like a schedule. So what may
+start one is narrow:
+
+- Only you set a goal, pause it, resume it or clear it, through the terminal UI or the control
+  API. No tool reaches it: an agent cannot give itself a goal, more rounds or another objective.
+- What calls the agent again is your objective, word for word, inside fixed text of pine's.
+  Nothing the agent wrote and nothing the judge said is in it. The agent's answer may repeat
+  what a web page told it; put into the next round's message, that text would speak with your
+  voice. The judge's reason is shown to you instead.
+- The judge reads the agent's answer, so text from outside can reach it. All it can do with
+  that is say one of three words. A wrong "met" or "blocked" stops the work; a wrong "continue"
+  costs rounds, of which there are at most `limits.goalRounds` before you are needed again.
+  No verdict at all pauses the goal.
+- A run started from outside has no goal: it works in the `~u` twin of a conversation, where
+  none can be set, and its end is never judged or continued.
+- A goal changes nothing about what an agent may do. In every round its mode, your approvals
+  and the reviewer apply as in any other task; a conversation that has read outside content
+  stays marked through all rounds.
+- Nothing goes on unseen: your own message, `esc`, a failed round and a restart of pine each
+  pause the goal until you say `/goal resume`.
+
 ### 8. Skills are instructions
 
 A skill is read into an agent's prompt (its name and description) and followed when a task
@@ -639,7 +675,7 @@ may use at all. Agents cannot publish on pine's own topics (`agent/`, `approval/
 ### 11. Limits against runaway behaviour
 
 Delegation depth and loops, event hops, queue length per agent, task and shell time limits,
-prompt size for untrusted events: all in [configuration.md](configuration.md). The webhook
+prompt size for untrusted events, the rounds of a goal: all in [configuration.md](configuration.md). The webhook
 rate is fixed at 120 requests a minute per hook.
 
 ## A layout that keeps the pieces apart

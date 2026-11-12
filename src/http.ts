@@ -5,7 +5,7 @@ import { mainAgentId, type PineConfig } from "./config.ts";
 import { type Approvals, timingSafeEqual } from "./security.ts";
 import type { Bus, State, TaskStore } from "./store.ts";
 import { addServer, listServers, removeServer } from "./mcp-config.ts";
-import { changes, diffOf, listDir, readText } from "./workspace-view.ts";
+import { changes, diffOf, listDir, readText, findFiles } from "./workspace-view.ts";
 import type { SourceHost } from "./sources.ts";
 import { errText, type Logger, topicMatches } from "./util.ts";
 
@@ -132,19 +132,36 @@ export class HttpServer {
 					return send(200, this.manager.programsOf(parts[1], q.get("session") ?? "main"));
 				}
 				// What the reviewer blocked in a conversation, for a UI to show and the owner to allow.
+				if (parts[0] === "agents" && parts[2] === "todos" && parts.length === 3) {
+					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+					return send(200, this.manager.todosOf(parts[1], q.get("session") ?? "main"));
+				}
 				if (parts[0] === "agents" && parts[2] === "blocked" && parts.length === 3) {
 					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 					return send(200, this.manager.blockedOf(parts[1], q.get("session") ?? "main"));
+				}
+				// The goal the owner set for a conversation, and where it stands.
+				if (parts[0] === "agents" && parts[2] === "goal" && parts.length === 3) {
+					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+					return send(200, { goal: this.manager.goals.get(parts[1], q.get("session") ?? "main") });
 				}
 				if (parts[0] === "agents" && parts[2] === "folders" && parts.length === 3) {
 					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 					return send(200, this.manager.folders(parts[1]));
 				}
+				// What the owner's last message in a conversation changed in its folder (src/undo.ts).
+				if (parts[0] === "agents" && parts[2] === "view" && (parts[3] === "turn" || parts[3] === "turndiff") && parts.length === 4) {
+					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+					const session = q.get("session") ?? "main";
+					const found = parts[3] === "turn" ? await this.manager.lastTurn(parts[1], session) : await this.manager.lastTurnDiff(parts[1], session, q.get("path") ?? "");
+					if (!found) throw new HttpError(404, "nothing there");
+					return send(200, found);
+				}
 				if (parts[0] === "agents" && parts[2] === "view" && parts.length === 4) {
 					const root = this.manager.viewRoot(parts[1], q.get("session") ?? "main");
 					if (!root) throw new HttpError(404, "no such agent");
 					const rel = q.get("path") ?? "";
-					const found = parts[3] === "changes" ? { root, ...(await changes(root)) } : parts[3] === "diff" ? await diffOf(root, rel) : parts[3] === "tree" ? listDir(root, rel) : parts[3] === "file" ? readText(root, rel) : undefined;
+					const found = parts[3] === "find" ? { files: await findFiles(root, (q.get("q") ?? "").slice(0, 200)) } : parts[3] === "changes" ? { root, ...(await changes(root)) } : parts[3] === "diff" ? await diffOf(root, rel) : parts[3] === "tree" ? listDir(root, rel) : parts[3] === "file" ? readText(root, rel) : undefined;
 					if (!found) throw new HttpError(404, "nothing there");
 					return send(200, found);
 				}
@@ -178,8 +195,9 @@ export class HttpServer {
 			}
 			if (parts[0] === "agents" && parts[2] === "prompt" && parts.length === 3) {
 				if (typeof body.prompt !== "string" || !body.prompt) throw new HttpError(400, "prompt required");
-				const task = this.manager.submit({ agent: parts[1], prompt: body.prompt, session: body.session, trust: "owner", kind: "prompt", priority: 10, attachments: Array.isArray(body.attachments) ? body.attachments : undefined });
-				if (body.wait === false) return send(202, { task: task.id });
+				// "steer": if the conversation is working, the message goes into that work instead of waiting behind it.
+				const task = this.manager.submit({ agent: parts[1], prompt: body.prompt, session: body.session, trust: "owner", kind: "prompt", priority: 10, attachments: Array.isArray(body.attachments) ? body.attachments : undefined, whenBusy: body.whenBusy === "steer" ? "steer" : undefined, mentions: Array.isArray(body.mentions) ? body.mentions : undefined });
+				if (body.wait === false) return send(202, { task: task.id, steered: task.meta.steered });
 				res.setTimeout(0);
 				req.on("close", () => !res.writableEnded && body.cancelOnDisconnect && this.manager.cancel(task.id));
 				return send(200, await this.manager.wait(task.id));
@@ -211,6 +229,7 @@ export class HttpServer {
 				this.manager.setMode(parts[1], body.mode, body.anyway === true && typeof body.session === "string" ? body.session : undefined);
 				return send(200, { mode: body.mode });
 			}
+			if (parts[0] === "agents" && parts[2] === "compact" && parts.length === 3) return send(202, { task: this.manager.compact(parts[1], typeof body.session === "string" ? body.session : "main").id });
 			if (parts[0] === "agents" && parts[2] === "thinking" && parts.length === 3) {
 				this.manager.setThinking(parts[1], String(body.level));
 				return send(200, { level: body.level });
@@ -252,7 +271,7 @@ export class HttpServer {
 				return send(200, { unsubscribed: (await this.sources?.closeSession(parts[1], String(body.session ?? ""))) ?? [] });
 			}
 			// The tabs a UI has open, kept so that it opens with the same ones next time.
-			if (url.pathname === "/ui/tabs") return send(200, (this.manager.saveUiTabs(body.tabs, body.active, body.code), { ok: true }));
+			if (url.pathname === "/ui/tabs") return send(200, (this.manager.saveUiTabs(body.tabs, body.active, body.code, body.notify), { ok: true }));
 			if (parts[0] === "agents" && parts[2] === "folder" && parts.length === 3) {
 				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 				try {
@@ -272,6 +291,22 @@ export class HttpServer {
 					throw new HttpError(409, errText(e));
 				}
 			}
+			// Goal mode. This is the only way to a goal, and it is the owner's, like the folder of a conversation: no tool reaches it.
+			if (parts[0] === "agents" && parts[2] === "goal" && parts.length === 3) {
+				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+				const session = String(body.session ?? "main");
+				const goals = this.manager.goals;
+				try {
+					if (body.action === "pause") return send(200, { goal: goals.pause(parts[1], session) });
+					if (body.action === "resume") return send(200, { goal: goals.resume(parts[1], session) });
+					if (body.action === "clear") return send(200, { cleared: goals.clear(parts[1], session) });
+					if (body.action !== undefined) throw new Error("action is pause, resume or clear; to set a goal send objective");
+					if (typeof body.objective !== "string") throw new Error("objective required: what should be reached");
+					return send(200, { goal: goals.set(parts[1], session, body.objective) });
+				} catch (e) {
+					throw new HttpError(400, errText(e));
+				}
+			}
 			if (parts[0] === "agents" && parts[2] === "blocked" && parts[3] === "allow" && parts.length === 4) {
 				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 				return send(200, { allowed: this.manager.allowBlocked(parts[1], String(body.session ?? "main"), String(body.id ?? "")) });
@@ -279,6 +314,15 @@ export class HttpServer {
 			if (parts[0] === "agents" && parts[2] === "programs" && parts[3] === "stop" && parts.length === 4) {
 				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 				return send(200, { stopped: this.manager.stopProgram(parts[1], String(body.session ?? "main"), Number(body.id)) });
+			}
+			// The owner takes back their last message in a conversation, or brings it back. Only here: no agent has a tool for it.
+			if (parts[0] === "agents" && (parts[2] === "undo" || parts[2] === "redo") && parts.length === 3) {
+				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+				try {
+					return send(200, await this.manager[parts[2]](parts[1], String(body.session ?? "main")));
+				} catch (e) {
+					throw new HttpError(409, errText(e));
+				}
 			}
 			if (parts[0] === "agents" && parts[2] === "reset" && parts.length === 3) return send(200, { reset: await this.manager.resetSession(parts[1], body.session) });
 			if (parts[0] === "tasks" && parts[2] === "cancel" && parts.length === 3) return send(200, { cancelled: this.manager.cancel(Number(parts[1])) });

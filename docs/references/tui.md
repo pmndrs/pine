@@ -52,7 +52,7 @@ Everything in the two bars reacts to a click.
 | `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output, what the agent left running, and what the reviewer blocked. In the pane: its five views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
 | The model | The models you have credentials for |
 | `reasoning <level>` | How much the model thinks before answering: off, minimal, low, medium, high, xhigh, max |
-| The mode (`auto`, `manual`, `bypass`) | The three modes |
+| The mode (`auto`, `plan`, `manual`, `bypass`) | The four modes |
 | A button in an approval dialog | Allow once, Always here, Deny or Later |
 | Anywhere beside an open list or dialog | It closes (an approval stays open for later). The click does nothing else |
 | A `▸ thinking` or `▸ thought for` line, or the lines under it | What the model thought opens in full. A click anywhere on the open text closes it again. See [What a model thinks](#what-a-model-thinks) |
@@ -83,6 +83,24 @@ Because the UI uses the mouse, dragging over text selects and copies it through 
 Option (Terminal, iTerm) or Shift (most others) while dragging to use the terminal's own
 selection instead.
 
+## Pointing at a file
+
+Type `@` and a few letters in a message: a list offers the files of the folder the conversation
+works in (the folder you opened for it, else the agent's workspace) whose name fits, the best
+match first. Letters in order are enough: `@agts` finds `src/agents.ts`. `enter` or `tab` takes
+one. Add lines by hand if you mean a part of it: `@src/agents.ts#120-160`, or `#120` for one
+line.
+
+| What you write | What the agent gets |
+|---|---|
+| `@src/agents.ts` | Your message as written, and a line from pine after it that names the file and tells the agent to read it before answering |
+| `@src/agents.ts#120-160` | The same, with the lines |
+| `@somebody` in a sentence | Nothing extra: only a name the list offered counts as a file |
+
+The file itself is not attached: the agent reads it with its own tools, in its sandbox. In a
+git repository the list holds what git knows or would add (ignored files are left out);
+elsewhere hidden folders and `node_modules` are skipped.
+
 ## Attachments
 
 Drag files from Finder onto the terminal. They appear above the input:
@@ -92,7 +110,9 @@ Drag files from Finder onto the terminal. They appear above the input:
 ```
 
 and go out with your next message. `/attach <path>` does the same from the keyboard,
-`/detach` removes them all, `/detach 2` the second.
+`/detach` removes them all, `/detach 2` the second. `/paste` attaches the picture that is on
+the clipboard, a screenshot for example (a terminal's own paste carries text only); `ctrl+v`
+does the same in terminals that pass that key on.
 
 What the agent gets: the files are saved into `inbox/` in its workspace, the message says which
 files arrived, and images are also shown to the model directly if the model accepts images. Up
@@ -160,9 +180,16 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/rename <name>` | Another name for this conversation and its tab. Its history, pin and subscriptions go with it. Not for an agent's main conversation |
 | `/pin`, `/unpin` | Keep this conversation however long it is unused, or let it go again |
 | `/reset` | Forget this conversation and start fresh (also clears "has seen outside content") |
+| `/undo` | Take back your last message: what it started is stopped, the files it changed in the conversation's folder are restored, the conversation forgets it and what followed, and its text is in the input again to change and send. Again for the message before it. See [coding.md](coding.md) for what is and is not restored |
+| `/redo` | Bring back what the last `/undo` took, files and conversation. Works until you send a new message |
+| `/compact` | Shorten this conversation: its earlier part becomes a summary the model writes, the most recent part stays as it is. Frees the model's context without forgetting what was agreed; useful with a small local model. It waits its turn like a message. pi also does this by itself when the context fills up |
+| `/notify [on\|off]` | A bell and a notification when the agent is done, stops with an error or needs your approval while the terminal's window is not in front. On by default; the setting is remembered. The notification goes through the terminal (Ghostty, iTerm, Kitty and others show it as a system notification; Terminal.app only rings the bell). Its text is pine's own ("pine: main is done"), never the agent's |
+| `/copy` | Copy the agent's last answer to the clipboard, as it wrote it (Markdown) |
+| `/export [copy] [full]` | Save this conversation as a Markdown file in the folder pine was started in (`pine-<agent>-<conversation>-<date>.md`). `copy` puts it on the clipboard instead; `full` adds what the agent thought and which tools it called |
 | `/folder [path\|none]` | Open a folder of yours for this conversation: the agent's tools start there and may read and change it. `none` closes it again; without an argument, a list. See [coding.md](coding.md) |
-| `/code [changes\|files\|output\|running\|blocked\|off]` | Open the code pane beside the conversation, on that view; without an argument it opens and closes |
+| `/code [changes\|turn\|files\|output\|running\|blocked\|off]` | Open the code pane beside the conversation, on that view; without an argument it opens and closes. `turn` shows what your last message changed |
 | `/stop` | Stop what the agent is doing |
+| `/goal [objective\|pause\|resume\|clear]` | Goal mode: with an objective, the agent keeps working by itself, round after round, until a judge says the objective is met. Without an argument it shows the goal and where it stands; `pause`, `resume` and `clear` do what they say. See "Goals" below |
 | `/model [provider/id]` | Switch the agent's model. Without an argument, a list to search and pick from; or type a few letters after it: `/model deepseek` |
 | `/reasoning [level]` | Set how much the model thinks before answering; without an argument, choose from a list. Saved like the model. A model that cannot reason ignores it |
 | `/mode [manual\|auto\|bypass]` | Set how much this agent does without asking; without an argument, choose from a list |
@@ -184,15 +211,49 @@ A model you pick is saved as that agent's model (`model` in its `agent.json`) an
 after a restart. A mode is different on purpose: it lasts until the daemon restarts, so an agent
 never comes back up in bypass unless its `agent.json` says so.
 
+## Goals
+
+`/goal <objective>` gives the conversation a goal: the objective goes out as your message, and
+each time the agent ends a turn pine asks a judge whether the objective is met and, if not,
+calls the agent again. You do not have to answer "shall I go on?". How it works, when it stops
+and what limits it has is in [agents.md](agents.md), "Goal mode".
+
+While a goal is being worked on, the status line starts with it:
+
+```
+ ⠹ goal · round 3 of 20 · working · 41s · 6 tool calls · esc to stop
+ ◎ goal · round 3 of 20 · checking whether it is met · esc to pause
+```
+
+and the conversation gets a line for every verdict, with the judge's reason under it:
+
+```
+ ◎ goal set: main works on it until it is met, for at most 20 rounds
+ ◎ goal not met yet: round 2 of 20 starts
+   the tests were not run
+ ‖ goal stopped after 2 rounds: main needs something from you. Answer it, then /goal resume
+   it needs to know which of the two databases to migrate
+ ✓ goal met after 4 rounds
+   all tests pass and the README has the command
+```
+
+`‖` is a goal that waits for you: paused, blocked, or at its limit. `/goal resume` goes on,
+`/goal clear` takes it off. `esc` stops the round that is running and pauses the goal (between
+two rounds, while the judge is asked, it pauses the goal before the next one starts), and so
+does a message you type: write what you have to say, then `/goal resume`. The judge's reason is
+shown to you and never to the agent. The UI only asks the daemon: a goal set here is the same
+one another UI on the same daemon shows.
+
 ## Keys
 
 | Key | Does |
 |---|---|
-| `enter` | Send |
+| `enter` | Send. While the agent is working, the message is given to that work and read at its next step, so a correction lands without stopping anything. If the work ends or is stopped before reading it, it is answered next |
+| `alt+enter` | Send, but let the message wait its turn: it is answered as work of its own when the agent is done with what it is doing |
 | `shift+enter` | New line |
 | `up` / `down` | Earlier inputs |
-| `esc` | Stop what the agent is doing; the conversation shows `■ stopped`. A message you typed while it worked is not stopped with it: it is answered next, and for three seconds a second `esc` leaves it alone (the status line says so). After that `esc` stops it like anything else. While a list or dialog is open, `esc` only closes that |
-| `shift+tab` | Next mode for this agent: auto, manual, bypass (while the input is empty) |
+| `esc` | Stop what the agent is doing; the conversation shows `■ stopped`. A goal that was being worked on is paused (`/goal resume` goes on). A message you typed while it worked is not stopped with it: it is answered next, and for three seconds a second `esc` leaves it alone (the status line says so). After that `esc` stops it like anything else. While a list or dialog is open, `esc` only closes that |
+| `shift+tab` | Next mode for this agent: auto, plan, manual, bypass (while the input is empty) |
 | `tab` | Next tab (while the input is empty) |
 | `alt+1` ... `alt+9` | Go to that tab |
 | `ctrl+t`, `ctrl+w` | New conversation; close the tab |
@@ -208,6 +269,7 @@ The bottom bar shows the agent's mode; click it, press `shift+tab`, or use `/mod
 | Mode | What you will notice |
 |---|---|
 | `auto` | The agent works without asking. The main agent has your whole account and the network, and keeps them after reading the web. From then on a reviewer checks what reaches out, sends something or changes the agent's memory; what it blocks is listed under Blocked in the code pane, and you are asked only when it keeps blocking. Another agent asks when it wants something outside its workspace ("read access to ~/dev/gonzo, reason: ..."). Any agent asks, after outside content, before it sends something out or acts on the world |
+| `plan` | The agent looks, reads, searches the web and asks, and changes nothing: no file is written, no command that changes something runs, nothing is sent, and you are not asked about any of it. Its answer is a plan. Read it, say what should be different, then switch to `auto` (`shift+tab`): the agent is told that planning is over and carries it out. Good with a small model: you see what it is about to do before it does it. Shown in magenta |
 | `manual` | A dialog before every command, edit or message, until you answer "Always here" for that tool or server |
 | `bypass` | No dialogs. The agent can read and change files anywhere in your account and use the network. Shown in red |
 
@@ -242,6 +304,22 @@ button to click.
 
 If Telegram is set up, the same request arrives there too; whichever answer comes first counts.
 A request with a field to fill in is not sent to Telegram.
+
+### The agent's list of steps
+
+For work with several steps an agent can keep a list (its `todo` tool). It appears in the
+conversation and is updated in place: `✓` done, `◐` in work, `☐` still to do, with a count
+above it; the status line says `step 2 of 5` while the agent works. The list belongs to the
+conversation: it is still there when the UI opens again, the agent is reminded of what is open
+with your next message, and `/reset` clears it.
+
+### When the agent asks you something
+
+An agent that cannot go on without your decision asks with its `question` tool. A dialog shows
+the question and the answers it offers, the one it recommends first. A digit, `enter` on the
+highlighted line or a click picks one; anything you type instead is your own answer, sent with
+`enter`. `esc` leaves it for later (`/approve` opens it again, `/deny` tells the agent that
+there is no answer, and it goes on with an assumption that it names).
 
 ## How answers are drawn
 

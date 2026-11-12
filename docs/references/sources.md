@@ -215,7 +215,7 @@ unknown accounts get no answer at all and cause no question.
 |---|---|---|
 | `token` | | The bot's token. Create a bot by writing `/newbot` to @BotFather in Telegram; it answers with the token. Kept in `.env`. |
 | `allow` | pairing | Telegram user ids that may talk to the bot, if you know yours. Without it the bot is paired as described above. |
-| `approvals` | `true` | Approval requests are also sent to that chat, with buttons to answer them. `/allow` and `/deny` work too. |
+| `approvals` | `true` | Approval requests are also sent to that chat, with buttons to answer them. `/allow` and `/deny` work too. A question the agent asks with its `question` tool arrives the same way, with one button for each answer it offers. |
 | `apiBase` | Telegram's | The address of a Bot API server of your own. |
 
 Event `message`: `{ text, name, username, chatId, messageId, images? }`. A photo you send is

@@ -61,6 +61,12 @@ export interface TaskMeta {
 	leaf?: boolean;
 	tools?: string[];
 	label?: string;
+	/** This message was given to a task that was already working (that task's id) instead of becoming work of its own. */
+	steered?: number;
+	/** Not a message for the model: the conversation is to be shortened (its earlier part summarised). */
+	compact?: boolean;
+	/** A steered message that the work it was meant for did not read any more; it is answered as work of its own. */
+	requeued?: boolean;
 	/** Trust of whatever started this task. Children inherit the weaker of theirs and their parent's. */
 	trust?: Trust;
 	/** The session that created this task had already seen outside content. */
@@ -122,4 +128,10 @@ export interface TaskResult {
 	error?: string;
 	/** Set when the run handled outside content; the reason names the first source. */
 	tainted?: string;
+}
+
+/** One step of the list an agent keeps of what it is doing (its `todo` tool). */
+export interface Todo {
+	text: string;
+	status: "pending" | "in_progress" | "done";
 }

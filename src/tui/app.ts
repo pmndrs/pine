@@ -18,6 +18,8 @@ import {
 	ScrollView,
 	setCapabilities,
 	sliceByColumn,
+	type AutocompleteItem,
+	type AutocompleteProvider,
 	type SelectItem,
 	SelectList,
 	type SlashCommand,
@@ -34,8 +36,9 @@ import {
 import type { TranscriptEntry } from "../types.ts";
 import type { PineEvent, Task } from "../types.ts";
 import { errText, expandHome, openInSystem } from "../util.ts";
-import type { AgentInfo, Client, Conversation } from "./client.ts";
+import type { AgentInfo, Client, Conversation, GoalInfo } from "./client.ts";
 import { CodePane, PANE_VIEWS, type PaneView } from "./code-pane.ts";
+import { redoText, undoText } from "./undo.ts";
 import { isImageFile, isVideoFile, mimeOf, Picture, picturesAsText, picturesIn, prepare, prepareVideo, Slot, stopVideos, Video } from "./picture.ts";
 import { Answer, c, editorTheme, selectTheme, SPINNER } from "./theme.ts";
 
@@ -47,6 +50,8 @@ interface Tab {
 	session: string;
 	/** The folder of the owner's that this conversation works in, if one was opened for it. */
 	folder?: string;
+	/** The goal set for this conversation with /goal, as the daemon last reported it. */
+	goal?: GoalInfo;
 	/** For a task tab: the task it shows, and how deep that task sits under its conversation. */
 	task?: number;
 	baseDepth: number;
@@ -83,6 +88,12 @@ interface Tab {
 	attachments: Array<{ path: string; name: string; size: number }>;
 	/** The "bypass is paused here" note was shown already. */
 	pauseNoted: boolean;
+	/** The agent's last answer as it wrote it, for /copy. */
+	lastAnswer?: string;
+	/** The agent's list of steps as it is shown: the block, the task that wrote it, and the steps. */
+	todo?: { block: Text; task: number; items: Array<{ text: string; status: string }> };
+	/** Files of the conversation's folder that the "@" list offered here: what a mention in a message is checked against. */
+	files: Set<string>;
 	/** When esc last stopped something here, how many typed messages were waiting then, and the tasks they became. */
 	stopped?: { at: number; waiting: number; spared: Set<number> };
 }
@@ -342,8 +353,52 @@ class Button implements Component {
 	}
 }
 
+/**
+ * "@" in the input offers the files of the folder the conversation works in, found by a few
+ * letters of their name; everything else is the library's own completion (commands and their
+ * arguments). The files are the daemon's to list: the UI is only a client.
+ */
+class Mentions implements AutocompleteProvider {
+	triggerCharacters = ["@"];
+	private inner: AutocompleteProvider;
+	private find: (query: string) => Promise<string[]>;
+	constructor(inner: AutocompleteProvider, find: (query: string) => Promise<string[]>) {
+		this.inner = inner;
+		this.find = find;
+	}
+	/** What was typed after an "@" that begins a word, up to the cursor. */
+	private typed(lines: string[], line: number, col: number): string | undefined {
+		return (lines[line] ?? "").slice(0, col).match(/(?:^|\s)@([^\s@#]*)$/)?.[1];
+	}
+	async getSuggestions(lines: string[], line: number, col: number, options: { signal: AbortSignal; force?: boolean }) {
+		const typed = this.typed(lines, line, col);
+		if (typed === undefined) return this.inner.getSuggestions(lines, line, col, options);
+		const files = await this.find(typed).catch(() => [] as string[]);
+		if (options.signal.aborted || !files.length) return null;
+		return { items: files.map((f) => ({ value: `@${f}`, label: f.slice(f.lastIndexOf("/") + 1), description: f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : undefined })), prefix: `@${typed}` };
+	}
+	applyCompletion(lines: string[], line: number, col: number, item: AutocompleteItem, prefix: string) {
+		if (!item.value.startsWith("@") || this.typed(lines, line, col) === undefined) return this.inner.applyCompletion(lines, line, col, item, prefix);
+		const text = lines[line] ?? "";
+		const start = col - prefix.length;
+		const next = [...lines];
+		next[line] = `${text.slice(0, start)}${item.value} ${text.slice(col).replace(/^ /, "")}`;
+		return { lines: next, cursorLine: line, cursorCol: start + item.value.length + 1 };
+	}
+	shouldTriggerFileCompletion(lines: string[], line: number, col: number): boolean {
+		return this.typed(lines, line, col) !== undefined || (this.inner.shouldTriggerFileCompletion?.(lines, line, col) ?? false);
+	}
+}
+
+/** The files a message points at: every "@path" in it, with the lines after a "#" if any ("src/a.ts#20-45"). */
+export function mentionsIn(text: string): string[] {
+	return [...new Set([...text.matchAll(/(?:^|\s)@([^\s@#]+(?:#\d+(?:-\d+)?)?)/g)].map((m) => m[1].replace(/[.,;:!?)]+$/, "")))];
+}
+
 /** For this long after esc stopped something, esc does not stop what started since. */
 const STOP_GRACE = 3000;
+/** A round of a goal: pine calling the agent again (src/goals.ts). Only pine makes a task of this kind. */
+const isGoalRound = (kind: unknown, label: unknown) => kind === "notify" && typeof label === "string" && label.startsWith("goal: ");
 
 /** How many lines of a thought are shown while it is being thought. */
 const PEEK = 4;
@@ -418,7 +473,7 @@ class Thought implements Component {
 const SCOPES = ["local", "agent", "global"];
 const SCOPE_HELP: Record<string, string> = { local: "only this conversation, until it is closed", agent: "the agent, in its main conversation", global: "every agent" };
 
-const PANE_HELP: Record<string, string> = { changes: "what git says changed in the folder, with the diff of each file", files: "the files of the folder", output: "what the agent's tool calls printed", running: "servers and other programs the agent left running, each with a way to stop it", blocked: "what pine's reviewer did not let the agent do, each with a way to allow it", off: "close the pane" };
+const PANE_HELP: Record<string, string> = { changes: "what git says changed in the folder, with the diff of each file", files: "the files of the folder", output: "what the agent's tool calls printed", running: "servers and other programs the agent left running, each with a way to stop it", blocked: "what pine's reviewer did not let the agent do, each with a way to allow it", turn: "what your last message changed in the folder (what /undo would restore)", off: "close the pane" };
 
 const childKind = (kind: string) => (kind === "subagent" ? "sub-agent" : kind === "delegate" ? "delegated task" : kind);
 
@@ -651,6 +706,7 @@ const REASONING_ITEMS: SelectItem[] = [
 
 const MODE_ITEMS: SelectItem[] = [
 	{ value: "auto", label: "auto", description: "works inside its sandbox, asks for the rest" },
+	{ value: "plan", label: "plan", description: "looks, reads and asks, changes nothing: you get a plan first" },
 	{ value: "manual", label: "manual", description: "asks before every action" },
 	{ value: "bypass", label: "bypass", description: "never asks; reaches your whole account" },
 ];
@@ -776,11 +832,84 @@ class ApprovalDialog implements Component {
 }
 
 /**
+ * A question of the agent's (its `question` tool): the answers it offers, one to a line, and a
+ * line for the owner's own words. Arrows and enter or a click pick an answer, a digit picks by
+ * number; anything typed is an answer of the owner's own.
+ */
+class QuestionDialog implements Component {
+	private req: any;
+	private done: (answer: string | undefined, dismissed?: boolean) => void;
+	private choices: string[];
+	private at = 0;
+	private own = "";
+	private rows: Array<{ row: number; index: number }> = [];
+
+	constructor(req: any, done: (answer: string | undefined, dismissed?: boolean) => void) {
+		this.req = req;
+		this.done = done;
+		this.choices = (Array.isArray(req.choices) ? req.choices : []).map((x: unknown) => String(x));
+	}
+
+	invalidate(): void {}
+
+	handleMouse(e: any) {
+		const hit = this.rows.find((r) => r.row === e.y);
+		if (hit && e.type === "click" && e.button === "left") this.done(this.choices[hit.index]);
+		return { handled: true, render: true };
+	}
+
+	handleInput(data: string): void {
+		const paste = data.match(/\x1b\[200~([\s\S]*?)\x1b\[201~/);
+		if (paste) return void (this.own += paste[1].replace(/[\r\n\t]+/g, " ").trim());
+		if (matchesKey(data, "escape")) return this.done(undefined);
+		if (matchesKey(data, "enter")) {
+			if (this.own.trim()) return this.done(this.own.trim());
+			return this.choices.length ? this.done(this.choices[this.at]) : undefined;
+		}
+		if (matchesKey(data, "up") || matchesKey(data, "shift+tab")) this.at = (this.at + Math.max(1, this.choices.length) - 1) % Math.max(1, this.choices.length);
+		else if (matchesKey(data, "down") || matchesKey(data, "tab")) this.at = (this.at + 1) % Math.max(1, this.choices.length);
+		else if (matchesKey(data, "backspace")) this.own = this.own.slice(0, -1);
+		else if (matchesKey(data, "ctrl+u")) this.own = "";
+		else if (!this.own && /^[1-9]$/.test(data) && Number(data) <= this.choices.length) return this.done(this.choices[Number(data) - 1]);
+		else if (data.length === 1 && data >= " " && data !== "\x7f") this.own += data;
+	}
+
+	render(width: number): string[] {
+		const inner = Math.max(20, width - 4);
+		const body = [c.bold(c.accent(`${this.req.agent} asks`)), "", ...String(this.req.summary ?? "").split("\n").flatMap((l) => wrapTextWithAnsi(l, inner)).slice(0, 14), ""];
+		this.rows = [];
+		this.choices.forEach((choice, i) => {
+			this.rows.push({ row: 1 + body.length, index: i });
+			const label = truncateToWidth(`${i + 1}  ${choice}`, inner - 2);
+			body.push(i === this.at && !this.own ? c.bgAccent(` ${label} `) : ` ${label}`);
+		});
+		body.push("", `${c.gray(this.choices.length ? "or in your own words:" : "your answer:")} ${c.yellow(this.own.slice(-(inner - 26)))}${c.inverse(" ")}`, "", c.gray(this.choices.length ? "enter or a click answers · 1-9 picks by number · esc: later" : "enter answers · esc: later"));
+		const pad = (l: string) => `${c.accent("│")} ${l}${" ".repeat(Math.max(0, inner - visibleWidth(l)))} ${c.accent("│")}`;
+		return [c.accent(`╭${"─".repeat(inner + 2)}╮`), ...body.map((l) => pad(truncateToWidth(l, inner))), c.accent(`╰${"─".repeat(inner + 2)}╯`)];
+	}
+}
+
+/**
  * The screen, with one addition: while a menu or question is open, a click next to it goes to the
  * app (which closes the menu) instead of to whatever lies underneath.
  */
 class Screen extends TuiAltScreen {
 	onOutside?: (e: any) => boolean;
+	/** The terminal said that its window came to the front, or went from it. */
+	onFocus?: (focused: boolean) => void;
+
+	constructor(...args: ConstructorParameters<typeof TuiAltScreen>) {
+		super(...args);
+		// The library takes these two reports for itself before anything else sees them; it is asked first here.
+		const own = (this as any).handleViewportInput;
+		if (typeof own === "function") {
+			(this as any).handleViewportInput = (data: string) => {
+				if (data === "\x1b[I" || data === "\x1b[O") this.onFocus?.(data === "\x1b[I");
+				return own.call(this, data);
+			};
+		}
+	}
+
 	protected override dispatchMouseToOverlay(event: any): any {
 		const r = super.dispatchMouseToOverlay(event);
 		return !r.hit && this.onOutside?.(event) ? { hit: true } : r;
@@ -812,6 +941,10 @@ export interface TuiOptions {
 	openFile?: (file: string) => void;
 	/** Opens a web address when it is clicked. Default: the system's browser. */
 	openUrl?: (url: string) => void;
+	/** Saves the picture that is on the clipboard as a file and resolves with its path, or with nothing when there is none. Default: the system's clipboard. */
+	clipboardImage?: () => Promise<string | undefined>;
+	/** Puts text on the clipboard; resolves with true, or with what went wrong. Default: the system's clipboard program. */
+	copy?: (text: string) => Promise<true | string>;
 	/** Lets the user pick a folder; resolves with nothing when they do not. Default: the system's folder chooser (macOS). */
 	chooseFolder?: () => Promise<string | undefined>;
 	/** The folder pine was started in, offered in the folder menu. Default: the process's. */
@@ -866,6 +999,10 @@ export class PineTui {
 	private code: CodePane;
 	private codeOpen = false;
 	private codeRule: Component = { invalidate() {}, render: () => RULE };
+	/** Whether the terminal's window is in front (terminals that do not say are taken to be). */
+	private focused = true;
+	/** Whether to call for attention when something ends or waits while the window is not in front. */
+	private notify = true;
 
 	constructor(opts: TuiOptions) {
 		this.opts = opts;
@@ -875,14 +1012,7 @@ export class PineTui {
 			openUrl: (url) => this.open(url),
 			// With the mouse in use by the UI, selecting text is the UI's job too: what you drag over is copied.
 			copyOnSelect: true,
-			copySelection: (text) =>
-				new Promise((resolve) => {
-					const [copy, ...args] = process.platform === "darwin" ? ["pbcopy"] : process.env.WAYLAND_DISPLAY ? ["wl-copy"] : ["xclip", "-selection", "clipboard"];
-					const child = spawn(copy, args, { stdio: ["pipe", "ignore", "ignore"] });
-					child.on("error", (e) => resolve(e.message));
-					child.on("close", (code) => resolve(code === 0 ? true : `copy failed (${code})`));
-					child.stdin.end(text);
-				}),
+			copySelection: (text) => this.copyText(text),
 		});
 		this.editor = new Editor(this.tui, editorTheme, { paddingX: 1, autocompleteMaxVisible: 8 });
 		this.editor.onSubmit = (text) => void this.submit(text);
@@ -903,10 +1033,19 @@ export class PineTui {
 			target: () => (this.active?.kind === "chat" ? { agent: this.active.agent, session: this.active.session } : undefined),
 		});
 		this.defineCommands();
-		this.editor.setAutocompleteProvider(new CombinedAutocompleteProvider(this.commands, process.cwd(), null));
+		this.editor.setAutocompleteProvider(
+			new Mentions(new CombinedAutocompleteProvider(this.commands, process.cwd(), null), async (query) => {
+				const t = this.active;
+				if (t?.kind !== "chat") return [];
+				const files = (await this.client.find(t.agent, t.session, query)).files;
+				for (const f of files) t.files.add(f);
+				return files;
+			}),
+		);
 		this.tui.addInputListener((data) => (this.onKey(data) ? { consume: true } : undefined));
 		// A menu or question is modal: a click beside it closes it (a question stays open for later,
 		// as with esc) and does not reach the tabs and the bar underneath. The wheel still scrolls.
+		this.tui.onFocus = (focused) => void (this.focused = focused);
 		this.tui.onOutside = (e) => {
 			if (!this.dialog || e.type === "wheel") return false;
 			if (e.type === "click" && e.button === "left") this.dialog.dismiss();
@@ -937,7 +1076,8 @@ export class PineTui {
 		}, 120);
 		this.spinner.unref?.();
 		// The same tabs as last time, in the same order.
-		const saved = await this.client.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0, code: false }));
+		const saved = await this.client.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0, code: false, notify: true }));
+		this.notify = saved.notify !== false;
 		const again = saved.tabs.filter((t) => this.agents.some((a) => a.id === t.agent));
 		this.restoring = true;
 		try {
@@ -957,7 +1097,7 @@ export class PineTui {
 	private saveTabs(): void {
 		if (this.restoring || this.stopped) return;
 		const chats = this.tabs.filter((t) => t.kind === "chat");
-		void this.client.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), Math.max(0, chats.indexOf(this.active)), this.codeOpen).catch(() => {});
+		void this.client.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), Math.max(0, chats.indexOf(this.active)), this.codeOpen, this.notify).catch(() => {});
 	}
 
 	async stop(): Promise<void> {
@@ -997,7 +1137,7 @@ export class PineTui {
 				{ component: this.dock, basis: "auto", grow: 0, shrink: 1, minSize: 1 },
 			]),
 			roots: new Set(), running: new Set(), awaiting: [], blocks: new Map(), thoughts: new Map(), tools: new Map(), streamed: new Map(), approvals: new Map(), baseDepth: 0, children: new Map(),
-			unread: false, startedAt: 0, toolCalls: 0, tokens: { input: 0, output: 0, cached: 0 }, thinking: false, lines: [], attachments: [], pauseNoted: false,
+			unread: false, startedAt: 0, toolCalls: 0, tokens: { input: 0, output: 0, cached: 0 }, thinking: false, lines: [], attachments: [], pauseNoted: false, files: new Set(),
 		};
 		this.tabs.push(tab);
 		return tab;
@@ -1013,13 +1153,18 @@ export class PineTui {
 		this.saveTabs();
 		const info = this.agents.find((a) => a.id === agent);
 		tab.folder = (await this.client.folder(agent, session).catch(() => undefined))?.folder;
+		tab.goal = (await this.client.goal(agent, session).catch(() => undefined))?.goal;
 		this.say(tab, c.gray(`${c.bold(agent)}${info?.description ? ` · ${info.description}` : ""}\nsession ${session} · model ${info?.model ?? "?"}${tab.folder ? ` · works in ${tilde(tab.folder)}` : ""} · type a message, / for commands, or click the bar below`));
 		try {
 			const history = (await this.client.history(agent, session)).filter((t) => t.depth === 0).reverse();
 			if (history.length) this.say(tab, c.gray(`── earlier in this session (${history.length}) ──`));
 			for (const t of history) this.renderPast(tab, t);
 			this.takeStats(tab, history.at(-1)?.meta?.stats);
+			// What the agent listed for itself and has not finished is still its plan.
+			const steps = await this.client.todos(agent, session).catch(() => []);
+			if (steps.some((t) => t.status !== "done")) this.showSteps(tab, -1, steps);
 			if (history.length) this.say(tab, c.gray("── now ──"));
+			if (tab.goal) this.say(tab, this.goalLine(tab.goal, true));
 		} catch (e) {
 			this.say(tab, c.red(`could not load history: ${errText(e)}`));
 		}
@@ -1263,6 +1408,21 @@ export class PineTui {
 		tab.thoughts.delete(task);
 	}
 
+	/** The agent's list of steps (its `todo` tool), drawn: done, in work, still to do. */
+	private stepsText(items: Array<{ text: string; status: string }>): string {
+		const done = items.filter((t) => t.status === "done").length;
+		const lines = items.map((t) => (t.status === "done" ? `${c.green("✓")} ${c.gray(t.text)}` : t.status === "in_progress" ? `${c.yellow("◐")} ${c.bold(t.text)}` : `${c.gray("☐")} ${t.text}`));
+		return [c.gray(`steps · ${done} of ${items.length} done`), ...lines].join("\n");
+	}
+
+	/** Show the list where the conversation is: the same block while one task keeps changing it, a new one for the next task. */
+	private showSteps(tab: Tab, task: number, items: Array<{ text: string; status: string }>): void {
+		if (!items.length) return void (tab.todo = undefined);
+		if (tab.todo?.task === task) tab.todo.block.setText(this.stepsText(items));
+		else tab.todo = { block: this.say(tab, this.stepsText(items)), task, items };
+		tab.todo.items = items;
+	}
+
 	/** A line that opens something on a click. */
 	private button(tab: Tab, text: string, run: () => void, gap = false): Button {
 		const b = new Button(new Text(text, 1, 0), run);
@@ -1357,11 +1517,40 @@ export class PineTui {
 		if (total > 0 && (stats.cached || tab.cacheShare !== undefined)) tab.cacheShare = Math.round((100 * (stats.cached ?? 0)) / total);
 	}
 
+	/**
+	 * /undo and /redo. The daemon does it; here the conversation is shown anew, since the lines on
+	 * screen are not its history any more, with what happened said below it. After an undo the
+	 * message's text is in the input again, to be changed and sent.
+	 */
+	private async undo(redo: boolean): Promise<void> {
+		const tab = this.active;
+		if (tab.kind !== "chat") return this.flash("switch to a conversation tab first");
+		const r = redo ? await this.client.redo(tab.agent, tab.session) : await this.client.undo(tab.agent, tab.session);
+		tab.doc.clear();
+		for (const live of [tab.roots, tab.running, tab.blocks, tab.thoughts, tab.tools, tab.streamed, tab.children]) live.clear();
+		tab.awaiting = [];
+		tab.thinking = false;
+		const history = (await this.client.history(tab.agent, tab.session).catch(() => [] as Task[])).filter((t) => t.depth === 0).reverse();
+		if (history.length) this.say(tab, c.gray(`── earlier in this session (${history.length}) ──`));
+		for (const t of history) this.renderPast(tab, t);
+		this.say(tab, redo ? redoText(r) : undoText(r));
+		if (!redo && tab === this.active) this.editor.setText(r.prompt);
+		tab.scroll.scrollToEnd();
+		if (this.codeOpen && tab === this.active) this.code.touch();
+		void this.refreshTaints();
+		this.tui.requestRender();
+	}
+
 	private renderPast(tab: Tab, t: Task): void {
+		if (t.meta?.compact) return void this.say(tab, c.gray(`⟲ ${t.status === "done" ? t.result : `shortening the conversation: ${t.status}${t.error ? ` (${t.error})` : ""}`}`));
 		if (t.kind === "event" && t.meta?.label) this.eventLine(tab, t.meta.label, t.prompt);
+		else if (isGoalRound(t.kind, t.meta?.label)) this.say(tab, c.gray(`↻ ${t.meta.label}`));
 		else this.user(tab, t.prompt, t.kind === "prompt" ? undefined : t.kind);
 		(t.meta?.images ?? []).forEach((_, i) => this.picture(tab, `attached picture ${i + 1}`, () => this.client.taskImage(t.id, i)));
+		// It was read by work that was already running; the answer is that work's.
+		if (t.meta?.steered !== undefined) return;
 		if (t.status === "done") {
+			if (t.result) tab.lastAnswer = t.result;
 			this.add(tab, new Answer(t.result || "(no answer)"));
 			this.answerPictures(tab, t.agent, t.result, false);
 		}
@@ -1399,6 +1588,10 @@ export class PineTui {
 			if (files) return files.forEach((f) => this.attachFile(f)), true;
 		}
 		const empty = this.editor.getText().length === 0;
+		// A terminal pastes text only. Where it passes ctrl+v on, a picture on the clipboard is attached; text is pasted as ever.
+		if (matchesKey(data, "ctrl+v") && this.active.kind === "chat") void this.clipboardImage().then((file) => file && this.attachFile(file));
+		// Enter gives a message to the work that is running; alt+enter makes it wait until that work is done.
+		if (matchesKey(data, "alt+enter") && !empty && !this.editor.isShowingAutocomplete()) return void this.submit(this.editor.getText(), "queue"), true;
 		if (matchesKey(data, "ctrl+c")) {
 			if (!empty) {
 				this.editor.setText("");
@@ -1428,11 +1621,13 @@ export class PineTui {
 			return false;
 		}
 		if (matchesKey(data, "escape") && this.active.running.size) return void this.stopRunning(this.active), true;
+		// Between two rounds of a goal nothing runs, but the next round is about to start: esc holds it back.
+		if (matchesKey(data, "escape") && this.active.goal?.status === "active") return void this.goal("pause").catch((e) => this.flash(errText(e))), true;
 		if (matchesKey(data, "tab") && empty) return this.cycle(1), true;
 		// As in Claude Code and opencode: shift+tab steps through the modes.
 		if (matchesKey(data, "shift+tab") && empty && this.active.kind === "chat") {
 			const info = this.agents.find((a) => a.id === this.active.agent);
-			const order = ["auto", "manual", "bypass"];
+			const order = ["auto", "plan", "manual", "bypass"];
 			return void this.setMode(this.active, order[(order.indexOf(info?.mode ?? "auto") + 1) % order.length]).catch((e) => this.flash(errText(e))), true;
 		}
 		if (matchesKey(data, "ctrl+t")) return void this.run("new"), true;
@@ -1453,7 +1648,11 @@ export class PineTui {
 		this.flash(`opened ${short(url, 90)}`, 2500);
 	}
 
-	private async submit(raw: string): Promise<void> {
+	/**
+	 * Send what was typed. While the agent works, a message goes into that work at its next step
+	 * ("steer"), so a correction lands without stopping anything; "queue" keeps it for afterwards.
+	 */
+	private async submit(raw: string, whenBusy: "steer" | "queue" = "steer"): Promise<void> {
 		const text = raw.trim();
 		if (!text) return;
 		this.editor.addToHistory(text);
@@ -1474,8 +1673,15 @@ export class PineTui {
 		tab.scroll.scrollToEnd();
 		try {
 			const attachments = files.map((f) => ({ name: f.name, data: fs.readFileSync(f.path).toString("base64") }));
-			const { task } = await this.client.prompt(tab.agent, text, tab.session, attachments.length ? attachments : undefined);
+			const busy = tab.running.size > 0;
+			// Only what the list offered counts as a file: "@somebody" in a sentence is not one.
+			const mentions = mentionsIn(text).filter((m) => tab.files.has(m.split("#")[0]));
+			const { task, steered } = await this.client.prompt(tab.agent, text, tab.session, attachments.length ? attachments : undefined, whenBusy, mentions.length ? mentions : undefined);
 			this.adopt(tab, task);
+			if (steered !== undefined) {
+				tab.awaiting = tab.awaiting.filter((p) => p !== text);
+				this.flash("given to the agent while it works (alt+enter makes a message wait its turn instead)", 2500);
+			} else if (busy) this.flash("waits its turn: it is answered when the work that is running is done", 2500);
 		} catch (e) {
 			tab.awaiting = tab.awaiting.filter((p) => p !== text);
 			tab.attachments.unshift(...files);
@@ -1605,7 +1811,7 @@ export class PineTui {
 
 	private async setMode(t: Tab, mode: string): Promise<void> {
 		const info = this.agents.find((a) => a.id === t.agent)!;
-		if (!MODE_ITEMS.some((m) => m.value === mode)) return this.flash("modes: manual, auto, bypass");
+		if (!MODE_ITEMS.some((m) => m.value === mode)) return this.flash("modes: auto, plan, manual, bypass");
 		let anyway: string | undefined;
 		await this.refreshTaints();
 		if (mode === "bypass" && this.isTainted(t) && !this.bypassWhenTainted) {
@@ -1627,7 +1833,7 @@ export class PineTui {
 		await this.client.setMode(t.agent, mode, anyway);
 		info.mode = mode as any;
 		t.pauseNoted = false;
-		const note = mode === "bypass" ? c.yellow(" Nothing waits for approval now, and its shell and file tools reach your whole account and the network.") : "";
+		const note = mode === "bypass" ? c.yellow(" Nothing waits for approval now, and its shell and file tools reach your whole account and the network.") : mode === "plan" ? c.gray(" It looks, reads and asks, and changes nothing: ask for what you want, read its plan, then switch to auto to have it carried out.") : "";
 		this.say(t, `${c.gray(`${t.agent} is now in`)} ${c.bold(mode)} ${c.gray("mode (until the daemon restarts; set \"mode\" in agent.json to keep it).")}${note}`);
 		await this.refreshTaints();
 	}
@@ -1635,6 +1841,83 @@ export class PineTui {
 	private adopt(tab: Tab, task: number): void {
 		if (tab.roots.has(task)) return;
 		tab.roots.add(task);
+	}
+
+	/**
+	 * Call for the owner's attention while they are looking at something else: the terminal's bell
+	 * and a notification through the terminal (OSC 9, which Ghostty, iTerm and others show as a
+	 * system notification). The text is pine's own; nothing an agent or a page wrote goes into it.
+	 */
+	private attention(text: string): void {
+		if (!this.notify || this.focused || this.stopped) return;
+		this.opts.terminal.write(`\x07\x1b]9;${text.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 120)}\x1b\\`);
+	}
+
+	/**
+	 * The picture on the clipboard (a screenshot, say), saved as a file to attach. A terminal pastes
+	 * text only, so the clipboard is asked directly, on the machine the UI runs on.
+	 */
+	private clipboardImage(): Promise<string | undefined> {
+		if (this.opts.clipboardImage) return this.opts.clipboardImage();
+		const file = path.join(os.tmpdir(), `pine-paste-${Date.now().toString(36)}.png`);
+		const kept = () => {
+			try {
+				return fs.statSync(file).size > 0 ? file : (fs.rmSync(file, { force: true }), undefined);
+			} catch {
+				return undefined;
+			}
+		};
+		return new Promise((resolve) => {
+			if (process.platform === "darwin") {
+				// The path is pine's own, made above; nothing typed or received goes into the script.
+				const script = ["set png to (the clipboard as «class PNGf»)", `set f to open for access POSIX file "${file}" with write permission`, "write png to f", "close access f"];
+				const child = spawn("/usr/bin/osascript", script.flatMap((line) => ["-e", line]), { stdio: "ignore" });
+				child.on("error", () => resolve(undefined));
+				child.on("close", () => resolve(kept()));
+				return;
+			}
+			const [cmd, ...args] = process.env.WAYLAND_DISPLAY ? ["wl-paste", "-t", "image/png"] : ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"];
+			const child = spawn(cmd, args, { stdio: ["ignore", fs.openSync(file, "w"), "ignore"] });
+			child.on("error", () => resolve(kept()));
+			child.on("close", () => resolve(kept()));
+		});
+	}
+
+	private copyText(text: string): Promise<true | string> {
+		if (this.opts.copy) return this.opts.copy(text);
+		return new Promise((resolve) => {
+			const [copy, ...args] = process.platform === "darwin" ? ["pbcopy"] : process.env.WAYLAND_DISPLAY ? ["wl-copy"] : ["xclip", "-selection", "clipboard"];
+			const child = spawn(copy, args, { stdio: ["pipe", "ignore", "ignore"] });
+			child.on("error", (e) => resolve(e.message));
+			child.on("close", (code) => resolve(code === 0 ? true : `copy failed (${code})`));
+			child.stdin.end(text);
+		});
+	}
+
+	/**
+	 * The conversation as Markdown: what was said, in order. With `full`, also what the agent thought
+	 * and which tools it called, read from each task's record.
+	 */
+	private async markdownOf(tab: Tab, full: boolean): Promise<string> {
+		const tasks = (await this.client.history(tab.agent, tab.session, 500)).filter((t) => t.depth === 0).reverse();
+		const out = [`# ${tab.agent} · ${tab.session}`, "", `Exported from pine on ${new Date().toLocaleString("sv-SE")}.`];
+		for (const t of tasks) {
+			if (t.meta?.compact) {
+				out.push("", "---", "", `*${t.result || "The earlier part of the conversation was summarised here."}*`);
+				continue;
+			}
+			out.push("", t.kind === "prompt" ? (t.meta?.steered !== undefined ? "## You, while the agent worked" : "## You") : `## ${t.kind === "event" ? `Event${t.meta?.label ? `: ${t.meta.label}` : ""}` : `pine (${t.kind})`}`, "", t.prompt.trim());
+			if (t.meta?.steered !== undefined) continue;
+			if (full) {
+				const steps = (await this.client.transcript(t.id).catch(() => undefined))?.entries ?? [];
+				for (const e of steps) {
+					if (e.kind === "thinking" && e.text?.trim()) out.push("", "<details><summary>Thinking</summary>", "", e.text.trim(), "", "</details>");
+					else if (e.kind === "tool") out.push("", `- ${e.ok === false ? "✗" : "✓"} \`${e.tool}\`${e.subject ? ` ${oneLine(e.subject)}` : ""}${e.ok === false && e.result ? `: ${short(oneLine(e.result), 300)}` : ""}`);
+				}
+			}
+			out.push("", `## ${t.agent}`, "", t.status === "done" ? t.result?.trim() || "(no answer)" : `*${t.status}${t.error && t.error !== t.status ? `: ${t.error}` : ""}*`);
+		}
+		return `${out.join("\n")}\n`;
 	}
 
 	/**
@@ -1735,6 +2018,8 @@ export class PineTui {
 					this.say(t, c.gray("fresh conversation"));
 				},
 			},
+			{ name: "undo", description: "Take back your last message: its files are restored, the conversation forgets it, its text returns to the input", run: () => this.undo(false) },
+			{ name: "redo", description: "Bring back what the last /undo took, until you send a new message", run: () => this.undo(true) },
 			{
 				name: "folder", description: "The folder this conversation works in: open one, or none", argumentHint: "[path|none]",
 				run: async (args) => {
@@ -1747,14 +2032,26 @@ export class PineTui {
 			},
 			{
 				name: "code", description: "The pane beside the conversation: changes (git), files, tool output", argumentHint: "[changes|files|output|off]",
-				getArgumentCompletions: (prefix) => [...PANE_VIEWS, "off"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v, description: PANE_HELP[v] })),
+				getArgumentCompletions: (prefix) => [...PANE_VIEWS, "turn", "off"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v, description: PANE_HELP[v] })),
 				run: (args) => {
 					const word = args.trim().toLowerCase();
-					if (word && word !== "off" && !PANE_VIEWS.includes(word as PaneView)) return this.flash("usage: /code [changes|files|output|running|blocked|off]");
+					if (word && word !== "off" && word !== "turn" && !PANE_VIEWS.includes(word as PaneView)) return this.flash("usage: /code [changes|turn|files|output|running|blocked|off]");
 					if (this.active.kind !== "chat") return this.flash("switch to a conversation tab first");
+					// What the last message changed: the changes view, counted from before that message.
+					if (word === "turn") return this.showCode(true), this.code.showTurn();
 					// Without a word it opens and closes, like the button and ctrl+g.
 					this.showCode(word ? word !== "off" : !this.codeOpen, word && word !== "off" ? (word as PaneView) : undefined);
 				},
+			},
+			{
+				name: "goal", description: "Keep the agent working until something is reached; /goal alone shows where it stands", argumentHint: "[objective|pause|resume|clear]",
+				getArgumentCompletions: (prefix) =>
+					[
+						{ value: "pause", label: "pause", description: "no further rounds until /goal resume" },
+						{ value: "resume", label: "resume", description: "go on with a goal that stopped" },
+						{ value: "clear", label: "clear", description: "take the goal off this conversation" },
+					].filter((w) => prefix.trim() !== "" && w.value.startsWith(prefix.trim().toLowerCase())),
+				run: (args) => this.goal(args.trim()),
 			},
 			{ name: "stop", description: "Stop what the agent is doing (also: esc)", run: () => (this.active.running.size ? this.stopRunning(this.active) : this.flash("nothing is running")) },
 			{
@@ -1784,7 +2081,7 @@ export class PineTui {
 				},
 			},
 			{
-				name: "mode", description: "How much this agent may do without asking", argumentHint: "[manual|auto|bypass]",
+				name: "mode", description: "How much this agent may do without asking", argumentHint: "[auto|plan|manual|bypass]",
 				getArgumentCompletions: (prefix) =>
 					[
 						{ value: "manual", label: "manual", description: "ask before every action" },
@@ -1958,6 +2255,65 @@ export class PineTui {
 					this.flash(`event #${r.id} published on ${m[1]}`);
 				},
 			},
+			{
+				name: "paste", description: "Attach the picture that is on the clipboard (a screenshot, for example) to your next message",
+				run: async () => {
+					if (!chat()) return;
+					const file = await this.clipboardImage();
+					if (file) this.attachFile(file);
+					else this.flash("there is no picture on the clipboard (text is pasted with your terminal's own paste)");
+				},
+			},
+			{
+				name: "notify", description: "Bell and notification when the agent is done or needs you while the terminal is not in front", argumentHint: "[on|off]",
+				getArgumentCompletions: (prefix) => ["on", "off"].filter((x) => x.startsWith(prefix.trim())).map((x) => ({ value: x, label: x })),
+				run: (args) => {
+					const want = args.trim();
+					if (want && want !== "on" && want !== "off") return this.flash("usage: /notify [on|off]");
+					if (want) {
+						this.notify = want === "on";
+						this.saveTabs();
+					}
+					this.flash(this.notify ? "notifications are on: a bell and a notification when the agent is done, fails or needs your approval while this window is not in front" : "notifications are off");
+				},
+			},
+			{
+				name: "compact", description: "Shorten this conversation: its earlier part becomes a summary, which frees the model's context",
+				run: async () => {
+					const t = chat();
+					if (t) this.adopt(t, (await this.client.compact(t.agent, t.session)).task);
+				},
+			},
+			{
+				name: "copy", description: "Copy the agent's last answer to the clipboard",
+				run: async () => {
+					const t = chat();
+					if (!t) return;
+					if (!t.lastAnswer) return this.flash("there is no answer to copy yet");
+					const done = await this.copyText(t.lastAnswer);
+					this.flash(done === true ? `copied the last answer (${t.lastAnswer.length} characters)` : `not copied: ${done}`);
+				},
+			},
+			{
+				name: "export", description: "Save this conversation as Markdown, or copy it", argumentHint: "[copy] [full]",
+				getArgumentCompletions: (prefix) => [{ value: "copy", label: "copy", description: "to the clipboard instead of a file" }, { value: "full", label: "full", description: "with thinking and tool calls" }].filter((x) => x.value.startsWith(prefix.trim().split(/\s+/).at(-1) ?? "")),
+				run: async (args) => {
+					const t = chat();
+					if (!t) return;
+					const words = args.trim().split(/\s+/).filter(Boolean);
+					const unknown = words.find((w) => w !== "copy" && w !== "full");
+					if (unknown) return this.flash(`usage: /export [copy] [full] (not "${unknown}")`);
+					const text = await this.markdownOf(t, words.includes("full"));
+					if (words.includes("copy")) {
+						const done = await this.copyText(text);
+						return this.flash(done === true ? `copied the conversation as Markdown (${text.length} characters)` : `not copied: ${done}`);
+					}
+					const stamp = new Date().toLocaleString("sv-SE").replace(/[-:]/g, "").replace(" ", "-").slice(0, 13);
+					const file = path.join(this.opts.cwd ?? process.cwd(), `pine-${`${t.agent}-${t.session}`.replace(/[^A-Za-z0-9._-]+/g, "_")}-${stamp}.md`);
+					await fs.promises.writeFile(file, text, { flag: "wx" }).catch(async () => fs.promises.writeFile(file.replace(/\.md$/, `-${Date.now() % 1000}.md`), text));
+					this.say(t, c.gray(`saved this conversation as ${tilde(file)}`));
+				},
+			},
 			{ name: "clear", description: "Clear this tab's view (the conversation is kept)", run: () => (this.active.doc.clear(), this.tui.requestRender()) },
 			{ name: "quit", description: "Leave", run: () => this.stop() },
 			{ name: "exit", description: "Leave", run: () => this.stop() },
@@ -1978,7 +2334,7 @@ export class PineTui {
 	private help(): void {
 		const cmds = this.commands.filter((x) => x.name !== "exit").map((x) => `  ${c.accent(`/${x.name}`)}${x.argumentHint ? c.gray(` ${x.argumentHint}`) : ""}${" ".repeat(Math.max(1, 24 - x.name.length - (x.argumentHint?.length ?? -1) - 2))}${x.description}`);
 		const keys = [
-			["enter", "send"], ["shift+enter", "new line"], ["esc", "stop the agent"], ["tab", "next tab (when the input is empty)"], ["shift+tab", "next mode: auto, manual, bypass (when the input is empty)"],
+			["enter", "send; while the agent works, the message goes into that work at its next step"], ["alt+enter", "send, but let it wait until the agent is done with what it is doing"], ["shift+enter", "new line"], ["esc", "stop the agent"], ["tab", "next tab (when the input is empty)"], ["shift+tab", "next mode: auto, plan, manual, bypass (when the input is empty)"],
 			["alt+1..9", "go to tab"], ["ctrl+t", "new conversation"], ["ctrl+w", "close tab"], ["ctrl+g", "open or close the code pane (changes, files, tool output)"], ["pgup / pgdn", "scroll"], ["mouse", "click a tab, its ×, +, ▤ code, a web address, a thought (to open it, and anywhere on it to close it), or agent / conversation / folder / model / reasoning / mode in the bottom bar; drop files to attach"], ["ctrl+c twice, ctrl+d", "quit"],
 		].map(([k, d]) => `  ${c.accent(k.padEnd(22))} ${d}`);
 		this.say(this.active, [c.bold("Commands"), ...cmds, "", c.bold("Keys"), ...keys].join("\n"));
@@ -1988,11 +2344,18 @@ export class PineTui {
 
 	private ask(tab: Tab, req: any): void {
 		if (this.dialog || tab !== this.active) return;
-		const dialog = new ApprovalDialog(req, (answer, values) => {
-			this.closeDialog();
-			if (answer === "later") return; // the status line keeps saying that an approval is open
-			void this.client.decide(req.id, answer !== "deny", answer === "always", values).catch((e) => this.flash(errText(e)));
-		});
+		const dialog =
+			req.tool === "question"
+				? new QuestionDialog(req, (answer) => {
+						this.closeDialog();
+						if (answer === undefined) return; // later: the status line keeps saying that something waits
+						void this.client.decide(req.id, true, false, { answer }).catch((e) => this.flash(errText(e)));
+					})
+				: new ApprovalDialog(req, (answer, values) => {
+						this.closeDialog();
+						if (answer === "later") return; // the status line keeps saying that an approval is open
+						void this.client.decide(req.id, answer !== "deny", answer === "always", values).catch((e) => this.flash(errText(e)));
+					});
 		const handle = this.tui.showOverlay(dialog, { anchor: "center", width: "76%", minWidth: 40 });
 		handle.focus();
 		this.dialog = { id: req.id, handle, dismiss: () => this.closeDialog() };
@@ -2039,14 +2402,20 @@ export class PineTui {
 		if (ns === "approval") {
 			if (e.topic === "approval/requested") {
 				const tab = this.tabFor(p) ?? this.active;
-				const card = this.say(tab, `${c.yellow("⚠ approval needed")} ${c.bold(p.tool)} ${c.gray(short(oneLine(String(p.summary ?? "")), 120))}\n${c.gray(`  ${p.why} · ${p.inputs?.length ? "it needs something only you have: /approve opens the dialog to enter it" : `/approve${p.remember ? ", /approve always" : ""}`} or /deny`)}`);
+				// A question of the agent's is not a permission: it is shown as what it is.
+				const card =
+					p.tool === "question"
+						? this.say(tab, `${c.accent("? the agent asks")} ${short(oneLine(String(p.summary ?? "")), 300)}\n${c.gray("  answer it in the dialog, or with /approve")}`)
+						: this.say(tab, `${c.yellow("⚠ approval needed")} ${c.bold(p.tool)} ${c.gray(short(oneLine(String(p.summary ?? "")), 120))}\n${c.gray(`  ${p.why} · ${p.inputs?.length ? "it needs something only you have: /approve opens the dialog to enter it" : `/approve${p.remember ? ", /approve always" : ""}`} or /deny`)}`);
 				tab.approvals.set(p.id, { card, req: p });
+				this.attention(p.tool === "question" ? `pine: ${tab.agent} has a question for you` : `pine: ${tab.agent} needs your approval`);
 				this.ask(tab, p);
 			} else if (e.topic === "approval/decided") {
 				for (const tab of this.tabs) {
 					const a = tab.approvals.get(p.id);
 					if (!a) continue;
-					a.card.setText(`${p.allow ? c.green("✓ allowed") : c.red("✗ denied")} ${c.bold(a.req.tool)} ${c.gray(`(${p.by})${p.always ? ` · ${p.remember} will not ask again in this conversation` : ""}`)}`);
+					if (a.req.tool === "question") a.card.setText(`${c.accent("?")} ${short(oneLine(String(a.req.summary ?? "")), 300)}\n${c.gray(`  ${p.allow ? `answered (${p.by})` : `no answer (${p.by})`}`)}`);
+					else a.card.setText(`${p.allow ? c.green("✓ allowed") : c.red("✗ denied")} ${c.bold(a.req.tool)} ${c.gray(`(${p.by})${p.always ? ` · ${p.remember} will not ask again in this conversation` : ""}`)}`);
 					tab.approvals.delete(p.id);
 				}
 				if (this.dialog?.id === p.id) this.closeDialog();
@@ -2055,12 +2424,25 @@ export class PineTui {
 			return;
 		}
 		if (ns !== "agent") return;
+		if (kind === "goal") return this.goalEvent(p);
 
 		// A tab on one task follows that task and whatever it starts itself.
 		for (const t of this.tabs) {
 			if (t.kind !== "task") continue;
 			if (kind === "started" && p.parent !== undefined && t.roots.has(p.parent)) t.roots.add(p.task);
 			if (t.roots.has(p.task)) this.live(t, kind, p, (p.depth ?? 0) - t.baseDepth);
+		}
+
+		if (kind === "steered") {
+			// A message that went into running work: ours is on screen already, somebody else's is shown.
+			const tab = this.tabs.find((t) => t.kind === "chat" && t.agent === p.agent && t.session === p.session);
+			if (!tab || tab.roots.has(p.by)) return;
+			tab.roots.add(p.by);
+			const i = tab.awaiting.findIndex((a) => String(p.prompt ?? "").startsWith(a));
+			if (i >= 0) tab.awaiting.splice(i, 1);
+			else this.user(tab, String(p.prompt ?? ""), p.kind === "prompt" ? "elsewhere" : p.kind);
+			this.tui.requestRender();
+			return;
 		}
 
 		if (kind === "started" && p.depth === 0) {
@@ -2080,9 +2462,16 @@ export class PineTui {
 					tab.stopped.waiting--;
 					tab.stopped.spared.add(p.task);
 				}
+			} else if (p.compact) {
+				this.say(tab, c.gray("⟲ shortening the conversation: its earlier part becomes a summary…"));
+			} else if (p.requeued) {
+				// A message that was given to work which ended, or was stopped, before reading it. It is on
+				// screen already and is answered now; an esc pressed for the old work is not meant for it.
+				if (tab.stopped && Date.now() - tab.stopped.at < STOP_GRACE) tab.stopped.spared.add(p.task);
 			} else if (!tab.roots.has(p.task)) {
 				if (p.kind === "event" && p.label) this.eventLine(tab, String(p.label), String(p.prompt ?? ""));
-				else this.user(tab, String(p.prompt ?? ""), p.kind === "prompt" ? "elsewhere" : p.kind);
+				// A round of a goal was announced by the goal's own line; its text is the same every round.
+				else if (!isGoalRound(p.kind, p.label)) this.user(tab, String(p.prompt ?? ""), p.kind === "prompt" ? "elsewhere" : p.kind);
 				// What came with it and was not typed here: a photo sent on Telegram, a picture a camera saved.
 				for (let n = 0; n < Number(p.images ?? 0); n++) this.picture(tab, `picture ${n + 1}`, () => this.client.taskImage(p.task, n));
 			}
@@ -2098,6 +2487,54 @@ export class PineTui {
 		}
 		const tab = this.tabFor(p);
 		if (tab) this.live(tab, kind, p, p.depth ?? 0);
+	}
+
+	// ---- goal mode ---------------------------------------------------------------------------------
+	// The daemon keeps the goal and decides everything about it; here it is asked for, and shown.
+
+	/** One line on where a goal stands, with the judge's reason under it; `full` adds the objective. */
+	private goalLine(g: GoalInfo, full = false): string {
+		const mark = g.status === "met" ? c.green("✓") : g.status === "active" ? c.accent("◎") : c.yellow("‖");
+		const more = [...(g.reason ? [short(oneLine(g.reason), 200)] : []), ...(full ? [`the goal: ${short(oneLine(g.objective), 300)}`] : [])];
+		return `${mark} ${c.bold("goal")} ${c.gray(g.note)}${more.map((m) => `\n${c.gray(`  ${m}`)}`).join("")}`;
+	}
+
+	/** The daemon reports on a goal: it was set, a round was judged, it stopped or was cleared. */
+	private goalEvent(p: any): void {
+		for (const tab of this.tabs) {
+			if (tab.kind !== "chat" || tab.agent !== p.agent || tab.session !== p.session) continue;
+			tab.goal = p.event === "cleared" ? undefined : (p as GoalInfo);
+			this.say(tab, this.goalLine(p as GoalInfo));
+			if (tab !== this.active) tab.unread = true;
+		}
+		this.tui.requestRender();
+	}
+
+	/** /goal: show it, set it, or pause, resume or clear it. All of it is the daemon's doing. */
+	private async goal(arg: string): Promise<void> {
+		const t = this.active;
+		if (t.kind !== "chat") return this.flash("switch to a conversation tab first");
+		const word = arg.toLowerCase();
+		if (!arg) {
+			t.goal = (await this.client.goal(t.agent, t.session)).goal;
+			return void this.say(t, t.goal ? this.goalLine(t.goal, true) : c.gray("this conversation has no goal · /goal <what should be reached> sets one, and the agent works until it is met"));
+		}
+		if (word === "pause" || word === "resume" || word === "clear") {
+			// What changes is drawn when the daemon reports it.
+			const done = await this.client.setGoal(t.agent, t.session, { action: word });
+			if (word === "clear" && !done.cleared) this.flash("this conversation has no goal");
+			return;
+		}
+		// The first round is the objective itself, sent as a message of yours.
+		this.user(t, arg);
+		t.awaiting.push(arg);
+		t.scroll.scrollToEnd();
+		try {
+			await this.client.setGoal(t.agent, t.session, { objective: arg });
+		} catch (e) {
+			t.awaiting = t.awaiting.filter((a) => a !== arg);
+			this.say(t, c.red(`✗ no goal set: ${errText(e)}`));
+		}
 	}
 
 	/** Show one live event of a task in a tab. `depth` is counted from what the tab shows: 0 is its own task. */
@@ -2128,6 +2565,9 @@ export class PineTui {
 				thought.append(p.text);
 				break;
 			}
+			case "todos":
+				this.showSteps(tab, p.task, Array.isArray(p.items) ? p.items : []);
+				break;
 			case "delta": {
 				tab.thinking = false;
 				this.endThought(tab, p.task);
@@ -2145,6 +2585,7 @@ export class PineTui {
 			case "message":
 				this.endThought(tab, p.task);
 				if (tab.blocks.has(p.task)) {
+					if (depth === 0) tab.lastAnswer = tab.blocks.get(p.task)!.text;
 					tab.streamed.set(p.task, tab.blocks.get(p.task)!.text);
 					this.answerPictures(tab, p.agent, tab.blocks.get(p.task)!.text);
 				}
@@ -2193,8 +2634,10 @@ export class PineTui {
 				tab.running.delete(p.task);
 				tab.thinking = false;
 				this.takeStats(tab, p.stats);
+				if (p.status !== "cancelled" && !tab.running.size) this.attention(`pine: ${tab.agent} ${p.status === "done" ? "is done" : "stopped with an error"}`);
 				if (p.status === "done") {
 					// Streaming normally showed the answer already; this covers a missed stream.
+					if (p.text) tab.lastAnswer = p.text;
 					if (!block && !tab.streamed.get(p.task) && p.text) {
 						this.add(tab, new Answer(p.text));
 						this.answerPictures(tab, p.agent, p.text);
@@ -2304,9 +2747,12 @@ export class PineTui {
 		else if (t.running.size) {
 			const secs = Math.max(0, Math.round((Date.now() - t.startedAt) / 1000));
 			const helpers = [...t.children.values()].filter((x) => x.running).length;
-			const parts = [t.thinking ? "thinking" : "working", `${secs}s`, ...(t.toolCalls ? [`${t.toolCalls} tool call${t.toolCalls === 1 ? "" : "s"}`] : []), ...(helpers ? [`${helpers} sub-task${helpers === 1 ? "" : "s"} running`] : []), ...(t.tokens.output ? [`${t.tokens.input + t.tokens.cached}↑${t.tokens.cached ? ` (${Math.round((100 * t.tokens.cached) / (t.tokens.input + t.tokens.cached))}% cached)` : ""} ${t.tokens.output}↓`] : []), "esc to stop"];
+			const steps = t.todo?.items.length ? [`step ${Math.min(t.todo.items.length, t.todo.items.filter((x) => x.status === "done").length + 1)} of ${t.todo.items.length}`] : [];
+			const parts = [t.thinking ? "thinking" : "working", `${secs}s`, ...steps, ...(t.toolCalls ? [`${t.toolCalls} tool call${t.toolCalls === 1 ? "" : "s"}`] : []), ...(helpers ? [`${helpers} sub-task${helpers === 1 ? "" : "s"} running`] : []), ...(t.tokens.output ? [`${t.tokens.input + t.tokens.cached}↑${t.tokens.cached ? ` (${Math.round((100 * t.tokens.cached) / (t.tokens.input + t.tokens.cached))}% cached)` : ""} ${t.tokens.output}↓`] : []), "esc to stop"];
+			// A goal: which round this is, so that work that goes on by itself is seen to.
+			if (t.goal?.status === "active") parts.unshift(`goal · round ${t.goal.round} of ${t.goal.until}`);
 			line = `${c.yellow(SPINNER[this.frame % SPINNER.length])} ${c.gray(parts.join(" · "))}`;
-		}
+		} else if (t.goal?.status === "active") line = c.gray(`◎ goal · round ${t.goal.round} of ${t.goal.until} · checking whether it is met · esc to pause`);
 		return [truncateToWidth(` ${line}`, width)];
 	}
 
@@ -2330,7 +2776,7 @@ export class PineTui {
 			.add(c.gray(" · "))
 			.add(c.gray(`reasoning ${info?.thinking ?? "off"}`), () => void this.pickReasoning())
 			.add(c.gray(" · "))
-			.add(mode === "bypass" ? c.red(modeText) : mode === "manual" ? c.cyan(modeText) : c.gray(modeText), () => void this.pickMode());
+			.add(mode === "bypass" ? c.red(modeText) : mode === "manual" ? c.cyan(modeText) : mode === "plan" ? c.magenta(modeText) : c.gray(modeText), () => void this.pickMode());
 		// How full the context window is. pi compacts the conversation by itself when it gets close to full.
 		if (t.context !== undefined) line.add(c.gray(" · ")).add((t.context >= 85 ? c.red : t.context >= 65 ? c.yellow : c.gray)(`context ${t.context}%`));
 		// How much of the last request the model server took from its cache. Low figures on a local model mean slow turns.

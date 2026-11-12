@@ -108,6 +108,9 @@ test("tui: tabs, slash commands and keys", async () => {
 	// Modes: by command and by shift+tab; the bar at the bottom always shows the mode.
 	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · auto/);
 	t.term.type([KEY.shiftTab]);
+	await t.sees("gonzo is now in plan mode");
+	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · plan/);
+	t.term.type([KEY.shiftTab]);
 	await t.sees("gonzo is now in manual mode");
 	await t.sees(/gonzo · main · no folder · mock\/m · reasoning off · manual/);
 	await t.send("/mode bypass");
@@ -796,5 +799,268 @@ test("tui: what a model thinks is a few lines while it thinks and one line after
 	await until(() => !rows().some((l) => /^ │ long-\d+ /.test(l)), 2000, "the long thought to close");
 	const left = rows().findIndex((l) => /▸ thought for/.test(l));
 	assert.ok(left >= 0 && rowOf("Third answer.") > left, `the one line that is left is in view, with the answer under it\n${t.text()}`);
+	await t.close();
+});
+
+test("tui: a message typed while the agent works goes into that work; alt+enter makes it wait its turn", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.sees("type a message");
+
+	// The agent runs a command; the correction arrives while it runs and is read at the next step.
+	await t.send(mockMsg([{ tools: [{ name: "bash", args: { command: "sleep 0.4; echo first" } }] }, { text: "SECOND-STEP" }]));
+	await t.sees("● bash sleep 0.4");
+	await t.send("no, do it the other way");
+	await t.sees("given to the agent while it works");
+	// The model gets it inside that work, after the command's result, and answers it there.
+	await t.sees("ECHO[no, do it the other way]");
+	await done(t.h, 2);
+	const all = t.h.pine.tasks.list({});
+	assert.equal(all.find((x) => x.prompt === "no, do it the other way")!.meta.steered, all.find((x) => x.prompt.includes("sleep 0.4; echo first"))!.id, "it belongs to the work that was running");
+	assert.equal(all.length, 2, "no work of its own was started for it");
+	assert.ok(t.h.mock.state.requests.some((r: any) => r.body.messages.at(-1).role === "user" && JSON.stringify(r.body.messages.at(-1)).includes("no, do it the other way") && r.body.messages.some((m: any) => m.role === "tool")), "the correction reached the model in the same conversation, after the tool result");
+	assert.equal(t.app.screen().filter((l) => l.trim() === "no, do it the other way").length, 1, `the message is shown once\n${t.text()}`);
+
+	// alt+enter: the message waits, and is answered as work of its own when the first is done.
+	await t.send(mockMsg([{ tools: [{ name: "bash", args: { command: "sleep 0.4; echo again" } }] }, { text: "THIRD-DONE" }]));
+	await t.sees("● bash sleep 0.4; echo again");
+	t.term.type("and this afterwards");
+	t.term.type(["\x1b\r"]);
+	await t.sees("waits its turn");
+	await t.sees("THIRD-DONE");
+	await t.sees("ECHO[and this afterwards]");
+	assert.equal(t.h.pine.tasks.list({}).find((x) => x.prompt === "and this afterwards")!.meta.steered, undefined);
+
+	// After reopening, the steered message is in the history without an answer of its own.
+	await t.app.stop();
+	const again = new PineTui({ client: t.app.client, terminal: new FakeTerminal(110, 50) });
+	apps.push(again);
+	await again.start();
+	await until(() => again.screen().join("\n").includes("── now ──"));
+	const restored = again.screen().join("\n");
+	assert.ok(restored.includes("no, do it the other way") && !restored.includes("steered into task"), restored);
+	await again.stop();
+	await t.h.close();
+});
+
+test("tui: /compact shortens the conversation, /copy takes the last answer, /export writes the conversation as Markdown", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pine-export-"));
+	const copied: string[] = [];
+	// Compaction keeps the most recent part as it is; here that is made small, so that a few exchanges are enough to
+	// shorten. (The setting has to survive pi reading its settings again, which it does with every new session.)
+	const t = await open({ agents: { main: { agent: { settings: { compaction: { keepRecentTokens: 20 } } } } }, model: { reasoning: true } }, [110, 40], { cwd: dir, copy: async (text) => (copied.push(text), true) });
+	await t.sees("type a message");
+	await t.send("/copy");
+	await t.sees("there is no answer to copy yet");
+	await t.send("/compact");
+	await t.sees("Nothing to shorten yet");
+
+	await t.send(mockMsg([{ reasoning: "weighing it up", tools: [{ name: "bash", args: { command: "echo ran" } }] }, { text: "The **first** answer." }]));
+	await t.sees("The first answer.");
+	await t.send("second question");
+	await t.sees("ECHO[second question]");
+	await done(t.h, 2);
+
+	// The last answer as the agent wrote it, not as it is drawn.
+	await t.send("/copy");
+	await t.sees("copied the last answer");
+	assert.deepEqual(copied, ["ECHO[second question]"]);
+
+	// To a file where pine was started, and to the clipboard; "full" adds thinking and tool calls.
+	await t.send("/export");
+	await t.sees("saved this conversation as");
+	const files = fs.readdirSync(dir).filter((f) => /^pine-main-main-\d{8}-\d{4}\.md$/.test(f));
+	assert.equal(files.length, 1, fs.readdirSync(dir).join(", "));
+	const plain = fs.readFileSync(path.join(dir, files[0]), "utf8");
+	assert.ok(plain.startsWith("# main · main\n") && plain.includes("## You\n\nsecond question\n\n## main\n\nECHO[second question]") && plain.includes("The **first** answer.") && !plain.includes("<details>") && !plain.includes("`bash`"), plain);
+	await t.send("/export copy full");
+	await t.sees("copied the conversation as Markdown");
+	assert.ok(copied[1].includes("<details><summary>Thinking</summary>\n\nweighing it up") && copied[1].includes("- ✓ `bash` echo ran"), copied[1]);
+	await t.send("/export pdf");
+	await t.sees('usage: /export [copy] [full] (not "pdf")');
+
+	// The earlier part becomes a summary; it waits its turn like a message and says what it did.
+	await t.send(`one more ${"long question with many words ".repeat(10)}`);
+	await done(t.h, 4);
+	const before = t.h.mock.state.requests.length;
+	await t.send("/compact");
+	await t.sees("⟲ shortening the conversation");
+	await t.sees(/The earlier part of this conversation is now a summary: about \d+ tokens before/);
+	assert.ok(t.h.mock.state.requests.length > before, "the model wrote the summary");
+	await t.send("third question");
+	await t.sees("ECHO[third question]");
+	const sent = JSON.stringify(t.h.mock.state.requests.at(-1).body.messages);
+	assert.ok(sent.includes("SUMMARY-OK") && !sent.includes("The **first** answer."), "the model now gets the summary in place of the earlier messages");
+	fs.rmSync(dir, { recursive: true, force: true });
+	await t.close();
+});
+
+test("tui: a bell and a notification when the agent is done or needs approval while the terminal is not in front", async () => {
+	const t = await open({ agents: { main: { agent: { approve: ["bash:*rm *"] } } } });
+	await t.sees("type a message");
+	const calls = () => [...(t.term as any).written.matchAll(/\x07\x1b\]9;([^\x1b]*)\x1b\\/g)].map((m) => m[1]);
+
+	// In front: nothing.
+	await t.send("hello");
+	await t.sees("ECHO[hello]");
+	await done(t.h, 1);
+	assert.deepEqual(calls(), []);
+
+	// The window loses the focus: the end of the work is announced, in pine's words and not the agent's.
+	t.term.type(["\x1b[O"]);
+	await t.send("again");
+	await done(t.h, 2);
+	await until(() => calls().length === 1, 2000, "a notification");
+	assert.deepEqual(calls(), ["pine: main is done"]);
+
+	// So is a question that waits for the owner, and a failure. A stop by the owner is not.
+	await t.send(mockMsg([{ tools: [{ name: "bash", args: { command: "touch f; rm f" } }] }]));
+	await until(() => calls().includes("pine: main needs your approval"), 3000, "the approval to be announced");
+	t.term.type("d");
+	await done(t.h, 3);
+	await until(() => calls().length === 3, 2000, "the end of that work");
+
+	// Switched off, and remembered by the daemon for the next time the UI opens.
+	await t.send("/notify off");
+	await t.sees("notifications are off");
+	await t.send("quiet");
+	await done(t.h, 4);
+	await sleep(100);
+	assert.equal(calls().length, 3);
+	await until(() => t.h.pine.agents.uiTabs().notify === false, 2000, "the setting to be saved");
+	await t.send("/notify on");
+	await t.sees("notifications are on");
+	t.term.type(["\x1b[I"]);
+	await t.send("back in front");
+	await done(t.h, 5);
+	await sleep(100);
+	assert.equal(calls().length, 3, "nothing while the window is in front");
+	await t.close();
+});
+
+test("tui: @ in the input finds a file of the conversation's folder by a few letters, and the agent is told which file and lines", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.sees("type a message");
+	const ws = t.h.workspace("main");
+	fs.mkdirSync(path.join(ws, "src/deep"), { recursive: true });
+	fs.mkdirSync(path.join(ws, "node_modules/pkg"), { recursive: true });
+	for (const f of ["src/agents.ts", "src/deep/agenda.md", "src/router.ts", "README.md", "node_modules/pkg/agents.js"]) fs.writeFileSync(path.join(ws, f), "x\n");
+
+	// The daemon finds them: the name first, letters in order count, what a walk skips stays out.
+	const client = t.app.client;
+	assert.deepEqual((await client.find("main", "main", "agents")).files, ["src/agents.ts"]);
+	assert.deepEqual((await client.find("main", "main", "agen")).files, ["src/agents.ts", "src/deep/agenda.md"]);
+	assert.deepEqual((await client.find("main", "main", "rtr")).files, ["src/router.ts"]);
+	assert.deepEqual((await client.find("main", "main", "../")).files, [], "nothing outside the folder");
+
+	// In the input: the list opens after "@", enter takes the file, and lines can be added by hand.
+	t.term.type("look at @agen");
+	await t.sees("agents.ts");
+	await t.sees("agenda.md");
+	t.term.type([KEY.enter]);
+	await until(() => t.text().includes("look at @src/agents.ts"), 2000, `the file in the input\n${t.text()}`);
+	t.term.type(["\x7f"]);
+	t.term.type("#3-9 and at @nobody please");
+	t.term.type([KEY.esc]);
+	t.term.type([KEY.enter]);
+	await t.sees("ECHO[");
+	await done(t.h, 1);
+	const sent = JSON.stringify(t.h.mock.state.requests.at(-1).body.messages.at(-1));
+	assert.ok(sent.includes("look at @src/agents.ts#3-9 and at @nobody please") && sent.includes("[your owner points at this file in your working folder: src/agents.ts (lines 3 to 9). Read it before you answer.]"), sent);
+	assert.ok(!sent.includes("nobody ("), "a name that is no file of the folder is left as it is");
+
+	// The note is the owner's to cause: a message from outside that claims files gets none.
+	t.h.pine.agents.submit({ agent: "main", prompt: "see @src/router.ts", trust: "untrusted", mentions: ["src/router.ts"] });
+	await until(() => t.h.pine.tasks.list({ status: "done" }).length >= 2, 4000, "the outside run");
+	assert.ok(!t.h.mock.state.requests.some((r: any) => JSON.stringify(r.body.messages).includes("points at this file in your working folder: src/router.ts")));
+	await t.close();
+});
+
+test("tui: /paste and ctrl+v attach the picture that is on the clipboard", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pine-paste-test-"));
+	const shot = path.join(dir, "shot.png");
+	fs.writeFileSync(shot, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+	let onClipboard: string | undefined;
+	const t = await open({ agents: { main: {} } }, [110, 30], { clipboardImage: async () => onClipboard });
+	await t.sees("type a message");
+	await t.send("/paste");
+	await t.sees("there is no picture on the clipboard");
+	onClipboard = shot;
+	await t.send("/paste");
+	await t.sees("shot.png");
+	// ctrl+v, where the terminal passes it on, does the same with what is on the clipboard then.
+	const second = path.join(dir, "second.png");
+	fs.copyFileSync(shot, second);
+	onClipboard = second;
+	t.term.type(["\x16"]);
+	await t.sees("second.png");
+	fs.rmSync(dir, { recursive: true, force: true });
+	await t.close();
+});
+
+test("tui: an agent's question is a dialog with its answers to pick from; a number, a click or the owner's own words answer it", async () => {
+	const t = await open({ agents: { main: { agent: { mode: "plan" } } } });
+	await t.sees("type a message");
+	const ask = (choices?: string[]) => mockMsg([{ tools: [{ name: "question", args: { question: "Which way shall I do it?", ...(choices ? { choices } : {}) } }] }]);
+
+	// By number. It is there in plan mode too: asking changes nothing.
+	await t.send(ask(["The quick way", "The careful way"]));
+	await t.sees("main asks");
+	assert.ok(t.text().includes("1  The quick way") && t.text().includes("2  The careful way") && t.text().includes("or in your own words:"), t.text());
+	t.term.type("2");
+	await t.sees("FINAL:: Your owner answered: The careful way");
+	await t.sees("answered (api)");
+	assert.ok(!t.text().includes("approval needed"), "a question is not shown as a permission");
+
+	// In the owner's own words, and with a click.
+	await t.send(ask(["Yes", "No"]));
+	await t.sees("1  Yes");
+	t.term.type("only for the first file");
+	t.term.type([KEY.enter]);
+	await t.sees("FINAL:: Your owner answered: only for the first file");
+	await t.send(ask(["Left", "Right"]));
+	await t.sees("1  Left");
+	const row = t.app.screen().findIndex((l) => l.includes("1  Left"));
+	t.term.click(t.app.screen()[row].indexOf("1  Left") + 2, row);
+	await t.sees("FINAL:: Your owner answered: Left");
+
+	// Without answers to pick from it is a line to type into; esc leaves it for later, and no answer is said plainly.
+	await t.send(ask());
+	await t.sees("your answer:");
+	t.term.type([KEY.esc]);
+	await t.sees("? the agent asks Which way shall I do it?");
+	await t.send("/deny");
+	await t.sees("Your owner did not answer");
+
+	// A run that the owner did not start has nobody to ask: the tool is not there.
+	await t.h.pine.agents.run({ agent: "main", prompt: ask(["a", "b"]), trust: "untrusted" });
+	assert.match(t.h.toolResults().at(-1)!, /Tool question not found/);
+	await t.close();
+});
+
+test("tui: the agent's list of steps is shown and kept up to date, and the agent is reminded of what is open", async () => {
+	const t = await open({ agents: { main: {} } }, [110, 40]);
+	await t.sees("type a message");
+	const list = (...status: string[]) => ({ name: "todo", args: { items: ["read the code", "change it", "run the tests"].map((text, i) => ({ text, status: status[i] })) } });
+	await t.send(mockMsg([{ tools: [list("in_progress", "pending", "pending")] }, { tools: [list("done", "in_progress", "pending")] }, { text: "Two steps to go." }]));
+	await t.sees("Two steps to go.");
+	await done(t.h, 1);
+	const screen = t.text();
+	assert.ok(screen.includes("steps · 1 of 3 done") && screen.includes("✓ read the code") && screen.includes("◐ change it") && screen.includes("☐ run the tests"), screen);
+	assert.equal(count(screen, "steps · "), 1, "one list, updated in place");
+	assert.match(t.h.toolResults().at(-1)!, /- \[x\] read the code\n- \[~\] change it\n- \[ \] run the tests\n2 of 3 still to do\./);
+
+	// With the next message the agent is shown what is still open.
+	await t.send("go on");
+	await t.sees("ECHO[go on]");
+	const note = notesOf(t.h.mock.state.requests.at(-1)).join("\n");
+	assert.ok(note.includes("Your list of steps in this conversation") && note.includes("- [~] change it"), note);
+
+	// It is the conversation's: there after the UI opens again, gone after a reset. A run from outside has no such tool.
+	assert.equal((await t.app.client.todos("main", "main")).length, 3);
+	await t.send("/reset");
+	await t.sees("fresh conversation");
+	assert.deepEqual(await t.app.client.todos("main", "main"), []);
+	await t.h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [list("pending", "pending", "pending")] }]), trust: "untrusted" });
+	assert.match(t.h.toolResults().at(-1)!, /Tool todo not found/);
 	await t.close();
 });

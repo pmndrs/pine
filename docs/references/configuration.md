@@ -83,9 +83,9 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `dataDir` | `data` | Where the database, media and control token live. |
 | `defaults.model` | none | `provider/model-id` from `models.json`: the model of every agent whose `agent.json` names none. There is no built-in fallback: an agent with neither is a configuration error, which `pine check` and the start of pine report. |
 | `defaults.thinking` | `off` | Reasoning level for models that can reason: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
-| `defaults.mode` | `auto` | `manual`, `auto` or `bypass`: how much agents do without asking. See [security.md](security.md). |
+| `defaults.mode` | `auto` | `manual`, `auto`, `bypass` or `plan`: how much agents do without asking. See [security.md](security.md). |
 | `defaults.scope` | not set | How far the shell and file tools of agents reach that do not say themselves (`sandbox.scope`): `workspace` or `account`. Not set: `account` for the main agent, `workspace` for all others. Set it to `workspace` to keep every agent in its own folders. |
-| `defaults.bashTimeoutSec` | `900` | Longest a shell command may run (15 minutes: a build, an install). The model cannot raise it. A server or another program that should keep running is started in the background. |
+| `defaults.bashTimeoutSec` | `900` | Longest a shell command may run (15 minutes: a build, an install). The model cannot raise it. A server or another program that should keep running, and whatever needs longer, is started in the background, which is not held to it ([coding.md](coding.md)). |
 | `defaults.taskTimeoutSec` | `7200` | Longest a task may run before it is aborted (two hours). |
 | `defaults.idleMs` | `15m` | A live session without work is closed after this (and resumed from disk later). |
 | `defaults.settings` | `{}` | pi settings applied to every agent, for example `{ "compaction": { "reserveTokens": 8000 } }`. |
@@ -99,12 +99,14 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `limits.modelStreamIdleMs` | `5m` | How long a started answer may go silent before the request is dropped. |
 | `limits.eventRetentionDays` | `30` | Older events are deleted, and so are the copies kept of conversations that were reset. |
 | `limits.conversationDays` | `7` | A conversation in which nothing was said for this long is removed with its history, unless it is an agent's main conversation, pinned, open in a tab, subscribed to an event source, or has a schedule of its own. `0`: never. |
+| `limits.goalRounds` | `20` | Goal mode (`/goal`): how many rounds a goal gets before it stops and waits for `/goal resume`, which gives it as many again. A round is a whole turn of the agent with all its tool calls, so twenty are hours on a local model. See "Goal mode" in [agents.md](agents.md). |
+| `limits.goalIdleRounds` | `3` | Goal mode: after this many rounds in a row that the judge called "not met" and in which the agent made no tool call, the goal is paused: the agent is going in circles. `0`: never. |
 | `security.approvalTimeout` | `5m` | An unanswered approval request counts as "no" after this. |
 | `security.taint` | `session` | How long a session stays tainted: until reset (`session`), until the task ends (`run`), or never (`off`). See [security.md](security.md). |
 | `security.taintTools` | `[]` | Tool name globs whose results count as outside content, besides MCP servers marked `taints`. |
 | `security.review` | `model` | What happens in `auto` mode once a conversation has read outside content. `model`: it keeps its rights, and what reaches out, sends something or changes the agent's memory is checked by a reviewer, one action at a time. `ask`: it loses its rights until you say, once, that it keeps them. `off`: it keeps its rights and nothing is checked. See [security.md](security.md), "After outside content: the reviewer". |
-| `security.reviewer` | the agent's own model | The model that reviews, as `provider/model-id`. A second, small model keeps the review from pushing the agent's conversation out of a model server's cache. |
-| `security.reviewTimeout` | `90s` | A review that takes longer counts as no verdict, and the action is put to you instead. |
+| `security.reviewer` | the agent's own model | The model that reviews, as `provider/model-id`. A second, small model keeps the review from pushing the agent's conversation out of a model server's cache. The judge of goal mode (`/goal`) uses the same model. |
+| `security.reviewTimeout` | `90s` | A review that takes longer counts as no verdict, and the action is put to you instead. The judge of goal mode has the same time; when it takes longer, the goal is paused. |
 | `security.rules` | built in | The reviewer's rules in plain language: `{ "hard": [...], "soft": [...], "allow": [...] }`. `hard`: never. `soft`: only if you asked for exactly this. `allow`: ordinary work. `"$defaults"` in a list keeps the built-in entries at that place; a list without it replaces them. |
 | `security.bypassWhenTainted` | `false` | Keep bypass mode in force in a session that has read outside content. Off, such a session asks again. |
 | `http` | on, loopback, port 7463 | Control API and webhooks. `false` turns it off (the CLI's client commands then do not work). |
@@ -184,7 +186,7 @@ Every key is optional; `{}` is a valid agent.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | from `defaults` | `manual`: every action waits for approval. `auto`: works within its scope (`sandbox.scope`) and asks for the rest. `bypass`: never asks, and reaches your whole account. |
+| `mode` | from `defaults` | `manual`: every action waits for approval. `auto`: works within its scope (`sandbox.scope`) and asks for the rest. `bypass`: never asks, and reaches your whole account. `plan`: looks, reads and asks, changes nothing, and answers with a plan. |
 | `sandbox` | on | `false` runs shell and file tools with the daemon's full rights. Do not, unless the machine itself is disposable. |
 | `sandbox.scope` | `account` for the main agent, `workspace` for others | How far the agent's shell and file tools reach in your own conversations. `workspace`: its own folders, and what you grant. `account`: your whole user account and the network, like you at your terminal, with your home folder and environment; pine's home stays closed. After a conversation has read outside content you are asked once whether it keeps that. See [security.md](security.md), "The whole account". |
 | `sandbox.network` | `false` | Shell commands may use the network: the internet and your local network, ports of this machine included. See [security.md](security.md), "On Linux", for what that means for socket files. |

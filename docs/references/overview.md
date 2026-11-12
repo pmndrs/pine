@@ -99,6 +99,9 @@ Topics pine itself uses:
 |---|---|
 | `agent/<id>/started`, `agent/<id>/done`, `agent/<id>/failed` | A task starts or ends |
 | `agent/<id>/tool` | A tool call starts or ends (live only, not stored) |
+| `agent/<id>/todos` | The agent changed its list of steps (`items`, each with `text` and `status`; live only) |
+| `agent/<id>/steered` | A message was given to a task that was already working (`task`), instead of becoming work of its own (live only) |
+| `agent/<id>/undone`, `agent/<id>/redone` | The owner took back their last message in a conversation, or brought it back (`session`, `message`, how many `tasks` and `files`) |
 | `agent/<id>/delta`, `agent/<id>/thinking`, `agent/<id>/message` | Streamed answer text; what the model thinks (`phase: "start"`, then pieces of `text`, then `phase: "end"` with `ms`); the end of a model message with token counts (live only) |
 | `state/<key>` | Shared state changes |
 | `timer/<name>` | A schedule fires (`timer/<name>@<agent>` for an agent's own; `topic` on the schedule overrides it) |
@@ -147,6 +150,8 @@ never) without a message. A run that an outside event started works in a session
 
 When the daemon restarts, queued tasks run; a task that was running is marked failed
 ("interrupted by a daemon restart") because its tool calls may already have had effects.
+A shell command that an agent started in the background goes on without the daemon, and its
+conversation is told how it ended when the daemon is back ([coding.md](coding.md)).
 
 ## Answers
 

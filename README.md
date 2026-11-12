@@ -149,7 +149,8 @@ model server of your own (llama.cpp, vLLM, LM Studio) is added by its address, w
 
 To work on a project, start it in that folder. The agent gets that folder for the
 conversation, and `▤ code` (or `ctrl+g`) opens a pane with git changes and diffs, the files and
-the output of its tool calls ([coding.md](docs/references/coding.md)):
+the output of its tool calls. `/undo` takes your last message back, with the files it changed
+([coding.md](docs/references/coding.md)):
 
 ```bash
 pine .
@@ -200,7 +201,7 @@ Start at [docs/SKILL.md](docs/SKILL.md); it indexes everything.
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | Understand how the pieces fit                                                           | [overview.md](docs/references/overview.md)                   |
 | Use the terminal UI                                                                     | [tui.md](docs/references/tui.md)                             |
-| Work on a project: `pine .`, the code pane with git changes, files and tool output      | [coding.md](docs/references/coding.md)                       |
+| Work on a project: `pine .`, the code pane with git changes, files and tool output, `/undo` | [coding.md](docs/references/coding.md)                       |
 | Install, run, use the CLI, run it as a service                                          | [operations.md](docs/references/operations.md)               |
 | Write `pine.json` and `agent.json`                                                      | [configuration.md](docs/references/configuration.md)         |
 | Let agents set things up by tool call instead of editing files                          | [setup.md](docs/references/setup.md)                         |

@@ -22,25 +22,52 @@ const MAX_OUT = 2_000_000;
  * to run (filters, diff drivers, hooks, a file system monitor); a folder somebody cloned must not
  * get to run anything with the daemon's rights just because it was looked at. So git runs in a
  * sandbox that can neither write nor use the network, and with the programs it would start for
- * a diff turned off.
+ * a diff turned off. Every git call of the daemon goes through here.
  */
-function git(cwd: string, args: string[]): Promise<{ code: number; out: string }> {
-	const jail = helperArgv();
-	if (!jail) return Promise.resolve({ code: 127, out: "" });
+export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<{ code: number; out: string; raw: Buffer; err: string }> {
+	const none = { out: "", raw: Buffer.alloc(0) };
+	const jail = helperArgv(opts.write);
+	if (!jail) return Promise.resolve({ code: 127, ...none, err: "there is no sandbox on this system to run git in" });
 	const safe = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "diff.external=", "-c", "safe.directory=*", "-c", "color.ui=false", "-c", "core.quotePath=false"];
+	const max = opts.maxBytes ?? MAX_OUT;
 	return new Promise((resolve) => {
-		const child = spawn(jail[0], [...jail.slice(1), bin("git"), "-C", cwd, ...safe, ...args], { stdio: ["ignore", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME ?? "", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" } });
+		const child = spawn(jail[0], [...jail.slice(1), bin("git"), "-C", cwd, ...safe, ...args], { stdio: [opts.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"], env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME ?? "", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", ...opts.env } });
 		const chunks: Buffer[] = [];
 		let size = 0;
-		child.stdout.on("data", (d: Buffer) => {
+		let err = "";
+		child.stdout!.on("data", (d: Buffer) => {
 			size += d.length;
-			if (size <= MAX_OUT) chunks.push(d);
+			if (size <= max) chunks.push(d);
 			else child.kill("SIGKILL");
 		});
-		const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
-		child.on("error", () => (clearTimeout(timer), resolve({ code: 127, out: "" })));
-		child.on("close", (code) => (clearTimeout(timer), resolve({ code: code ?? 1, out: Buffer.concat(chunks).toString("utf8") })));
+		child.stderr!.on("data", (d: Buffer) => (err.length < 2000 ? (err += d.toString("utf8")) : undefined));
+		if (opts.stdin !== undefined) {
+			child.stdin!.on("error", () => {});
+			child.stdin!.end(opts.stdin);
+		}
+		const timer = setTimeout(() => child.kill("SIGKILL"), opts.timeoutMs ?? 15_000);
+		child.on("error", (e) => (clearTimeout(timer), resolve({ code: 127, ...none, err: e.message })));
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			const raw = Buffer.concat(chunks);
+			resolve({ code: code ?? 1, out: raw.toString("utf8"), raw, err });
+		});
 	});
+}
+
+/**
+ * What a git call may do beyond looking. The snapshots behind undo (`src/snapshots.ts`) are the
+ * one user: they write into a git directory of pine's own and, for a restore the owner asked
+ * for, into the folder itself. `write` is enforced by the sandbox, not by git.
+ */
+export interface GitOptions {
+	/** Folders git may write in. Without any it can only look. */
+	write?: string[];
+	stdin?: Buffer | string;
+	/** More environment: a git directory, an index file of its own. */
+	env?: Record<string, string>;
+	maxBytes?: number;
+	timeoutMs?: number;
 }
 
 /** The repository a folder lies in, if any: its top folder and the branch that is checked out. */
@@ -107,6 +134,49 @@ function inside(root: string, rel: string): string | undefined {
 	const base = realish(root);
 	const target = realish(path.join(base, rel));
 	return target === base || isInside(base, target) ? target : undefined;
+}
+
+/**
+ * Files of a folder whose path fits what somebody typed, the best first: for pointing an agent at
+ * a file by a few letters of its name. In a repository these are the files git knows or would add
+ * (ignored ones are left out); elsewhere a walk of bounded size that skips hidden folders and
+ * `node_modules`. Nothing outside the folder is named.
+ */
+export async function findFiles(root: string, query: string, limit = 20): Promise<string[]> {
+	const base = realish(root);
+	let files: string[] = [];
+	const listed = (await repository(base)) ? await git(base, ["ls-files", "-co", "--exclude-standard", "-z"]) : undefined;
+	if (listed?.code === 0) files = listed.out.split("\0").filter(Boolean);
+	else {
+		const walk = (rel: string, depth: number) => {
+			if (files.length >= 5000 || depth > 6) return;
+			for (const e of listDir(base, rel)?.entries ?? []) {
+				const next = rel ? `${rel}/${e.name}` : e.name;
+				if (!e.dir) files.push(next);
+				else if (!e.name.startsWith(".") && e.name !== "node_modules") walk(next, depth + 1);
+			}
+		};
+		walk("", 0);
+	}
+	const q = query.toLowerCase();
+	if (!q) return files.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)).slice(0, limit);
+	// Letters in order, with anything between them: "agts" finds "src/agents.ts".
+	const inOrder = (text: string) => {
+		let i = 0;
+		for (const ch of text) if (ch === q[i] && ++i === q.length) return true;
+		return false;
+	};
+	const rank = (file: string) => {
+		const lower = file.toLowerCase();
+		const name = lower.slice(lower.lastIndexOf("/") + 1);
+		return name === q ? 0 : name.startsWith(q) ? 1 : name.includes(q) ? 2 : lower.includes(q) ? 3 : inOrder(name) ? 4 : inOrder(lower) ? 5 : -1;
+	};
+	return files
+		.map((file) => ({ file, rank: rank(file) }))
+		.filter((x) => x.rank >= 0)
+		.sort((a, b) => a.rank - b.rank || a.file.length - b.file.length || a.file.localeCompare(b.file))
+		.slice(0, limit)
+		.map((x) => x.file);
 }
 
 export interface Entry {

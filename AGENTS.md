@@ -49,10 +49,15 @@ src/
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
   router.ts         routes: filter, debounce, set / publish / call / agent
   timers.ts         the scheduler: cron, intervals and one-offs; a schedule with a task wakes an agent
-  programs.ts       what a conversation's commands left running: found by process group, listed, stopped
+  goals.ts          goal mode (`/goal`): a conversation's objective, the judge that says whether it is met, the task that calls the agent again
+  programs.ts       what a conversation's commands left running: found by process group, listed, stopped;
+                    commands in the background: started, found again after a restart, seen to end
+  background.ts     what an agent reads about commands in the background: the shell tool's words, the message when one has ended
   actions.ts        what a tool call is (`classify`), the protected paths, and the reviewer: its rules, its prompt, its verdict
   computer.ts       app control: who gets the server (`computerSession`) and which app a call is about (`appTarget`); shared by the gate, classify() and the server
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
+  snapshots.ts      the state of a folder as a git tree in a git directory of pine's own: recorded, compared, restored
+  undo.ts           taking back the owner's last message: turns and their steps, what waits for a redo, pi's session file
   http.ts           control API and webhooks
   limiter.ts        model slots with priority
   login.ts          `pine login`: pi's sign-in flows, stored in <home>/auth.json
@@ -61,6 +66,7 @@ src/
   mcp-config.ts     add/remove/list MCP servers in the files; runs pi's `mcp` CLI for state and OAuth sign-in
   tui/              terminal UI: app.ts (tabs, commands, rendering), client.ts (API + event stream), run.ts,
                     code-pane.ts (the pane beside a conversation: changes, files, tool output),
+                    undo.ts (what the conversation says after /undo and /redo),
                     theme.ts (colours, markdown), highlight.ts (code colours),
                     picture.ts (pictures and video: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing)
   types.ts, util.ts shared types; topics, templates, filters, durations, logger
@@ -154,6 +160,12 @@ These are invariants. A change that breaks one needs a test that shows why it is
    task (`add_schedule`). Time is the scheduler's business (`src/timers.ts`): there is no timer
    source, and nothing else should fire on a clock of its own. Children
    inherit the weaker trust (`AgentManager.submit`).
+   A goal (`src/goals.ts`) calls an agent again in the owner's name too. Only the owner sets,
+   resumes or clears one, through the control API; there is no tool for it, and a run started
+   from outside has none. The task that continues the agent holds the owner's objective and
+   fixed text of pine's (`continuePrompt`), never a word of the agent's answer or of the
+   judge's reason: the answer may repeat outside content, and the judge has read it. No
+   verdict pauses the goal; it never counts as "go on".
 4. **Untrusted runs get their capabilities by registration.** Tools and MCP servers that the
    untrusted profile does not list are not registered in that session at all, and the session
    key gets `~u` so history is never shared with the owner's session. The app control server
@@ -222,6 +234,18 @@ These are invariants. A change that breaks one needs a test that shows why it is
    code pane: every path is resolved and must stay inside the folder, and `git` runs behind
    `helperArgv()` without write access or network and with everything a repository's
    configuration could make it start turned off. Keep new git calls on that `git()` helper.
+   Undo is the owner's in the same way (`AgentManager.undo` and `.redo`, `src/undo.ts`): the
+   control API only, no tool, and only a message the owner typed is taken back
+   (`ownerMessage`), never a run that outside content started. It is the one place where the
+   daemon's side writes a folder. `src/snapshots.ts` records the folder as git trees in a git
+   directory under `data/snapshots`, which no agent can write, and restores through the same
+   `git()` helper with `write` naming that directory and the folder: the sandbox keeps it
+   inside, not a path check. That git reads neither the folder's settings nor the owner's
+   (`GIT_CONFIG_GLOBAL`), and its `info/attributes` turns off filters and text conversion. A
+   restore sets only paths that two recorded trees differ in, through git, which does not
+   write through a link. Taking a message back puts the conversation's outside-content mark
+   and what the owner allowed it (`setRights`) back to what they were before that message,
+   never to more.
 
 12. **What an agent left running is found by the daemon, not reported by the agent.** Every
    shell command notes its process group before its sandbox starts (`Programs.note`, fixed
@@ -230,6 +254,17 @@ These are invariants. A change that breaks one needs a test that shows why it is
    on that conversation's list and the shell that led the group is gone. `stop` ends only such
    a group, for the control API and for the agent's `stop_program` alike: never a process id
    somebody names.
+   A command the agent puts into the background (`background` on the shell tool) is started by
+   the daemon itself (`Programs.start`): the shell that waits for it is fixed text (`WATCH`),
+   the agent's command is one argument of the shell inside the conversation's sandbox, and the
+   group is noted from what the system said at the start. While that shell lives the command
+   counts as running, and it is known by its command line, which names the record pine keeps
+   in its home. Its output is the agent's file: the daemon reads the end of it through the
+   agent's sandbox (`tailOf` in `src/background.ts`) and hands it to the conversation as
+   quoted output inside a message of pine's own (`endedNotice`), in a `notify` task, which the
+   reviewer never takes for the owner's words. A run started from outside has no `background`
+   (the gate refuses it), and on Linux neither has a conversation that read outside content:
+   what `Guard` takes away after a command protects nothing while a command runs on.
 
 13. **App control acts in the app that was named, and the owner said yes to that app.** The
    gate asks once per app in a conversation, by the name in the call (`appTarget` in
@@ -255,9 +290,11 @@ upgrade pi (`npm run baseline`, then `npm test`).
 | `mcp.json` is read from the global agent dir | `pi.registerMcpServer()` per session; `PI_CODING_AGENT_DIR` points into `data/pi`; `createMcpExtension({ loadConfig })` returns nothing, so no file there can add a server. `pine mcp login` writes a temporary `mcp.json` there for pi's CLI |
 | Sessions default to the global agent dir | explicit `sessionDir` under `agents/<id>/sessions/` |
 | bash has no default timeout | the gate caps `input.timeout` at `bashTimeoutSec` |
+| bash ends a command at its timeout (`killProcessTree` in its `exec`) and cannot let go of one that is running: it owns the process and the pipes its output comes through | a command for the background never goes through pi's tool: `Programs.start` runs it, and the timeout message tells the agent to start it that way (`TIMEOUT_HINT`) |
 | `AGENTS.md` is read once | `refresh()` reloads when a file's mtime changed |
 | pi looks for instruction files in the working folder and the folders above it | `agentsFilesOverride` ignores what pi found and hands it `instructionFiles()`: the owner's `agents/<id>/AGENTS.md`, the agent's own `AGENTS.md`, `SOUL.md`, `MEMORY.md` (`WORKSPACE_FILES` in `src/config.ts`) and the home's `USER.md` |
 | `prompt()` resolves on model failure | `execute()` inspects the last assistant message |
+| A session opened from its file stands at the last entry written; `branch()` moves it in memory only | `rewind()` in `undo.ts` works on the closed session and appends an entry of pine's own (`pine-undo`, no message) at the place it went back to |
 | Skills and `AGENTS.md` are discovered in the user's home and above the workspace | `skillsOverride` / `agentsFilesOverride` keep only configured locations |
 | `tools: [...]` is a strict allow-list that hides extension tools | `excludeTools` for built-ins instead |
 | The default system prompt describes a coding assistant inside pi and points at pi's manuals | `systemPromptOverride` supplies `BASE_PROMPT`; `docs/` is searched by every agent with the `manual` tool |
@@ -302,6 +339,9 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   a script that speaks the helper's protocol and runs on any system; the server's `helper`
   option names it. No test in the ordinary suite touches a real app or needs macOS. The `live:`
   tests build the real helper and drive its own demo window (`--demo`), which needs no grant.
+- A model call pine makes itself, without tools (the reviewer, the judge of goal mode), is
+  scripted with the mock's `withoutTools` option: see `reviewed()` in `test/review.test.ts` and
+  `judged()` in `test/goals.test.ts`.
 - A new security property needs a test that fails without the code that provides it.
 
 ## Style
@@ -331,7 +371,8 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   types free of agent, session or prompt logic, and make them start nothing until `setup` runs:
   an unsubscribed source must cost nothing and listen to nothing.
 - The approval gate lives in one place, the `tool_call` handler in `coreExtension`
-  (`src/agents.ts`). Order: bypass, then what is configured to always ask, then what is
+  (`src/agents.ts`). Plan mode comes before all of it: a call that is not class `look` is
+  refused there and never asked about. Then the order: bypass, then what is configured to always ask, then what is
   reviewed (critical always; reach, send and own after outside content), then what never asks
   (read-only tools, a remembered "always"), then manual mode, then the taint rules of
   `security.review: "ask"`.

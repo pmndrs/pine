@@ -18,6 +18,8 @@ set `"enabled": false` on it.
 
 ## Who has it
 
+If an agent does not have the tools to operate apps in its list, the reason is in this table.
+
 | Who | App control |
 |---|---|
 | The main agent, in a conversation with its owner | Yes. The owner is asked once per app (below) |

@@ -72,8 +72,10 @@ export interface SourceApi {
 		 * while it is typed). `by` says who answered: "timeout" when nobody did.
 		 */
 		request(summary: string, why: string, inputs: Array<{ name: string; label: string; secret?: boolean }>): Promise<{ allow: boolean; by: string; values?: Record<string, string> }>;
-		pending(): Array<{ id: string; agent: string; tool: string; summary: string; why: string; remember?: string; task: number }>;
+		pending(): Array<{ id: string; agent: string; tool: string; summary: string; why: string; remember?: string; task: number; choices?: string[] }>;
 		decide(id: string, allow: boolean, by: string, always?: boolean): boolean;
+		/** Answer an agent's question with one of the answers it offered (by its place in `choices`). */
+		choose(id: string, choice: number, by: string): boolean;
 	};
 	/**
 	 * Look at something again and again, for what cannot report by itself: a web address, a
@@ -532,6 +534,10 @@ export class SourceHost {
 				request: async (summary, why, inputs) => (this.approvals ? this.approvals.request({ agent: `${name} (event source)`, task: 0, tool: source.type ?? name, summary, why, inputs }) : { allow: false, by: "nobody" }),
 				pending: () => this.approvals?.pending() ?? [],
 				decide: (id, allow, by, always) => this.approvals?.decide(id, allow, by, always) ?? false,
+				choose: (id, choice, by) => {
+					const answer = this.approvals?.pending().find((r) => r.id === id)?.choices?.[choice];
+					return answer !== undefined && (this.approvals?.decide(id, true, by, false, { answer }) ?? false);
+				},
 			},
 			poll: (every, look) => {
 				const ms = parseDuration(every);

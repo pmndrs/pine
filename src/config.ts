@@ -168,8 +168,9 @@ export interface HookConfig {
  * auto:   works freely inside its sandbox; asks for what the rules single out, and for access beyond it.
  * bypass: never asks, and its shell and file tools reach the whole user account (pine's own home and code stay closed).
  */
-export type Mode = "manual" | "auto" | "bypass";
-export const MODES: Mode[] = ["manual", "auto", "bypass"];
+/** "plan": the agent looks, reads and asks, and changes nothing; its answer is what it would do. */
+export type Mode = "manual" | "auto" | "bypass" | "plan";
+export const MODES: Mode[] = ["manual", "auto", "bypass", "plan"];
 
 export interface SandboxConfig {
 	enabled: boolean;
@@ -268,6 +269,15 @@ export interface PineConfig {
 		conversationDays: number;
 		maxQueuedPerAgent: number;
 		maxEventChars: number;
+		/**
+		 * Goal mode (src/goals.ts): how many rounds a goal gets before it stops and the owner has to
+		 * say that it goes on. A round is a whole task with as many tool calls as it takes, bounded
+		 * by taskTimeoutSec, so twenty of them are hours on a local model; and a small model that has
+		 * not got there in twenty turns is more often stuck than nearly done.
+		 */
+		goalRounds: number;
+		/** Goal mode: after this many rounds in a row that ended "not met" without a tool call, the goal is paused. 0: never. */
+		goalIdleRounds: number;
 	};
 	security: {
 		approvalTimeoutMs: number;
@@ -536,6 +546,8 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			conversationDays: l.conversationDays ?? 7,
 			maxQueuedPerAgent: l.maxQueuedPerAgent ?? 50,
 			maxEventChars: l.maxEventChars ?? 20_000,
+			goalRounds: Math.max(1, Math.floor(Number(l.goalRounds ?? 20)) || 20),
+			goalIdleRounds: Math.max(0, Math.floor(Number(l.goalIdleRounds ?? 3)) || 0),
 		},
 		security: {
 			approvalTimeoutMs: parseDuration(raw.security?.approvalTimeout ?? "5m"),

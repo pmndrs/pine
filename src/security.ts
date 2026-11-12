@@ -494,6 +494,11 @@ export interface ApprovalRequest {
 	 * owner types them where the question is shown. A yes without them is not a yes.
 	 */
 	inputs?: Array<{ name: string; label: string; secret?: boolean }>;
+	/**
+	 * A question of the agent's rather than a permission: answers to pick from. The one that is
+	 * picked, or the owner's own words, comes back as the input `answer`.
+	 */
+	choices?: string[];
 }
 
 export interface ApprovalDecision {

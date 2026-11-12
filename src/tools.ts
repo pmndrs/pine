@@ -145,15 +145,69 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 			defineTool({
 				name: "stop_program",
 				label: "Stop program",
-				description: "Stop a program that one of your commands left running in this conversation, such as a development server. Without an id: list what is running. A pine-note tells you the ids. Use it when your owner asks you to stop or close what you started, and when a server is no longer needed.",
+				description: "Stop a program that one of your commands left running in this conversation, such as a development server, or a command that you started in the background. Without an id: list what is running. A pine-note tells you the ids. Use it when your owner asks you to stop or close what you started, and when a server is no longer needed.",
 				parameters: Type.Object({ id: Type.Optional(Type.Number({ description: "The id of the program, from the list" })) }),
 				execute: async (_id, p) => {
 					run();
 					const list = () => manager.programs.list(live.perm);
-					const show = (all: ReturnType<typeof list>) => (all.length ? all.map((x) => `- id ${x.id}: ${programName(x.command)}${x.ports.length ? `, port ${x.ports.join(", ")}` : ""}, running for ${since(x.seconds)}`).join("\n") : "Nothing that your commands started is running in this conversation.");
+					const show = (all: ReturnType<typeof list>) => (all.length ? all.map((x) => `- id ${x.id}: ${programName(x.command)}${x.ports.length ? `, port ${x.ports.join(", ")}` : ""}, running for ${since(x.seconds)}${x.background ? `, in the background, output in ${x.output}` : ""}`).join("\n") : "Nothing that your commands started is running in this conversation.");
 					if (p.id === undefined) return ok(show(list()));
-					if (!manager.programs.stop(live.perm, p.id)) throw new Error(`there is no running program with the id ${p.id} in this conversation.\n${show(list())}`);
+					const was = list().find((x) => x.id === p.id);
+					// Stopped by the agent itself: this answer says so, and no message about its end follows.
+					if (!manager.programs.stop(live.perm, p.id, "agent")) throw new Error(`there is no running program with the id ${p.id} in this conversation.\n${show(list())}`);
+					if (was?.background) return ok(`Stopped the background command ${p.id}. You are not told again that it has ended. What it printed is in ${was.output}`);
 					return ok(`Stopped the program ${p.id}.`);
+				},
+			}),
+		);
+	}
+
+	// A question to the owner with answers to pick from. It changes nothing, so it is there in every
+	// mode, plan mode too. A run that the owner did not start has nobody to ask.
+	if (live.trust === "owner") {
+		tools.push(
+			defineTool({
+				name: "question",
+				label: "Ask the owner",
+				description:
+					"Ask your owner one question when you cannot go on without their decision: which of two ways, which file, yes or no. Give two to five short answers to pick from when you can, the one you recommend first; they can also answer in their own words. One question at a time. Not for permission to do something: that is asked by itself when it is needed.",
+				parameters: Type.Object({
+					question: Type.String({ description: "The question, in one or two sentences" }),
+					choices: Type.Optional(Type.Array(Type.String(), { description: "Two to five short answers to pick from. The one you recommend first." })),
+				}),
+				execute: async (_id, p) => {
+					const r = run();
+					const text = String(p.question ?? "").trim();
+					if (!text) throw new Error("give the question");
+					const choices = [...new Set((p.choices ?? []).map((c) => truncate(String(c).replace(/\s+/g, " ").trim(), 80)).filter(Boolean))].slice(0, 6);
+					const decision = await r.slot.suspend(() =>
+						manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "question", summary: truncate(text, 800), why: "the agent needs your answer to go on", choices: choices.length ? choices : undefined, inputs: [{ name: "answer", label: "Your answer", secret: false }] }),
+					);
+					const answer = decision.values?.answer?.trim();
+					if (decision.allow && answer) return ok(`Your owner answered: ${answer}`);
+					return ok(`Your owner did not answer (${decision.by}). Do not ask again now. Go on with the most reasonable assumption and say which one you made, or say what you need and stop.`);
+				},
+			}),
+		);
+	}
+
+	// The agent's own list of the steps of what it is doing. It changes nothing outside pine, the
+	// owner sees it, and the agent is reminded of what is still open with the next message.
+	if (live.trust === "owner") {
+		tools.push(
+			defineTool({
+				name: "todo",
+				label: "List of steps",
+				description:
+					"Keep a short list of the steps of a task that has several. Send the whole list every time: when you start (every step pending), when you begin a step (in_progress, one at a time), and when you finish one (done). Your owner sees the list, and you are shown what is still open with their next message. Not for a task of one step. An empty list clears it.",
+				parameters: Type.Object({
+					items: Type.Array(Type.Object({ text: Type.String({ description: "The step, in a few words" }), status: Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("done")], { description: "pending, in_progress or done" }) }), { description: "All steps, in order" }),
+				}),
+				execute: async (_id, p) => {
+					const list = manager.setTodos(live, run().task, p.items as any);
+					if (!list.length) return ok("The list is empty now.");
+					const open = list.filter((t) => t.status !== "done").length;
+					return ok(`${list.map((t) => `- [${t.status === "done" ? "x" : t.status === "in_progress" ? "~" : " "}] ${t.text}`).join("\n")}\n${open ? `${open} of ${list.length} still to do.` : "All done."}`);
 				},
 			}),
 		);

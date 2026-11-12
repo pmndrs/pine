@@ -165,6 +165,18 @@ test("telegram: set up by asking, paired by the owner in pine, then a conversati
 	assert.ok(!JSON.stringify(h.mock.state.requests.map((q: any) => q.body)).includes(TOKEN), "and no model was ever sent it");
 	assert.ok(h.system(h.mock.state.requests[0]).includes("never ask your owner to write one into the conversation") || JSON.stringify(h.mock.state.requests[0].body.tools).includes("never ask your owner to write one into the conversation"), "the agent is told that secrets are not its to handle");
 
+	// A question of the agent's reaches the phone with one button for each answer it offers.
+	tg.message(1001, mockMsg([{ tools: [call("question", { question: "Which colour for the header?", choices: ["Blue", "Green"] })] }]));
+	await until(() => tg.sent().some((m) => /asks:\nWhich colour/.test(m.text)), 5000, "the question");
+	const asking = tg.sent().find((m) => /Which colour/.test(m.text));
+	assert.deepEqual(asking.reply_markup.inline_keyboard.map((row: any) => row[0].text), ["Blue", "Green", "No answer"]);
+	tg.callback(2002, asking.reply_markup.inline_keyboard[1][0].callback_data);
+	await sleep(120);
+	assert.equal(h.pine.approvals.pending().length, 1, "a stranger cannot answer");
+	tg.callback(1001, asking.reply_markup.inline_keyboard[1][0].callback_data);
+	await until(() => tg.sent().some((m) => m.text.startsWith("FINAL::") && m.text.includes("Your owner answered: Green")), 5000, "the answer to reach the agent");
+	assert.ok(tg.calls.some((c) => c.method === "editMessageReplyMarkup" && /Answered \(telegram:1001\)/.test(JSON.stringify(c.body))));
+
 	// It survives a restart with its pairing, and goes without a trace when it is removed.
 	await h.restart();
 	atTheKeyboard();

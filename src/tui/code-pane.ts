@@ -42,6 +42,9 @@ interface State {
 	loading?: string;
 	error?: string;
 	changes?: Awaited<ReturnType<Client["changes"]>>;
+	/** Changes counted from before the owner's last message instead of from the last commit, and what they are. */
+	scope?: "turn";
+	turn?: Awaited<ReturnType<Client["turn"]>>;
 	/** The file whose diff is shown, from the top of the repository. */
 	diff?: { file: string; lines?: string[]; truncated?: boolean };
 	root?: string;
@@ -176,10 +179,20 @@ export class CodePane {
 		if (!s) return this.build();
 		if (view) {
 			s.view = view;
+			s.scope = undefined;
 			s.diff = undefined;
 			s.file = undefined;
 			s.call = undefined;
 		}
+		this.scroll.scrollToStart();
+		void this.load(true);
+	}
+
+	/** The changes view, counted from before the owner's last message: what that message changed. */
+	showTurn(): void {
+		const s = this.state;
+		if (!s) return this.build();
+		Object.assign(s, { view: "changes", scope: "turn", diff: undefined });
 		this.scroll.scrollToStart();
 		void this.load(true);
 	}
@@ -215,7 +228,14 @@ export class CodePane {
 			this.build();
 		}
 		try {
-			if (s.view === "changes") {
+			if (s.view === "changes" && s.scope === "turn") {
+				const last = await this.client.turn(t.agent, t.session);
+				const diff = s.diff ? await this.client.turnDiff(t.agent, t.session, s.diff.file).catch(() => undefined) : undefined;
+				if (turn !== this.turn) return;
+				s.turn = last;
+				s.root = last.root ?? s.root;
+				if (s.diff) Object.assign(s.diff, { lines: diff ? diffLines(diff.diff) : [], truncated: diff?.truncated });
+			} else if (s.view === "changes") {
 				const changes = await this.client.changes(t.agent, t.session);
 				const diff = s.diff ? await this.client.diff(t.agent, t.session, s.diff.file).catch(() => undefined) : undefined;
 				if (turn !== this.turn) return;
@@ -311,7 +331,39 @@ export class CodePane {
 		this.redraw();
 	}
 
+	/** What the owner's last message changed in the folder: the same list and diffs, between the states pine recorded before and after it. */
+	private turnRows(s: State, rows: Row[]): void {
+		const t = s.turn;
+		if (s.diff) {
+			const file = s.diff.file;
+			rows.push(this.back(file, (x) => (x.diff = undefined)));
+			rows.push({ text: c.gray("what your last message changed in this file") });
+			rows.push({ text: "" });
+			if (!s.diff.lines) rows.push({ text: c.gray("reading …") });
+			else if (!s.diff.lines.length) rows.push({ text: c.gray("nothing to show for this file (a binary file, or no difference any more)") });
+			else for (const text of s.diff.lines) rows.push({ text, wrap: true });
+			if (s.diff.truncated) rows.push({ text: c.gray("… the diff goes on; this is its first 200 000 characters") });
+			return;
+		}
+		rows.push({ text: `${c.bold("by your last message")} ${c.gray("·")} ${c.accent("▸ since the last commit")}`, run: () => this.go((x) => ((x.scope = undefined), (x.diff = undefined))) });
+		if (!t) return void rows.push({ text: c.gray(s.loading ?? "") });
+		if (t.prompt) rows.push({ text: c.gray(`“${plain(t.prompt).replace(/\s+/g, " ").trim()}”`), wrap: true });
+		rows.push({ text: "" });
+		if (t.note) return void rows.push({ text: c.gray(plain(t.note)), wrap: true });
+		if (!t.files.length) return void rows.push({ text: c.gray("It changed no file here. Files that git ignores and files over 2 MB are not recorded."), wrap: true });
+		const letter: Record<string, (x: string) => string> = { M: c.yellow, A: c.green, D: c.red };
+		for (const f of t.files) {
+			const n = counts(f);
+			rows.push({ text: `${(letter[f.status] ?? c.gray)(f.status === "A" ? "+" : f.status)} ${plain(f.path)}${n ? `  ${n}` : ""}`, run: () => this.go((x) => (x.diff = { file: f.path })) });
+		}
+		if (t.more) rows.push({ text: c.gray("… and more; the first 300 are listed") });
+		rows.push({ text: "" });
+		rows.push({ text: c.gray("/undo takes the message back and restores these files; /redo brings both back."), wrap: true });
+	}
+
 	private changesRows(s: State, rows: Row[]): void {
+		if (s.scope === "turn") return this.turnRows(s, rows);
+		if (!s.diff) rows.push({ text: `${c.bold("since the last commit")} ${c.gray("·")} ${c.accent("▸ by your last message")}`, run: () => this.go((x) => ((x.scope = "turn"), (x.diff = undefined))) });
 		const ch = s.changes;
 		if (!ch) return void rows.push({ text: c.gray(s.loading ?? "") });
 		if (!ch.repo) return void rows.push({ text: c.gray("This folder is not in a git repository, so there are no changes to show. Files lists what is in it."), wrap: true });
@@ -366,7 +418,9 @@ export class CodePane {
 		for (const p of s.programs) {
 			const stopping = s.stopping?.has(p.id);
 			rows.push({ text: `${stopping ? c.yellow("●") : c.green("●")} ${c.bold(plain(programName(p.command, 200)))}`, wrap: true });
-			rows.push({ text: c.gray(`  ${[p.ports.length ? `port ${p.ports.join(", ")}` : "", `running for ${since(p.seconds)}`, p.processes > 1 ? `${p.processes} processes` : ""].filter(Boolean).join(" · ")}`) });
+			rows.push({ text: c.gray(`  ${[p.background ? "in the background" : "", p.ports.length ? `port ${p.ports.join(", ")}` : "", `running for ${since(p.seconds)}`, p.processes > 1 ? `${p.processes} processes` : ""].filter(Boolean).join(" · ")}`) });
+			// A command the agent put into the background: where what it prints goes. The agent is told when it ends.
+			if (p.output) rows.push({ text: c.gray(plain(p.output)), gutter: c.gray("  output in "), wrap: true });
 			if (stopping) rows.push({ text: c.gray("  stopping …") });
 			else rows.push({ text: `  ${c.red("■ stop")}`, run: () => void this.stopProgram(p.id) });
 			rows.push({ text: "" });
@@ -465,9 +519,10 @@ export class CodePane {
 		at = Math.max(at, width - rightWidth);
 		for (const r of right) add(r.styled, r.run);
 		const where = s?.root ? tilde(s.root) : "";
-		const ch = s?.view === "changes" ? s.changes : undefined;
+		const ch = s?.view === "changes" && s.scope !== "turn" ? s.changes : undefined;
+		const last = s?.view === "changes" && s.scope === "turn" ? s.turn : undefined;
 		// What is asked for first comes first; the folder's name is what gets cut when the pane is narrow.
-		const info = [...(ch?.repo ? [`${ch.branch || "no branch"}`, ch.files.length ? `${ch.files.length}${ch.more ? "+" : ""} changed` : "clean"] : []), ...(s?.view === "output" && s.calls ? [`${s.calls.length} tool call${s.calls.length === 1 ? "" : "s"}`] : []), ...(s?.view === "running" && s.programs ? [s.programs.length ? `${s.programs.length} running` : "nothing running"] : []), ...(s?.view === "blocked" && s.blocked ? [s.blocked.length ? `${s.blocked.length} blocked` : "nothing blocked"] : []), where].filter(Boolean).join(" · ");
+		const info = [...(last ? [last.files.length ? `${last.files.length}${last.more ? "+" : ""} changed by your last message` : "last message"] : []), ...(ch?.repo ? [`${ch.branch || "no branch"}`, ch.files.length ? `${ch.files.length}${ch.more ? "+" : ""} changed` : "clean"] : []), ...(s?.view === "output" && s.calls ? [`${s.calls.length} tool call${s.calls.length === 1 ? "" : "s"}`] : []), ...(s?.view === "running" && s.programs ? [s.programs.length ? `${s.programs.length} running` : "nothing running"] : []), ...(s?.view === "blocked" && s.blocked ? [s.blocked.length ? `${s.blocked.length} blocked` : "nothing blocked"] : []), where].filter(Boolean).join(" · ");
 		return [truncateToWidth(text, width), truncateToWidth(` ${c.gray(info)}`, width), c.gray("─".repeat(width))];
 	}
 }

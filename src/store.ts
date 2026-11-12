@@ -56,6 +56,8 @@ export class Bus {
 		if (secret.length < 8) return;
 		this.db.prepare("UPDATE events SET payload = replace(payload, ?, '[redacted]') WHERE instr(payload, ?) > 0").run(secret, secret);
 		for (const col of ["prompt", "result", "error", "meta"]) this.db.prepare(`UPDATE tasks SET ${col} = replace(${col}, ?, '[redacted]') WHERE instr(${col}, ?) > 0`).run(secret, secret);
+		// Messages that were taken back wait in private storage for a redo (src/undo.ts): they are tasks all the same.
+		this.db.prepare("UPDATE kv SET value = replace(value, ?, '[redacted]') WHERE substr(key, 1, 7) = 'undone:' AND instr(value, ?) > 0").run(secret, secret);
 	}
 
 	publish(topic: string, payload: unknown = null, opts: PublishOptions = {}): PineEvent {
@@ -245,6 +247,25 @@ export class TaskStore {
 		const marks = sessions.map(() => "?").join(", ");
 		const sql = `WITH RECURSIVE gone(id) AS (SELECT id FROM tasks WHERE agent = ? AND session IN (${marks}) UNION SELECT t.id FROM tasks t JOIN gone g ON t.parent = g.id) DELETE FROM tasks WHERE id IN (SELECT id FROM gone)`;
 		return Number(this.db.prepare(sql).run(agent, ...sessions).changes);
+	}
+
+	/**
+	 * Take tasks out of the list, with the one-off work they started (sub-agents, a task handed
+	 * to another agent for one run), and return what was taken. What another agent did in a
+	 * conversation it keeps stays in that conversation.
+	 */
+	take(ids: number[]): Task[] {
+		if (!ids.length) return [];
+		const gone = `WITH RECURSIVE gone(id) AS (SELECT id FROM tasks WHERE id IN (${ids.map(() => "?").join(", ")}) UNION SELECT t.id FROM tasks t JOIN gone g ON t.parent = g.id WHERE t.session LIKE '\\_t%' ESCAPE '\\')`;
+		const rows = this.db.prepare(`${gone} SELECT * FROM tasks WHERE id IN (SELECT id FROM gone) ORDER BY id ASC`).all(...ids).map((r) => this.fromRow(r));
+		this.db.prepare(`${gone} DELETE FROM tasks WHERE id IN (SELECT id FROM gone)`).run(...ids);
+		return rows;
+	}
+
+	/** Put back tasks that `take` returned, under the numbers they had. */
+	putBack(rows: Task[]): void {
+		const insert = this.db.prepare("INSERT OR REPLACE INTO tasks (id, agent, session, kind, prompt, status, priority, created, started, finished, result, error, event, hops, parent, depth, reply, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+		for (const t of rows) insert.run(t.id, t.agent, t.session, t.kind, t.prompt, t.status, t.priority, t.created, t.started ?? null, t.finished ?? null, t.result ?? null, t.error ?? null, t.event ?? null, t.hops, t.parent ?? null, t.depth, t.reply ? JSON.stringify(t.reply) : null, JSON.stringify(t.meta ?? {}));
 	}
 
 	/** Give a conversation's tasks another conversation name. */

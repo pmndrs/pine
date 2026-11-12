@@ -25,7 +25,7 @@ import { truncate } from "./util.ts";
 export type ActionClass = "look" | "local" | "reach" | "send" | "own" | "critical" | "setup";
 
 /** Tools that only look. */
-export const LOOK_TOOLS = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "manual", "schedules", "stop_program"];
+export const LOOK_TOOLS = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "manual", "schedules", "stop_program", "question", "todo"];
 /** Tools that change pine's setup or ask for access. Each asks the owner where it matters, so the gate does not ask again. */
 export const SETUP_TOOLS = ["request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "add_schedule", "remove_schedule", "create_agent"];
 
@@ -152,6 +152,10 @@ export function classify(tool: string, input: any, ctx: ActionContext): Action {
 	if (tool === "delegate") return { cls: ctx.canSendOut(String(input?.agent ?? "")) ? "send" : "local", note: "hands a task to an agent that can send things out" };
 	return { cls: "local" };
 }
+
+/** What an agent is told when it tries to act while its owner has it planning. */
+export const PLAN_REFUSAL =
+	"Not done: you are in plan mode. In plan mode you look, read, search and ask, and nothing is changed, run or sent. Do not try another way to do it. When you have seen enough, answer with your plan: what you would do, in which order, in which files, and what could go wrong. Your owner reads it and switches the mode when it is to be carried out.";
 
 // ---- the reviewer ------------------------------------------------------------------------------
 
