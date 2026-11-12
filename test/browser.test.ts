@@ -263,6 +263,8 @@ const owner = () => {
 };
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
 	const m = JSON.parse(line);
+	// Like the real server: a message with a field that a request does not have is dropped without an answer.
+	if (Object.keys(m).some((k) => !["jsonrpc", "id", "method", "params"].includes(k))) return;
 	if (m.method === "initialize") return send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "0" } } });
 	if (m.method === "tools/list") return send({ jsonrpc: "2.0", id: m.id, result: { tools: ["browser_navigate", "browser_take_screenshot", "browser_storage_state", "browser_cookie_list", "browser_run_code_unsafe"].map((name) => ({ name, inputSchema: { type: "object" } })) } });
 	if (m.method !== "tools/call") return;

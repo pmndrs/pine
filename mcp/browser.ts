@@ -333,8 +333,10 @@ export function relay(o: BrowserOptions, io: BrowserServer): { line(line: string
 		const tab = now.tabs[front];
 		const where = `${tab.title || "a page"} (${tab.url})`;
 		if (looksOnly(msg.params)) {
+			// The note is this server's own and stays here: Playwright's server answers only a message
+			// that is exactly a request, and one with a field more it drops without a word.
 			msg.notice = `The browser has changed since you last looked (your owner uses this window too). You are now on: ${where}.`;
-			return write(msg);
+			return write({ jsonrpc: msg.jsonrpc, id: msg.id, method: msg.method, params: msg.params });
 		}
 		const page = await call("browser_snapshot", {});
 		seen = await tabsNow();
