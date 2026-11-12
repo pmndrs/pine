@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_TOOLS } from "./agent-admin.ts";
-import { type AgentConfig, loadConfig, mainAgentId, type Mode, MODES, PINE_ROOT, type PineConfig, type RouteConfig, sandboxScope } from "./config.ts";
+import { type AgentConfig, loadConfig, mainAgentId, type Mode, MODES, PINE_ROOT, type PineConfig, RESERVED_TOPICS, type RouteConfig, sandboxScope } from "./config.ts";
 import { unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
 import { isInside, realish } from "./security.ts";
@@ -314,9 +314,6 @@ export interface RouteInput {
 	trust?: string;
 }
 
-/** Topics only pine itself publishes on (the same list the publish_event tool refuses). */
-const RESERVED = ["approval/#", "agent/#", "pine/#", "state/#", "timer/#"];
-
 const object = (text: string | undefined, what: string): Record<string, unknown> | undefined => {
 	if (text === undefined || text.trim() === "") return undefined;
 	let v: unknown;
@@ -365,7 +362,7 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[])
 	} else if (input.call_system || input.call_model) throw new Error('a model call needs "call_prompt": what the model is asked');
 	if (input.publish_topic) {
 		const topic = input.publish_topic.trim();
-		if (matchesAny(RESERVED, topic)) throw new Error(`"${topic}" is a topic only pine itself publishes on. Pick one of your own, for example cam/classified`);
+		if (matchesAny(RESERVED_TOPICS, topic)) throw new Error(`"${topic}" is a topic only pine itself publishes on. Pick one of your own, for example cam/classified`);
 		let payload: unknown;
 		if (input.publish_payload !== undefined && input.publish_payload !== "") {
 			try {

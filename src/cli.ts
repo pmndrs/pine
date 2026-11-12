@@ -68,10 +68,15 @@ Schedules, skills, the manual
   pine skills                     every skill: whom it is for and where it lies
   pine manual <words>             search pine's manual, as the agents do; --read <id> shows a part in full
 
-Agents (the main agent does the same when you ask it: create_agent, remove_agent)
+Agents (the main agent does the same when you ask it: create_agent, update_agent, remove_agent)
   pine agent list                 the agents: what each is for, its model, its reach, what it has
   pine agent add <id> --description "what it is for" [--instructions "who it is and how it works"]
        [--instructions-file <file>] [--model provider/model] [--tools read,bash,...]
+  pine agent update <id> [--description ...] [--instructions ... | --instructions-file <file>]
+       [--model provider/model|default] [--thinking off|low|...|max] [--mode auto|manual|bypass|plan]
+       [--tools read,bash,...] [--delegates id,id|*] [--scope workspace|account|default]
+       [--network | --no-network] [--read /path,/path] [--write /path] [--forget /path]
+                                  change an agent's settings; give only what changes, the rest stays
   pine agent remove <id> [--keep-files] [--yes]
                                   remove an agent with everything it has: conversations, sources,
                                   schedules, servers, skills, routes that wake it, its folder and
@@ -79,7 +84,8 @@ Agents (the main agent does the same when you ask it: create_agent, remove_agent
 
 MCP servers
   pine mcp list                   configured servers, who gets them, and whether they connect
-  pine mcp add <name> <https-url> [--agent id] [--taints] [--approve always|tainted] [--timeout seconds]
+  pine mcp add <name> <https-url> [--agent id] [--description text] [--taints] [--approve always|tainted]
+       [--exposure direct|codemode|deferred|hidden] [--timeout seconds]
   pine mcp add <name> [--agent id] -- <command> [args...]
   pine mcp remove <name> [--agent id]
   pine mcp login <name>           sign in to a remote server through the browser (OAuth)
@@ -96,7 +102,7 @@ function parseArgs(argv: string[]) {
 		const a = argv[i];
 		if (a === "-f") flags.follow = true;
 		else if (a.startsWith("--no-")) flags[a.slice(5)] = false;
-		else if (a.startsWith("--")) flags[a.slice(2)] = argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") && !["follow", "json", "api-key", "oauth", "taints", "offline", "always", "separate", "global", "yes", "keep-files"].includes(a.slice(2)) ? argv[++i] : true;
+		else if (a.startsWith("--")) flags[a.slice(2)] = argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") && !["follow", "json", "api-key", "oauth", "taints", "offline", "always", "separate", "global", "yes", "keep-files", "network"].includes(a.slice(2)) ? argv[++i] : true;
 		else rest.push(a);
 	}
 	return { flags, rest };
@@ -143,7 +149,7 @@ const line = (e: any) => `${when(e.ts)}  #${String(e.id).padEnd(5)} ${e.topic.pa
 
 /** pine agent list | add | remove: with a running daemon through it, without one in the files. */
 async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) => void): Promise<void> {
-	const { holdingsOf, eraseAgent } = await import("./admin.ts");
+	const { applyAgentChange, checkAgentChange, eraseAgent, holdingsOf } = await import("./admin.ts");
 	const { AGENT_TOOLS, checkNewAgent, createAgent } = await import("./agent-admin.ts");
 	const { flags, rest } = parseArgs(argv.filter((a, i, all) => !(a === "--home" || all[i - 1] === "--home")));
 	const sub = rest.shift() ?? "list";
@@ -184,6 +190,40 @@ async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) =
 			const workspace = api ? ((await api.post("/agents", spec)) as any).workspace : createAgent(cfg, spec).workspace;
 			return out(`Created the agent ${id} (tools: ${(tools ?? AGENT_TOOLS).join(", ")}). Its workspace is ${workspace}.${api ? ` Talk to it with: pine send ${id} "..."` : " It is there when pine is started."}`);
 		}
+		case "update": {
+			const id = rest[0];
+			const usage = 'usage: pine agent update <id> [--description "..."] [--instructions "..." | --instructions-file <file>] [--model provider/model|default] [--thinking off|minimal|low|medium|high|xhigh|max] [--mode auto|manual|bypass|plan] [--tools read,bash,...] [--delegates id,id|*] [--scope workspace|account|default] [--network | --no-network] [--read /path,/path] [--write /path] [--forget /path]';
+			if (!id) throw new Error(usage);
+			const agent = cfg.agents[id];
+			if (!agent) throw new Error(`there is no agent "${id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+			const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+			const list = (v: unknown) => (typeof v === "string" ? v.split(",").map((x) => x.trim()).filter(Boolean) : undefined);
+			const fromFile = typeof flags["instructions-file"] === "string" ? fs.readFileSync(expandHome(flags["instructions-file"]), "utf8") : undefined;
+			const change = {
+				description: str(flags.description),
+				instructions: fromFile ?? str(flags.instructions),
+				model: str(flags.model),
+				thinking: str(flags.thinking),
+				mode: str(flags.mode),
+				tools: list(flags.tools),
+				delegates: list(flags.delegates),
+				scope: str(flags.scope),
+				network: typeof flags.network === "boolean" ? flags.network : undefined,
+				read: list(flags.read),
+				write: list(flags.write),
+				forget: list(flags.forget),
+			};
+			const api = await daemon();
+			if (api) {
+				const r = (await api.post(`/agents/${encodeURIComponent(id)}/update`, change)) as { lines: string[]; warnings: string[] };
+				return out(`Updated the agent ${id}; it holds from its next message on:\n${r.lines.map((l) => `  ${l}`).join("\n")}${r.warnings.length ? `\nNote: ${r.warnings.join("; ")}` : ""}`);
+			}
+			// Without a daemon the files are changed; a model change is left to the running pine, which can check the model exists.
+			if (change.model !== undefined && change.model !== "default" && change.model !== "") throw new Error(`changing the model needs a running daemon, which checks that "${change.model}" exists. Start it with "pine start" and run this again, or set "model" in ${path.join(agent.dir, "agent.json")} by hand.`);
+			const checked = checkAgentChange(cfg, agent, change, []);
+			applyAgentChange(cfg, agent, checked);
+			return out(`Updated the agent ${id} (it is there when pine is started):\n${checked.lines.map((l) => `  ${l}`).join("\n")}${checked.warnings.length ? `\nNote: ${checked.warnings.join("; ")}` : ""}`);
+		}
 		case "remove": {
 			const id = rest[0];
 			if (!id) throw new Error("usage: pine agent remove <id> [--keep-files] [--yes]");
@@ -217,7 +257,7 @@ async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) =
 			return out(`Removed the agent ${id}.${gone.kept ? ` Its folder is kept at ${gone.kept}.` : ""}`);
 		}
 		default:
-			throw new Error("usage: pine agent list | add <id> --description ... | remove <id> [--keep-files] [--yes]");
+			throw new Error("usage: pine agent list | add <id> --description ... | update <id> --model ... | remove <id> [--keep-files] [--yes]");
 	}
 }
 
@@ -253,7 +293,7 @@ async function mcpCommand(cfg: PineConfig, argv: string[], out: (v: unknown) => 
 		case "add": {
 			const name = rest[0];
 			const url = rest[1];
-			if (!name || (!url && !command.length)) throw new Error("usage: pine mcp add <name> <https-url> [--agent id] [--taints] [--approve always|tainted] [--timeout seconds] [--description text]\n       pine mcp add <name> [--agent id] -- <command> [args...]");
+			if (!name || (!url && !command.length)) throw new Error("usage: pine mcp add <name> <https-url> [--agent id] [--description text] [--taints] [--approve always|tainted] [--exposure direct|codemode|deferred|hidden] [--timeout seconds]\n       pine mcp add <name> [--agent id] -- <command> [args...]");
 			const server: any = url ? { url } : { command: command[0], args: command.slice(1) };
 			if (typeof flags.description === "string") server.description = flags.description;
 			if (flags.taints === true) server.taints = true;
@@ -306,7 +346,7 @@ async function installBrowser(): Promise<number> {
 	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
 }
 
-const COMMANDS = new Set(["agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "manual", "mcp", "mode", "model", "reset", "schedules", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
+const COMMANDS = new Set(["agent", "agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "manual", "mcp", "mode", "model", "reset", "schedules", "send", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
 
 /** Whether a first argument means a folder to open: something written as a path, or the name of a folder here that is not a command. */
 function folderArgument(word: string | undefined, cwd = process.cwd()): string | undefined {

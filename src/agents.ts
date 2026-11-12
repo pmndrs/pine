@@ -21,7 +21,7 @@ import { type AgentConfig, loadConfig, agentSkillsDir, conversationsDir, delegat
 import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
 import { type Approvals, checkPath, denialTools, globMatch, grantable, grantPath, isInside, isOpen, matchesToolPattern, outsidePath, ownFileOf, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
-import { countFiles, eraseAgent } from "./admin.ts";
+import { type AgentChange, applyAgentChange, checkAgentChange, countFiles, eraseAgent } from "./admin.ts";
 import { createAgent, type NewAgent } from "./agent-admin.ts";
 import type { Router } from "./router.ts";
 import { Denials, fromOutput, gather, looksFailed, reaches, sortDenials, there, type Want, wantKey, wantText } from "./access.ts";
@@ -1126,6 +1126,23 @@ export class AgentManager {
 		await this.refreshSessions();
 		this.log.info(`created the agent ${made.id}`);
 		return made;
+	}
+
+	/**
+	 * Change an agent's settings (`pine agent update`, as the update_agent tool does it): the change
+	 * is checked, written, and the configuration is read back; if it does not load, the file is as it
+	 * was. Sessions take it on with their next task. When the delegates change, every agent's roster
+	 * is refreshed, not just this one's.
+	 */
+	async updateAgent(agentId: string, change: AgentChange): Promise<{ lines: string[]; warnings: string[] }> {
+		const agent = this.cfg.agents[agentId];
+		if (!agent) throw new Error(`there is no agent "${agentId}"`);
+		const needsModels = change.model !== undefined && change.model !== "default" && change.model !== "";
+		const checked = checkAgentChange(this.cfg, agent, change, needsModels ? await this.availableModels() : []);
+		applyAgentChange(this.cfg, agent, checked);
+		await this.refreshSessions(change.delegates ? undefined : [agentId]);
+		this.log.info(`agent ${agentId} updated: ${checked.lines.join("; ")}`);
+		return { lines: checked.lines, warnings: checked.warnings };
 	}
 
 	/** What an agent has, for telling the owner what goes with it. */

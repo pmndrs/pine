@@ -41,8 +41,9 @@ The main agent is the one `pine.json` names with `"main"`; without that entry it
 called `main`, or else the first one. It is pine's administrator: what you want changed about
 pine, you ask it for, and it does it with tools that check what they are given, instead of
 you or an agent editing files. See "The main agent administers pine" below. The other agents do not have `create_agent`,
-`update_agent`, `remove_agent`, `agents`, `settings`, `set_setting`,
-`add_source_type` or `add_model_server`, and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
+`update_agent`, `remove_agent`, `agents`, `settings`, `set_setting`, `routes`, `add_route`,
+`remove_route`, `add_source_type`, `remove_source_type`, `add_model_server` or `remove_model_server`,
+and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
 an agent you ask for something that is not its to do sends you to the main agent instead of
 trying.
 
@@ -274,7 +275,9 @@ conversation, or `/reset`, does it.
 
 You see every line of the change before it is made, with a note where it gives the agent more
 (the account, the network, bypass mode). It holds from the agent's next message on. pine's own
-folder, pine's code and another agent's workspace are refused as folders.
+folder, pine's code and another agent's workspace are refused as folders. `pine agent update
+<id>` does the same from a shell, each value a flag (`--model`, `--tools`, `--scope`, ...); a
+model change needs a running daemon, which checks the model exists ([operations.md](operations.md)).
 
 `remove_agent` takes an agent out of pine, and nothing of it is left. You are shown what goes
 with it: its conversations, event sources, MCP servers, schedules, skills, the routes that wake

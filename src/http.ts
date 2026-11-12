@@ -250,6 +250,16 @@ export class HttpServer {
 				await this.manager.setModel(parts[1], body.model);
 				return send(200, { model: body.model });
 			}
+			// Change an agent's settings (`pine agent update`), as the main agent does it by tool.
+			if (parts[0] === "agents" && parts[2] === "update" && parts.length === 3) {
+				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
+				const { agent: _a, ...change } = body;
+				try {
+					return send(200, await this.manager.updateAgent(parts[1], change));
+				} catch (e) {
+					throw new HttpError(400, errText(e));
+				}
+			}
 			if (parts[0] === "agents" && (parts[2] === "subscribe" || parts[2] === "unsubscribe") && parts.length === 3) {
 				if (!this.sources) throw new HttpError(404, "not found");
 				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
