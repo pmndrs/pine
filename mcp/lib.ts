@@ -1,12 +1,15 @@
 // Minimal MCP server over stdio (newline-delimited JSON-RPC 2.0). No dependencies.
 import readline from "node:readline";
 
+/** A part of a tool's result: text, or a picture for a model that can see. */
+export type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
 export interface McpTool {
 	name: string;
 	description: string;
 	inputSchema: Record<string, unknown>;
 	annotations?: Record<string, unknown>;
-	handler(args: Record<string, any>): Promise<string> | string;
+	handler(args: Record<string, any>): Promise<string | McpContent[]> | string | McpContent[];
 }
 
 export function options<T = Record<string, any>>(): T {
@@ -17,7 +20,8 @@ export function options<T = Record<string, any>>(): T {
 	}
 }
 
-export function serve(info: { name: string; version: string; instructions?: string }, tools: McpTool[]): void {
+/** `missing`: what a call to a tool that is not offered is answered with, instead of "unknown tool". */
+export function serve(info: { name: string; version: string; instructions?: string }, tools: McpTool[], missing?: (name: string) => string): void {
 	const send = (msg: unknown) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 	const rl = readline.createInterface({ input: process.stdin });
 	rl.on("line", async (line) => {
@@ -39,9 +43,10 @@ export function serve(info: { name: string; version: string; instructions?: stri
 				return reply({ tools: tools.map(({ handler: _h, ...t }) => t) });
 			case "tools/call": {
 				const tool = tools.find((t) => t.name === msg.params?.name);
-				if (!tool) return reply({ content: [{ type: "text", text: `unknown tool ${msg.params?.name}` }], isError: true });
+				if (!tool) return reply({ content: [{ type: "text", text: missing?.(String(msg.params?.name)) ?? `unknown tool ${msg.params?.name}` }], isError: true });
 				try {
-					return reply({ content: [{ type: "text", text: await tool.handler(msg.params?.arguments ?? {}) }] });
+					const result = await tool.handler(msg.params?.arguments ?? {});
+					return reply({ content: typeof result === "string" ? [{ type: "text", text: result }] : result });
 				} catch (e) {
 					return reply({ content: [{ type: "text", text: e instanceof Error ? e.message : String(e) }], isError: true });
 				}

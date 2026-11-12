@@ -20,6 +20,7 @@ Reply with exactly one JSON object and nothing else (no prose before or after, n
 - Every tool in <tools> is available. Use them the way the harness system prompt expects: act, do not ask for permission to use a tool the role is meant to use.
 - Several calls in one reply are fine. Never state the outcome of a call before you have seen its <tool_result>.
 - When the task is done or needs no tool, put the answer in "text" and use "tool_calls": [].
+- Pictures of the conversation are attached to this message, in order. Where one belongs, the conversation says [picture 1], [picture 2] and so on.
 
 Play the role the harness system prompt defines.`;
 
@@ -40,10 +41,31 @@ export function parseReply(raw: string): { text: string; tool_calls: Array<{ nam
 	return { text: raw.trim(), tool_calls: [] };
 }
 
-const textOf = (content: any): string =>
-	typeof content === "string" ? content : Array.isArray(content) ? content.map((p) => (p.type === "text" ? p.text : `[${p.type} omitted]`)).join("") : "";
+/** A picture of a request, as `claude` takes it. */
+export interface Picture {
+	media_type: string;
+	data: string;
+}
 
-export function buildPrompt(body: any): string {
+/**
+ * The prompt for a request. Pictures cannot be part of a text: each leaves a mark where it
+ * stood and is added to `pictures`, which go along with the prompt in the same order.
+ */
+export function buildPrompt(body: any, pictures: Picture[] = []): string {
+	const textOf = (content: any): string =>
+		typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content
+						.map((p) => {
+							if (p.type === "text") return p.text;
+							const m = p.type === "image_url" ? /^data:([^;,]+);base64,(.+)$/s.exec(String(p.image_url?.url ?? "")) : null;
+							if (!m) return `[${p.type} omitted]`;
+							pictures.push({ media_type: m[1], data: m[2] });
+							return `[picture ${pictures.length}]`;
+						})
+						.join("")
+				: "";
 	const messages: any[] = body.messages ?? [];
 	const system = messages.filter((m) => m.role === "system" || m.role === "developer").map((m) => textOf(m.content)).join("\n\n");
 	const tools = (body.tools ?? []).map((t: any) => ({ name: t.function?.name ?? t.name, description: t.function?.description ?? t.description, parameters: t.function?.parameters ?? t.parameters }));
@@ -85,11 +107,13 @@ export async function startClaudeModel(opts: ClaudeModelOptions = {}) {
 		else active--;
 	};
 
-	const ask = (prompt: string, model: string, signal: AbortSignal) =>
+	const ask = (prompt: string, model: string, signal: AbortSignal, pictures: Picture[] = []) =>
 		new Promise<ReturnType<typeof parseReply>>((resolve, reject) => {
+			// A prompt with pictures goes in as a message of parts, and the answer comes back as a stream of lines whose last one is the result.
+			const format = pictures.length ? ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["--output-format", "json"];
 			const child = spawn(
 				opts.claudePath ?? "claude",
-				["-p", "--model", model, "--output-format", "json", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--setting-sources", "", "--disable-slash-commands", "--system-prompt", RULES],
+				["-p", "--model", model, ...format, "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--setting-sources", "", "--disable-slash-commands", "--system-prompt", RULES],
 				{ cwd, stdio: ["pipe", "pipe", "pipe"] },
 			);
 			let out = "";
@@ -103,14 +127,16 @@ export async function startClaudeModel(opts: ClaudeModelOptions = {}) {
 				signal.removeEventListener("abort", onAbort);
 				if (signal.aborted) return reject(new Error("aborted"));
 				try {
-					const json = JSON.parse(out);
+					const json = pictures.length ? out.trim().split("\n").map((l) => { try { return JSON.parse(l); } catch { return undefined; } }).findLast((m) => m?.type === "result") : JSON.parse(out);
+					if (!json) throw new Error("no result in the output");
 					if (json.is_error) throw new Error(String(json.result ?? "claude reported an error"));
 					resolve(parseReply(String(json.result ?? "")));
 				} catch (e) {
 					reject(new Error(`claude -p failed (exit ${code}): ${(e as Error).message} ${err.slice(0, 300)}`));
 				}
 			});
-			child.stdin.end(prompt);
+			child.stdin.on("error", () => {});
+			child.stdin.end(pictures.length ? `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: prompt }, ...pictures.map((p) => ({ type: "image", source: { type: "base64", ...p } }))] } })}\n` : prompt);
 		});
 
 	const server = http.createServer(async (req, res) => {
@@ -130,13 +156,14 @@ export async function startClaudeModel(opts: ClaudeModelOptions = {}) {
 		const abort = new AbortController();
 		res.on("close", () => !res.writableEnded && abort.abort());
 		const model = /^(claude-)?(haiku|sonnet|opus|fable)$/.test(String(body.model)) ? String(body.model).replace(/^claude-/, "") : (opts.model ?? "haiku");
-		const prompt = buildPrompt(body);
+		const pictures: Picture[] = [];
+		const prompt = buildPrompt(body, pictures);
 		stats.requests++;
 		const t0 = Date.now();
 		await take();
 		let answer: Awaited<ReturnType<typeof ask>>;
 		try {
-			answer = await ask(prompt, model, abort.signal);
+			answer = await ask(prompt, model, abort.signal, pictures);
 		} catch (e) {
 			stats.failures++;
 			give();

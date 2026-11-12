@@ -19,7 +19,7 @@ export interface McpServerConfig {
 	timeout?: number;
 	/** Global servers only: which agents get it. Default ["*"]. */
 	agents?: string[];
-	/** Use a server that ships with pine ("web", "browser", "commands") instead of command/url. */
+	/** Use a server that ships with pine ("web", "browser", "commands", "computer") instead of command/url. */
 	pine?: string;
 	options?: Record<string, unknown>;
 	/** Its results are outside content: a session that calls it counts as tainted. */
@@ -659,6 +659,8 @@ const BUNDLED: Record<string, { file: string; taints: boolean }> = {
 	web: { file: `mcp/web${EXT}`, taints: true },
 	browser: { file: `mcp/browser${EXT}`, taints: true },
 	commands: { file: `mcp/commands${EXT}`, taints: false },
+	// What a screen shows was written by whoever wrote the mail, the page or the document on it.
+	computer: { file: `mcp/computer${EXT}`, taints: true },
 };
 
 /** Turn a pine MCP entry into what pi's registerMcpServer() accepts. */

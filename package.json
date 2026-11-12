@@ -23,7 +23,7 @@
     "start": "node src/cli.ts start",
     "check": "tsc --noEmit",
     "test": "node --test --test-force-exit 'test/*.test.ts'",
-    "test:live": "PINE_LIVE=1 node --test --test-force-exit test/live.test.ts test/browser.test.ts",
+    "test:live": "PINE_LIVE=1 node --test --test-force-exit test/live.test.ts test/browser.test.ts test/computer.test.ts",
     "baseline": "sh baseline/run-all.sh",
     "build": "node scripts/build.mjs",
     "release": "node scripts/release.mjs"

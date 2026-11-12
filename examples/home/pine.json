@@ -22,6 +22,10 @@
       "pine": "browser",
       "description": "A real browser for pages that need JavaScript, clicks or forms",
       "options": { "headed": false }
+    },
+    "computer": {
+      "pine": "computer",
+      "description": "Operate the apps on this Mac: read their windows, click, type (macOS only; asks you once per app)"
     }
   },
   "sources": {},

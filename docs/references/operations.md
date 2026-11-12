@@ -320,6 +320,8 @@ are JSON with `Content-Type: application/json`.
 | A task fails with 401 or "API key" | The provider's credential is missing or expired. `pine login <provider>` again. |
 | The browser tools fail with "Executable doesn't exist" | Run `pine init` again (or `pine browser-install`): the browser is missing or pine was updated to a newer one. |
 | The browser cannot open `localhost` or a page says "not reachable from the browser" | Local addresses need your yes. The agent opens the address with `browser_navigate` and you are asked; see "Local addresses" in [mcp.md](mcp.md). A server the agent started itself also needs network access for its shell. |
+| The agent says macOS does not let pine operate apps, or take pictures of the screen | macOS has to be told once: System Settings > Privacy & Security > Accessibility (and Screen & System Audio Recording for pictures), switch on the terminal app pine runs in. See "What macOS has to be told, once" in [computer.md](computer.md). |
+| The agent has no tools to click or type in apps | App control is for an agent that reaches your whole account, in your own conversations, on macOS. `pine check` says which under `apps`. See [computer.md](computer.md). |
 | The UI says "reconnecting…" | The daemon it was attached to stopped. Start it again; the UI picks it up. |
 | `no daemon answers on http://127.0.0.1:7463` | The daemon is not running, or `http.port` differs from what the CLI reads in this home. |
 | A task fails with a connection error | The model server is down or `baseUrl` is wrong. `curl <baseUrl>/models` should answer. |

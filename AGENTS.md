@@ -12,11 +12,12 @@ to change the code.
 | `npm run build` | Makes the npm package in `build/`: the sources compiled to JavaScript at the same paths, plus docs and examples. Node runs TypeScript directly in a checkout but not inside `node_modules`, so only the package is compiled. Code that names one of pine's own module files at run time uses `EXT` from `src/config.ts` (".ts" or ".js"). |
 | `npm run release` | What the Release workflow runs on every push to `main` (`.github/workflows/release.yml`): works out the next version, builds, publishes to npm, and marks the release with a tag. `node scripts/release.mjs --dry-run` shows the version and checks the package without publishing. The checkout's `package.json` is marked private so that the sources are never published uncompiled. |
 | `npm run check` | Type check (`tsc --noEmit`). |
-| `npm run test:live` | End-to-end through `claude -p`, plus the real browser. Slow, uses a Claude plan and the network. Run it when you change prompts, tool descriptions, `src/dev/claude-model.ts` or `mcp/browser.ts`. |
+| `npm run test:live` | End-to-end through `claude -p`, plus the real browser and, on a Mac, the real app control helper. Slow, uses a Claude plan and the network. Run it when you change prompts, tool descriptions, `src/dev/claude-model.ts`, `mcp/browser.ts`, `mcp/computer.ts` or `mcp/computer.swift`. The tests that operate TextEdit skip themselves unless the terminal app they run in has the Accessibility and Screen Recording grants. |
 | `npm run baseline` | The 59 pi SDK checks in `baseline/`. Run it after upgrading pi. |
 | `node src/cli.ts <command>` | The CLI without installing it. |
 
-There is no build step. Node runs the TypeScript directly, so:
+There is no build step. Node runs the TypeScript directly (the one compiled part, the app
+control helper `mcp/computer.swift`, is built by pine on the Mac it runs on, on first use), so:
 
 - only erasable syntax: no `enum`, no `namespace`, no constructor parameter properties;
 - relative imports carry the `.ts` extension;
@@ -50,6 +51,7 @@ src/
   timers.ts         the scheduler: cron, intervals and one-offs; a schedule with a task wakes an agent
   programs.ts       what a conversation's commands left running: found by process group, listed, stopped
   actions.ts        what a tool call is (`classify`), the protected paths, and the reviewer: its rules, its prompt, its verdict
+  computer.ts       app control: who gets the server (`computerSession`) and which app a call is about (`appTarget`); shared by the gate, classify() and the server
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   http.ts           control API and webhooks
   limiter.ts        model slots with priority
@@ -63,7 +65,8 @@ src/
                     picture.ts (pictures and video: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing)
   types.ts, util.ts shared types; topics, templates, filters, durations, logger
   dev/claude-model.ts   OpenAI-compatible server backed by `claude -p` (development only)
-mcp/                bundled MCP servers (separate processes): web, browser, commands
+mcp/                bundled MCP servers (separate processes): web, browser, commands, computer
+                    (computer.swift is the macOS helper of computer.ts: accessibility tree, mouse and key events, pictures; it decides nothing)
 examples/home/      what `pine init` copies
 test/               node:test files; support/harness.ts builds a temp home and a daemon
 baseline/           pi SDK behaviour checks and their results; the mock model server lives here
@@ -121,6 +124,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    the mode, the agent's scope and what the conversation has read: `live.variant()` picks the
    normal, restricted or open profile for each call, and access the owner granted with
    `request_access` is written into that session's profiles.)
+   App control (`mcp/computer.ts`) is the same reach by another road: it acts in the owner's
+   apps, outside any sandbox. So it follows the open profile and adds nothing to it:
+   `computerSession()` gives the server only to an agent whose scope is the account, in the
+   owner's own conversations, and the gate refuses it where `live.wide()` is false.
    The open profile is the owner's whole account. It is for bypass mode and for an agent whose
    scope is the account (`sandboxScope` in `src/config.ts`: the main agent, unless configured
    otherwise), in the owner's own conversations only (`live.wide()`). What a conversation
@@ -149,7 +156,8 @@ These are invariants. A change that breaks one needs a test that shows why it is
    inherit the weaker trust (`AgentManager.submit`).
 4. **Untrusted runs get their capabilities by registration.** Tools and MCP servers that the
    untrusted profile does not list are not registered in that session at all, and the session
-   key gets `~u` so history is never shared with the owner's session.
+   key gets `~u` so history is never shared with the owner's session. The app control server
+   is never registered for such a run, whatever the profile lists (`profileFor`).
 5. **Every tool call passes `tool_call` in `coreExtension()`, and has a class.** That is where
    deny patterns, the bash time limit, path checks, taint marking, review and approvals happen.
    `classify()` in `src/actions.ts` is the one place that says what a call is (look, local,
@@ -159,7 +167,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    reads to `LOOK_TOOLS`. The reviewer (`reviewAction`) is given the owner's messages from the
    task list and the call, and never a tool result: do not hand it conversation history. A
    block is returned to the model as a reason; no verdict, or three blocks in a row, goes to
-   the owner. It never becomes "run it anyway".
+   the owner. It never becomes "run it anyway". A tool of the app control server has its class
+   from `ctx.app`: looking is `look`, acting is `local`, so that a click is not put to a
+   reviewer who could say nothing about a position. What stands in for the review is the
+   owner's yes per app (rule 13); do not take one away without the other.
 6. **Secrets stay in `.env`.** They are interpolated into the configuration and never exported to
    `process.env`; `shellEnv()` builds the environment for child processes from an allow-list.
    With the whole account it is the owner's own environment instead, without the daemon's
@@ -220,6 +231,17 @@ These are invariants. A change that breaks one needs a test that shows why it is
    a group, for the control API and for the agent's `stop_program` alike: never a process id
    somebody names.
 
+13. **App control acts in the app that was named, and the owner said yes to that app.** The
+   gate asks once per app in a conversation, by the name in the call (`appTarget` in
+   `src/computer.ts`; the yes is kept in `AgentManager.grants`, like a local address of the
+   browser). `mcp/computer.ts` makes the name true: a reference has to belong to that app, a
+   position has to lie in one of its windows (`landsIn`), keys are sent to its process alone. It never
+   clicks, types or presses in the app pine itself runs in, where the owner answers pine's
+   questions. There is no list of forbidden apps, on purpose: do not add one. The helper only
+   does what it is told; a check that decides who may do what belongs in `computer.ts`, where
+   the tests reach it with a stand-in for the helper. On a system that is not macOS the server
+   is not registered, and started by hand it offers nothing and says so.
+
 ## pi behaviours pine depends on
 
 The baseline suite found these; each has a mitigation in the code. Re-check them when you
@@ -276,6 +298,10 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   `test/cli.test.ts`); the variable exists for tests only and is not a user option.
 - `npm test` passes `--test-force-exit`, so a leaked handle cannot hang the run; a test that
   fails must still not leave a daemon behind (see the `after` hooks in `test/support/harness.ts`).
+- App control is tested on a stand-in for its helper (`FAKE_HELPER` in `test/computer.test.ts`),
+  a script that speaks the helper's protocol and runs on any system; the server's `helper`
+  option names it. No test in the ordinary suite touches a real app or needs macOS. The `live:`
+  tests build the real helper and drive its own demo window (`--demo`), which needs no grant.
 - A new security property needs a test that fails without the code that provides it.
 
 ## Style

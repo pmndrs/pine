@@ -22,6 +22,7 @@ import { type Approvals, checkPath, globMatch, isInside, matchesToolPattern, own
 import type { Bus, Kv, State, TaskStore } from "./store.ts";
 import { editJson, removeServer } from "./mcp-config.ts";
 import { fetchToFile, localTarget } from "./net.ts";
+import { APP_LOOK, appTarget, computerSession } from "./computer.ts";
 import { sandboxedFileTools, sandboxExec, sniffImage } from "./sandbox-fs.ts";
 import type { SourceHost } from "./sources.ts";
 import type { Scheduler } from "./timers.ts";
@@ -234,9 +235,9 @@ export class AgentManager {
 	/**
 	 * Access granted to a conversation with request_access, by the same key. Its sub-agents share it.
 	 * `local` is what the owner allowed the bundled browser to open on this computer or the local
-	 * network ("host:port").
+	 * network ("host:port"), `apps` the apps it allowed the agent to operate (see appTarget).
 	 */
-	private grants = new Map<string, { network: boolean; read: string[]; write: string[]; local: string[] }>();
+	private grants = new Map<string, { network: boolean; read: string[]; write: string[]; local: string[]; apps: string[] }>();
 	/**
 	 * What the owner answered when a conversation that had read outside content was about to use
 	 * its full rights ("agent:session" -> keep them or not): the whole account and the network
@@ -1164,8 +1165,17 @@ export class AgentManager {
 			this.warnedNoSandbox.add(agent.id);
 			p = { ...p, tools: p.tools.filter((t) => t !== "bash") };
 		}
+		// App control is registered only where it may be used: the owner's own conversations of an agent
+		// whose reach is the account, on a system that has it. Everything else never sees the server.
+		const apps = Object.entries(p.mcp).filter(([, s]) => s.pine === "computer" && !this.computerFor(agent, trust, s));
+		if (apps.length) p = { ...p, mcp: Object.fromEntries(Object.entries(p.mcp).filter(([n]) => !apps.some(([name]) => name === n))) };
 		if (leaf) p = { ...p, tools: task?.meta.tools ? p.tools.filter((t) => task.meta.tools!.includes(t)) : p.tools, mcp: agent.subagents.mcp ? p.mcp : {}, delegates: [], subagents: false };
 		return p;
+	}
+
+	/** What pine tells the app control server of a session, or undefined where the session does not get it (see computerSession). */
+	private computerFor(agent: AgentConfig, trust: Trust, server: McpServerConfig): { helperDir: string } | undefined {
+		return computerSession({ owner: trust === "owner", scope: sandboxScope(this.cfg, agent), dataDir: this.cfg.dataDir, standIn: Boolean((server.options as { helper?: unknown } | undefined)?.helper) });
 	}
 
 	private live(agent: AgentConfig, task: Task): Promise<Live> {
@@ -1388,7 +1398,7 @@ export class AgentManager {
 
 	/** The owner allowed the browser of a conversation to open one local address ("host:port"). */
 	private allowLocal(perm: string, key: string): void {
-		const g = this.grants.get(perm) ?? { network: false, read: [], write: [], local: [] };
+		const g = this.grants.get(perm) ?? { network: false, read: [], write: [], local: [], apps: [] };
 		if (!g.local.includes(key)) g.local.push(key);
 		this.grants.set(perm, g);
 		const file = this.localFile(perm);
@@ -1397,6 +1407,14 @@ export class AgentManager {
 		fs.writeFileSync(`${file}.tmp`, JSON.stringify(g.local));
 		fs.renameSync(`${file}.tmp`, file);
 		this.log.info(`conversation ${perm}: the browser may open ${key}`);
+	}
+
+	/** The owner allowed a conversation to operate one app (or to look at the whole screen). */
+	private allowApp(perm: string, key: string, name: string): void {
+		const g = this.grants.get(perm) ?? { network: false, read: [], write: [], local: [], apps: [] };
+		if (!g.apps.includes(key)) g.apps.push(key);
+		this.grants.set(perm, g);
+		this.log.info(`conversation ${perm}: the agent may operate ${name}`);
 	}
 
 	/** Forget what a conversation was granted. */
@@ -1452,7 +1470,7 @@ export class AgentManager {
 				decideKeep(true);
 				return undefined;
 			}
-			const g = this.grants.get(live.perm) ?? { network: false, read: [], write: [], local: [] };
+			const g = this.grants.get(live.perm) ?? { network: false, read: [], write: [], local: [], apps: [] };
 			if (kind === "network") {
 				g.network = true;
 				// Given to a conversation that has already read outside content, the yes was given knowing
@@ -1539,7 +1557,8 @@ export class AgentManager {
 				}
 				// The browser of an owner's conversation learns which local addresses the owner allowed there,
 				// and may be put on the owner's screen. A run started from outside gets neither, whatever the options say.
-				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandbox: jail?.("restricted"), env: shellEnv(agent, roots, {}) } : server.pine === "browser" ? browserSession(live.trust === "owner", this.localFile(live.perm)) : {};
+				// App control: the profile holds this server only where the session may have it; here it learns where its helper is kept.
+				const extra = server.pine === "commands" ? { cwd: roots.cwd, sandbox: jail?.("restricted"), env: shellEnv(agent, roots, {}) } : server.pine === "browser" ? browserSession(live.trust === "owner", this.localFile(live.perm)) : server.pine === "computer" ? (this.computerFor(agent, live.trust, server) ?? {}) : {};
 				pi.registerMcpServer(name, toPiMcp(name, server, extra));
 			}
 
@@ -1640,9 +1659,12 @@ export class AgentManager {
 				// this call runs without, and the next one asks again.
 				let answered = false;
 				const own = fileKind === "write" && typeof input.path === "string" ? ownFileOf(roots, input.path, agent.workspace) : undefined;
+				// A tool of the bundled app control server, by its own name ("app_click").
+				const appServer = prefixes.find((p) => tool.startsWith(p.prefix) && profile.mcp[p.name]?.pine === "computer");
+				const appTool = appServer ? tool.slice(appServer.prefix.length) : undefined;
 				if (cfg.security.review === "ask" && sandboxed && live.trust === "owner" && live.tainted && live.mode() !== "bypass" && !this.keepWide.has(live.perm)) {
 					const target = typeof input.path === "string" && input.path ? input.path : ".";
-					const beyond = account && (tool === "bash" || (fileKind !== undefined && checkPath(roots, fileKind, target, agent.workspace, "restricted") !== undefined && checkPath(roots, fileKind, target, agent.workspace, "open-restricted") === undefined));
+					const beyond = account && (tool === "bash" || appTool !== undefined || (fileKind !== undefined && checkPath(roots, fileKind, target, agent.workspace, "restricted") !== undefined && checkPath(roots, fileKind, target, agent.workspace, "open-restricted") === undefined));
 					if (beyond || own) {
 						const what = own ? `${tool} ${path.basename(own)}: the agent's own ${path.basename(own) === "MEMORY.md" ? "memory" : "instructions"}\n${truncate(typeof input.content === "string" ? input.content : JSON.stringify(input.edits ?? input), 900)}` : `${tool}${toolSubject(tool, input) ? `: ${truncate(toolSubject(tool, input), 300)}` : ""}`;
 						const rights = account ? `your whole account, the network, and its own memory and instructions (${WORKSPACE_FILES.join(", ")})` : `its own memory and instructions (${WORKSPACE_FILES.join(", ")})`;
@@ -1676,7 +1698,7 @@ export class AgentManager {
 				const serverRule = server ? (profile.mcp[server]?.approve ?? "never") : "never";
 				// A tool that only reads cannot send anything out or act on the world. MCP servers say so
 				// per tool; pine's own look-only tools are listed.
-				const readOnly = LOOK_ONLY.includes(tool) || (server !== undefined && pi.getAllTools().find((x: any) => x.name === tool)?.annotations?.readOnlyHint === true);
+				const readOnly = LOOK_ONLY.includes(tool) || (appTool !== undefined && APP_LOOK.includes(appTool)) || (server !== undefined && pi.getAllTools().find((x: any) => x.name === tool)?.annotations?.readOnlyHint === true);
 				// "Always in this conversation" covers a whole server, or one of the other tools.
 				const rememberKey = server ? `server:${server}` : `tool:${tool}`;
 				const sessionId = live.perm;
@@ -1711,12 +1733,60 @@ export class AgentManager {
 					this.allowLocal(sessionId, local.key);
 				}
 
+				// App control acts as the owner, in the apps on their screen. The owner is asked once per app
+				// in a conversation (and once for the whole screen); after the yes, what the agent does in
+				// that app is not asked about again. "Always" stops the question for every app here.
+				if (appTool !== undefined) {
+					// It uses the whole account, so it follows what the conversation keeps of it (security.review "ask").
+					if (sandboxed && !live.wide()) return { block: true, reason: "Operating apps uses your owner's whole account, which this conversation does not have: it has read outside content, and your owner has not said that it keeps its full rights. Tell your owner what you wanted to do; do not look for another way." };
+					const app = appTarget(appTool, input);
+					const allowedApp = () => app === undefined || this.grants.get(sessionId)?.apps.includes(app.key) === true || this.allowed.get(sessionId)?.get(rememberKey) === "tainted";
+					if (app && !allowedApp()) {
+						if (mode === "bypass") this.allowApp(sessionId, app.key, app.name);
+						else {
+							const screen = app.key === "screen";
+							let by = "your owner said no a moment ago";
+							let mine = false;
+							// Calls for the same app that arrive side by side wait for the one answer.
+							await this.askOnce(`app:${sessionId}:${app.key}`, async () => {
+								const decision = await run.slot.suspend(() =>
+									this.approvals.request(
+										{
+											agent: agent.id,
+											task: run.task.id,
+											root: run.task.meta.root ?? run.task.id,
+											tool,
+											summary: `${screen ? "look at the whole screen" : `operate the app ${truncate(app.name, 80)}`}\n${appTool} ${truncate(JSON.stringify(input), 300)}`,
+											why: `${screen ? "a picture of the screen shows every app that is open on it; a yes lets the agent take such pictures in this conversation" : `the agent acts in it as you: it can read what ${truncate(app.name, 80)} shows, and click and type in it. A yes holds for this app in this conversation`}${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}`,
+											remember: "every app",
+										},
+										ctx?.signal,
+									),
+								);
+								by = decision.by;
+								mine = decision.allow;
+								if (!decision.allow) return;
+								this.allowApp(sessionId, app.key, app.name);
+								// Given for every app, the yes was given knowing that the agent reads what is on the screen: it holds after that too.
+								if (decision.always) {
+									if (!this.allowed.has(sessionId)) this.allowed.set(sessionId, new Map());
+									this.allowed.get(sessionId)!.set(rememberKey, "tainted");
+								}
+							});
+							if (!allowedApp()) return { block: true, reason: `not approved (${by}). ${screen ? "You may not look at the whole screen" : `You may not operate ${app.name}`} in this conversation. Do not retry; tell the user what you wanted to do and why.` };
+							// The yes was given looking at this very call; one that only waited for it is judged like any later one.
+							if (mine) answered = true;
+						}
+					}
+				}
+
 				// What the action is. Everything below decides by this and by the mode.
 				const action = classify(tool, input, {
 					roots,
 					cwd: agent.workspace,
 					shellReaches: !sandboxed || agent.sandbox.network || network || live.wide(),
 					mcp: server !== undefined ? { readOnly: pi.getAllTools().find((x: any) => x.name === tool)?.annotations?.readOnlyHint === true, watched: serverRule === "tainted" } : undefined,
+					app: appTool !== undefined ? { look: APP_LOOK.includes(appTool) } : undefined,
 					sends: matchesToolPattern(agent.approveWhenTainted, tool, subject),
 					canSendOut: (id) => this.canSendOut(id),
 					reachable: (url) => reachable(url) || !live.network(),

@@ -144,10 +144,10 @@ and the keys pine adds (besides `agents` and `enabled` from the table at the top
 
 | Key | Meaning |
 |---|---|
-| `pine` | Use a server that ships with pine (`"web"`, `"browser"` or `"commands"`), configured through `options`. |
+| `pine` | Use a server that ships with pine (`"web"`, `"browser"`, `"commands"` or `"computer"`), configured through `options`. |
 | `sandboxed` | For a local server: `true` runs its program inside the sandbox of the agent that uses it, with that agent's home folder and environment, instead of as a process of yours. Written by `add_mcp_server` for every local server an agent adds. Add it to a server of your own to hold it the same way; take it out only if you trust the program with your account and pine's home. |
 | `session` | In an `agent.json` only, written by `add_mcp_server`: the one conversation the server was added for. Other conversations of the agent do not get it, and it is removed with that conversation. |
-| `taints` | `true` when the server returns content written by others (web pages, mail, tickets, chat). A session that calls it becomes tainted. Default `false`, `true` for the bundled `web` and `browser`. |
+| `taints` | `true` when the server returns content written by others (web pages, mail, tickets, chat). A session that calls it becomes tainted. Default `false`, `true` for the bundled `web`, `browser` and `computer`. |
 | `approve` | `"always"`: every call needs your approval, each time (except in bypass mode, where nothing asks). `"tainted"`: once the session has seen outside content, the server's tools that act need approval (its read-only tools do not), and you can answer "always in this conversation"; use it for servers that change things or send things out. Default `"never"`. |
 
 Each session starts its own copy of a local server and stops it when the session closes. A
@@ -346,6 +346,20 @@ workspace scope needs `request_access` with `network: true`, or `sandbox.network
 server in the background and give it a moment before opening the page. An agent with the
 scope `account` can also stop it again with `kill`; in the workspace scope a command cannot
 stop what an earlier command started.
+
+## Bundled: computer
+
+Operating the apps on the Mac pine runs on: reading a window as an outline, pressing its
+controls, clicking in a picture of it, typing. macOS only.
+
+```json
+"computer": { "pine": "computer" }
+```
+
+It is given only to an agent that reaches the owner's whole account, in the owner's own
+conversations, and the owner is asked once per app in a conversation. The tools, the two ways
+to work (by outline for any model, by picture for one that can see), what macOS has to be told
+and the options are in [computer.md](computer.md).
 
 ## Telegram, MQTT and other outputs
 

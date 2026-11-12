@@ -435,6 +435,10 @@ async function main(): Promise<void> {
 			out(`  model      ${a.model ?? cfg.defaults.model}`);
 			out(`  tools      ${(a.tools ?? ["read", "bash", "edit", "write"]).join(", ")}`);
 			out(`  mcp        ${Object.keys(effectiveMcp(cfg, a)).join(", ") || "none"}`);
+			// App control is given by where pine runs and how far the agent reaches, not by the list above alone.
+			if (Object.values(effectiveMcp(cfg, a)).some((s) => s.pine === "computer")) {
+				out(`  apps       ${process.platform !== "darwin" ? "not on this system: app control works on macOS only" : sandboxScope(cfg, a) !== "account" ? "no: app control is for an agent that reaches your whole account" : "it can operate the apps on this Mac in your own conversations; you are asked once per app"}`);
+			}
 			out(`  skills     ${listSkills(cfg, a, "main").map((s) => s.name).join(", ") || "none"}`);
 			out(`  delegates  ${a.delegates.join(", ") || "none"}; sub-agents ${a.subagents.enabled ? `up to ${a.subagents.maxParallel}` : "off"}`);
 			out(`  mode       ${a.mode}`);

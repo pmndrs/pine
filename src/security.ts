@@ -473,7 +473,7 @@ export function matchesToolPattern(patterns: readonly string[], tool: string, su
 /** The part of a tool call a person needs to see to judge it. */
 export function toolSubject(tool: string, input: any): string {
 	if (!input || typeof input !== "object") return "";
-	const v = tool === "download" ? input.url : tool === "send" ? input.source : (input.command ?? input.topic ?? input.agent ?? input.path ?? input.url ?? input.key ?? input.query);
+	const v = tool === "download" ? input.url : tool === "send" ? input.source : (input.command ?? input.topic ?? input.agent ?? input.path ?? input.url ?? input.key ?? input.query ?? input.app);
 	return typeof v === "string" ? v : "";
 }
 

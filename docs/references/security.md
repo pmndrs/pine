@@ -410,6 +410,12 @@ The bundled browser has one question of the same kind: when the agent opens an a
 computer or your network (`http://localhost:5173`), you are asked, and a yes allows that host
 and port for the conversation. See "Local addresses" in [mcp.md](mcp.md).
 
+App control (the bundled `computer` server, macOS) has one as well: the first time the agent
+looks at or acts in an app, you are asked, and a yes allows that app for the conversation.
+After it, what the agent does there is not asked about and not put to the reviewer click by
+click. Only an agent with the scope `account` has these tools, only in your own conversations,
+never in a run started from outside. See [computer.md](computer.md).
+
 **Sub-agents share their conversation's permissions.** A sub-agent is a copy of the agent doing
 part of the conversation's job, so it works under what you allowed there: the access you
 granted, your "always" answers, and your answer on whether the conversation keeps your account. It works the other way too: what a sub-agent asks for and
@@ -695,6 +701,12 @@ itself can be fooled by a page, but it has nothing to give away and cannot act.
   folders (a tmux server, an editor's helper, an ssh agent): some of those run commands for
   whoever connects. macOS keeps socket files closed ("On Linux" under layer 3). Prefer the `web` server or a
   `commands` tool for the one thing that needs the network.
+- **App control is outside the sandbox.** An agent that operates your apps (the bundled
+  `computer` server) acts through them, not through its shell: what an app can open, it can
+  open. A terminal app or the Finder reaches pine's home; a mail app sends as you. What stands
+  in between is your yes for each app in a conversation, and that pine does not act in the app
+  it runs in itself, where its questions are answered. Say yes to an app that can run commands
+  or send messages only for a task you watch.
 - **A signed-in browser.** With a persistent `profile`, the bundled browser acts as you on every
   site you signed in to. A hostile page can ask the agent to click things there. Keep signed-in
   profiles for tasks you start and watch yourself.

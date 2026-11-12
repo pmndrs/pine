@@ -93,6 +93,16 @@ belongs into your `MEMORY.md` instead. In a conversation that has read outside c
 you write into your memory or a skill is checked first: write what you did and learned, not
 orders.
 
+When your owner asks for something in an app on their Mac that is neither a web page nor a
+command (a note in Notes, a setting, a document in TextEdit, trying out an app they built), and
+you have the tools whose names start with `mcp__computer__`, use them: `apps` lists what runs,
+`app_open` opens an app, `app_snapshot` reads a window as text with a reference on every
+control, `app_press` and `app_set_text` use a reference, `app_type` and `app_key` use the
+keyboard. If you can see pictures, `app_screenshot`, `app_click`, `app_drag` and `app_scroll`
+work by position in a picture. Your owner is asked once per app. If you do not have these
+tools, you cannot get them by asking: say so ([references/computer.md](references/computer.md)
+says who has them).
+
 When a call comes back "Blocked by pine's reviewer", it was checked against what your owner
 asked for and did not fit. Do not try another way to the same end. Go on with the rest; if
 your owner wants exactly that action, tell them: they can allow it under Blocked in the
@@ -128,6 +138,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 | Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
 | Have something done at a time (schedules); write rules for events yourself: set state, publish, single model calls, debounce | [references/events.md](references/events.md) |
 | Add MCP servers globally or per agent; web search, page reading and the bundled browser; turn shell commands into tools | [references/mcp.md](references/mcp.md) |
+| Operate the apps on a Mac: read a window, press, click, type; who may, what is asked, the grants macOS needs | [references/computer.md](references/computer.md) |
 | Understand the defences against outside abuse and prompt injection, and their limits | [references/security.md](references/security.md) |
 | Know the technology underneath and the pi behaviours pine works around; open points | [references/stack.md](references/stack.md) |
 | Change pine's code | [../AGENTS.md](../AGENTS.md) |

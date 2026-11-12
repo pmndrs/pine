@@ -14,6 +14,8 @@ execFileSync(process.execPath, [path.join(root, "node_modules", "typescript", "b
 for (const name of ["README.md", "LICENSE", "docs", "examples"]) fs.cpSync(path.join(root, name), path.join(out, name), { recursive: true });
 // The README's screenshots are shown from the repository; they need not travel with every install.
 fs.rmSync(path.join(out, "docs", "images"), { recursive: true, force: true });
+// The helper of the app control server is built from its source on the Mac it runs on.
+fs.copyFileSync(path.join(root, "mcp", "computer.swift"), path.join(out, "mcp", "computer.swift"));
 fs.mkdirSync(path.join(out, "bin"), { recursive: true });
 fs.copyFileSync(path.join(root, "bin", "pine.js"), path.join(out, "bin", "pine.js"));
 fs.chmodSync(path.join(out, "bin", "pine.js"), 0o755);

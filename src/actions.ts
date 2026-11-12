@@ -103,6 +103,8 @@ export interface ActionContext {
 	shellReaches: boolean;
 	/** For a tool of an MCP server: whether the server says it only reads, and whether its acting tools are to be looked at. */
 	mcp?: { readOnly: boolean; watched: boolean };
+	/** For a tool of the bundled app control server: whether it only looks at an app. */
+	app?: { look: boolean };
 	/** Whether the agent's configuration counts this tool as sending something out (`approveWhenTainted`). */
 	sends: boolean;
 	/** Whether the agent a task is handed to can send things out. */
@@ -124,6 +126,11 @@ export function classify(tool: string, input: any, ctx: ActionContext): Action {
 	// Subscribing changes what wakes the agent. The gate asks about it where the conversation has read outside content.
 	if (SETUP_TOOLS.includes(tool) || tool === "subscribe" || tool === "unsubscribe") return { cls: "setup" };
 	if (LOOK_TOOLS.includes(tool)) return { cls: "look" };
+	// App control. Looking at an app only reads. Acting in one is what the owner said yes to, app by
+	// app, for the conversation: it is not put to the reviewer click by click, which would see a
+	// position or a reference and could say nothing about it. An owner who wants each action looked
+	// at sets "approve" on the server.
+	if (ctx.app) return ctx.app.look ? { cls: "look" } : ctx.mcp?.watched ? { cls: "send", note: "a tool of a server that acts on your behalf" } : { cls: "local", note: "acts in an app the owner allowed for this conversation" };
 	if (ctx.mcp) return ctx.mcp.readOnly ? { cls: "look" } : ctx.mcp.watched ? { cls: "send", note: "a tool of a server that acts on your behalf" } : { cls: "local" };
 	if (tool === "bash") {
 		const command = String(input?.command ?? "");
