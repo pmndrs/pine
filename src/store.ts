@@ -249,6 +249,12 @@ export class TaskStore {
 		return Number(this.db.prepare(sql).run(agent, ...sessions).changes);
 	}
 
+	/** Delete everything an agent was ever asked, with all the work that started: for an agent that is removed. */
+	forgetAgent(agent: string): number {
+		const sql = "WITH RECURSIVE gone(id) AS (SELECT id FROM tasks WHERE agent = ? UNION SELECT t.id FROM tasks t JOIN gone g ON t.parent = g.id) DELETE FROM tasks WHERE id IN (SELECT id FROM gone)";
+		return Number(this.db.prepare(sql).run(agent).changes);
+	}
+
 	/**
 	 * Take tasks out of the list, with the one-off work they started (sub-agents, a task handed
 	 * to another agent for one run), and return what was taken. What another agent did in a

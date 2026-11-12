@@ -38,7 +38,7 @@ Daemon
 
 Talking to a running daemon
   pine status                     running tasks, live sessions, queue
-  pine agents                     configured agents
+  pine agents                     configured agents, as the daemon has them (JSON)
   pine send <agent> <text...>     give an agent a task and print its answer
        [--session <key>] [--no-wait]
   pine emit <topic> [json]        publish an event
@@ -68,6 +68,15 @@ Schedules, skills, the manual
   pine skills                     every skill: whom it is for and where it lies
   pine manual <words>             search pine's manual, as the agents do; --read <id> shows a part in full
 
+Agents (the main agent does the same when you ask it: create_agent, remove_agent)
+  pine agent list                 the agents: what each is for, its model, its reach, what it has
+  pine agent add <id> --description "what it is for" [--instructions "who it is and how it works"]
+       [--instructions-file <file>] [--model provider/model] [--tools read,bash,...]
+  pine agent remove <id> [--keep-files] [--yes]
+                                  remove an agent with everything it has: conversations, sources,
+                                  schedules, servers, skills, routes that wake it, its folder and
+                                  private home. --keep-files moves the folder to removed/ instead
+
 MCP servers
   pine mcp list                   configured servers, who gets them, and whether they connect
   pine mcp add <name> <https-url> [--agent id] [--taints] [--approve always|tainted] [--timeout seconds]
@@ -87,7 +96,7 @@ function parseArgs(argv: string[]) {
 		const a = argv[i];
 		if (a === "-f") flags.follow = true;
 		else if (a.startsWith("--no-")) flags[a.slice(5)] = false;
-		else if (a.startsWith("--")) flags[a.slice(2)] = argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") && !["follow", "json", "api-key", "oauth", "taints", "offline", "always", "separate", "global", "yes"].includes(a.slice(2)) ? argv[++i] : true;
+		else if (a.startsWith("--")) flags[a.slice(2)] = argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") && !["follow", "json", "api-key", "oauth", "taints", "offline", "always", "separate", "global", "yes", "keep-files"].includes(a.slice(2)) ? argv[++i] : true;
 		else rest.push(a);
 	}
 	return { flags, rest };
@@ -131,6 +140,86 @@ function client(cfg: PineConfig) {
 
 const when = (ts: number) => new Date(ts).toLocaleString("sv-SE");
 const line = (e: any) => `${when(e.ts)}  #${String(e.id).padEnd(5)} ${e.topic.padEnd(34)} ${e.trust === "owner" ? "owner    " : "untrusted"} ${e.source.padEnd(14)} ${JSON.stringify(e.payload).slice(0, 160)}`;
+
+/** pine agent list | add | remove: with a running daemon through it, without one in the files. */
+async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) => void): Promise<void> {
+	const { holdingsOf, eraseAgent } = await import("./admin.ts");
+	const { AGENT_TOOLS, checkNewAgent, createAgent } = await import("./agent-admin.ts");
+	const { flags, rest } = parseArgs(argv.filter((a, i, all) => !(a === "--home" || all[i - 1] === "--home")));
+	const sub = rest.shift() ?? "list";
+	const some = (list: string[]) => list.join(", ") || "none";
+	// A running daemon does it at once, for the sessions and sources that are live. Without one the files are changed.
+	// The daemon of THIS home: one that answers on the port and takes this home's token. Another
+	// pine can be listening there (a second home with the same port), and it is not to be touched.
+	const daemon = async () => {
+		try {
+			const api = client(cfg);
+			if (!(await fetch(`${api.base}/health`, { signal: AbortSignal.timeout(800) })).ok) return undefined;
+			await api.get("/status");
+			return api;
+		} catch {
+			return undefined;
+		}
+	};
+	const main = mainAgentId(cfg);
+	switch (sub) {
+		case "list": {
+			for (const a of [cfg.agents[main], ...Object.values(cfg.agents).filter((x) => x.id !== main)]) {
+				const has = holdingsOf(cfg, a.id);
+				out(`${a.id}${a.id === main ? " (main)" : ""}: ${a.description || "no description"}\n    model ${a.model ?? `${cfg.defaults.model ?? "none"} (the default)`} · reasoning ${a.thinking} · mode ${a.mode} · reach ${sandboxScope(cfg, a)}${a.sandbox.network ? " + network" : ""}\n    conversations: ${some(has.conversations)} · sources: ${some(has.sources)} · MCP servers: ${some(has.servers)} · schedules: ${some(has.schedules)} · skills: ${some(has.skills)}${has.routes.length ? ` · routes: ${has.routes.join(", ")}` : ""} · ${has.files} file${has.files === 1 ? "" : "s"} in ${a.workspace}`);
+			}
+			return;
+		}
+		case "add": {
+			const id = rest[0];
+			const usage = 'usage: pine agent add <id> --description "what it is for" [--instructions "..."] [--instructions-file <file>] [--model provider/model] [--tools read,bash,...]';
+			if (!id || typeof flags.description !== "string") throw new Error(usage);
+			const fromFile = typeof flags["instructions-file"] === "string" ? fs.readFileSync(expandHome(flags["instructions-file"]), "utf8") : undefined;
+			// Without instructions it starts from what it is for; it keeps the file itself from then on.
+			const instructions = fromFile ?? (typeof flags.instructions === "string" ? flags.instructions : `You are ${id}. ${flags.description.trim().replace(/\.?$/, ".")}`);
+			const tools = typeof flags.tools === "string" ? flags.tools.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+			const spec = { id, description: flags.description, instructions, model: typeof flags.model === "string" ? flags.model : undefined, tools };
+			checkNewAgent(cfg, spec);
+			const api = await daemon();
+			const workspace = api ? ((await api.post("/agents", spec)) as any).workspace : createAgent(cfg, spec).workspace;
+			return out(`Created the agent ${id} (tools: ${(tools ?? AGENT_TOOLS).join(", ")}). Its workspace is ${workspace}.${api ? ` Talk to it with: pine send ${id} "..."` : " It is there when pine is started."}`);
+		}
+		case "remove": {
+			const id = rest[0];
+			if (!id) throw new Error("usage: pine agent remove <id> [--keep-files] [--yes]");
+			const agent = cfg.agents[id];
+			if (!agent) throw new Error(`there is no agent "${id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+			if (id === main) throw new Error(`${id} is the main agent: it administers pine and cannot be removed`);
+			const has = holdingsOf(cfg, id);
+			const keep = flags["keep-files"] === true;
+			out(`${id}: ${agent.description || "no description"}\nWith it go: conversations: ${some(has.conversations)}; event sources: ${some(has.sources)}; MCP servers: ${some(has.servers)}; schedules: ${some(has.schedules)}; skills: ${some(has.skills)}; routes that wake it: ${some(has.routes)}\n${keep ? `Its folder is kept: moved to ${path.join(cfg.home, "removed")} (${has.files} file${has.files === 1 ? "" : "s"} in its workspace).` : `Its folder ${agent.dir} is deleted, with ${has.files} file${has.files === 1 ? "" : "s"} in its workspace and everything said to it. This cannot be undone.`}${has.outside ? `\nIts workspace ${agent.workspace} lies outside pine's home and is left as it is.` : ""}`);
+			if (flags.yes !== true) {
+				if (!process.stdin.isTTY) throw new Error("not removed: this asks before it deletes. Run it in a terminal, or add --yes");
+				const readline = await import("node:readline");
+				const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+				const answer = await new Promise<string>((resolve) => rl.question(`Remove the agent ${id}? [y/N] `, resolve));
+				rl.close();
+				if (!/^y(es)?$/i.test(answer.trim())) return out("Not removed.");
+			}
+			const api = await daemon();
+			let gone: { kept?: string; problem?: string };
+			if (api) gone = (await api.post(`/agents/${encodeURIComponent(id)}/erase`, { agent: id, keepFiles: keep })) as any;
+			else {
+				const { Kv, openDb, TaskStore } = await import("./store.ts");
+				const db = openDb(cfg.dataDir);
+				try {
+					gone = eraseAgent(cfg, { kv: new Kv(db), tasks: new TaskStore(db) }, id, keep);
+				} finally {
+					db.close();
+				}
+			}
+			if (gone.problem) throw new Error(`the agent ${id} is taken out, but what is left of the configuration does not load: ${gone.problem}\nIts folder was kept at ${gone.kept}. Run "pine check".`);
+			return out(`Removed the agent ${id}.${gone.kept ? ` Its folder is kept at ${gone.kept}.` : ""}`);
+		}
+		default:
+			throw new Error("usage: pine agent list | add <id> --description ... | remove <id> [--keep-files] [--yes]");
+	}
+}
 
 /** pine mcp list | add | remove | login | logout */
 async function mcpCommand(cfg: PineConfig, argv: string[], out: (v: unknown) => void): Promise<void> {
@@ -346,6 +435,7 @@ async function main(): Promise<void> {
 	}
 
 	if (cmd === "mcp") return mcpCommand(cfg, process.argv.slice(process.argv.indexOf("mcp") + 1), out);
+	if (cmd === "agent") return agentCommand(cfg, process.argv.slice(process.argv.indexOf("agent") + 1), out);
 
 	if (cmd === "model") {
 		const { addModelServer, checkServerName, listModelServers, lookAt, modelKeyName, removeModelServer, serverUrl } = await import("./models.ts");

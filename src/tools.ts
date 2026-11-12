@@ -4,6 +4,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type AgentConfig, effectiveMcp, mainAgentId, type McpServerConfig, PINE_ROOT, sandboxScope } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
+import { addRoute, type AgentChange, applyAgentChange, applySetting, checkAgentChange, checkRoute, checkSetting, dropRoute, routesText, SETTINGS, settingsText } from "./admin.ts";
 import type { AgentManager, Live, Profile } from "./agents.ts";
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
@@ -40,10 +41,34 @@ function parseWhen(when: string | undefined): unknown {
 	}
 }
 
+/**
+ * The tools that are about what an agent has: event sources and subscriptions, MCP servers,
+ * schedules, skills. The main agent calls each of them for another agent too (see the end of pineTools).
+ */
+export const FOR_ANY_AGENT = ["sources", "subscribe", "unsubscribe", "add_source", "remove_source", "mcp_servers", "add_mcp_server", "remove_mcp_server", "schedules", "add_schedule", "remove_schedule", "skills", "add_skill", "remove_skill"];
+
+/** A file of an agent's, read without following a link: what lies there is the agent's to put. */
+function readOwn(file: string, max: number): string | undefined {
+	try {
+		const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+		try {
+			if (!fs.fstatSync(fd).isFile()) return undefined;
+			const buf = Buffer.alloc(max);
+			return buf.subarray(0, fs.readSync(fd, buf, 0, max, 0)).toString("utf8");
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return undefined;
+	}
+}
+
 /** The tools pine adds to a session, according to what this run's profile allows. */
-export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live, profile: Profile): any[] {
+export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live, profile: Profile, behalf?: { asker: string }): any[] {
 	const { cfg, bus, state } = manager;
 	const tools: any[] = [];
+	// Who a question to the owner comes from: this agent, or the main agent setting something up for it.
+	const asker = behalf?.asker ?? agent.id;
 	const run = () => {
 		if (!live.current) throw new Error("this tool only works while a task is running");
 		return live.current;
@@ -181,7 +206,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					if (!text) throw new Error("give the question");
 					const choices = [...new Set((p.choices ?? []).map((c) => truncate(String(c).replace(/\s+/g, " ").trim(), 80)).filter(Boolean))].slice(0, 6);
 					const decision = await r.slot.suspend(() =>
-						manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "question", summary: truncate(text, 800), why: "the agent needs your answer to go on", choices: choices.length ? choices : undefined, inputs: [{ name: "answer", label: "Your answer", secret: false }] }),
+						manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "question", summary: truncate(text, 800), why: "the agent needs your answer to go on", choices: choices.length ? choices : undefined, inputs: [{ name: "answer", label: "Your answer", secret: false }] }),
 					);
 					const answer = decision.values?.answer?.trim();
 					if (decision.allow && answer) return ok(`Your owner answered: ${answer}`);
@@ -232,7 +257,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const kind = p.account ? "account" : p.network ? "network" : p.write ? "write" : "read";
 					const what = p.account ? "its full rights in this conversation again (your account and the network if it has them, its own memory and instructions)" : p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
 					if (live.mode() === "bypass" || (live.wide() && live.keeps())) return ok(live.mode() === "bypass" ? "You already have that access in bypass mode." : "You already have that access: your shell and file tools reach your owner's whole account and the network.");
-					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", summary: `${what}\nreason: ${p.reason}`, why: `the agent asks for access beyond its sandbox, for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
+					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", summary: `${what}\nreason: ${p.reason}`, why: `the agent asks for access beyond its sandbox, for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
 					if (!decision.allow) throw new Error(`not granted (${decision.by}). Do not retry; work without it or tell your owner what is missing.`);
 					const refused = live.grant(kind, p.path);
 					if (refused) throw new Error(`cannot be granted: ${refused}`);
@@ -271,7 +296,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 	/** Put something to the owner. With `inputs` they also type values that must not pass through a model, which come back in the decision. */
 	const confirm = (tool: string, summary: string, why: string, signal: AbortSignal | undefined, inputs?: Array<{ name: string; label: string; secret?: boolean }>) => {
 		const r = run();
-		return r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool, summary, why, ...(inputs?.length ? { inputs } : {}) }, signal));
+		return r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool, summary, why, ...(inputs?.length ? { inputs } : {}) }, signal));
 	};
 	const careful = () => (live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : "");
 	const whoIs = (scope: "local" | "agent" | "global") => (scope === "global" ? "ALL agents" : scope === "agent" ? `agent ${agent.id} (all its conversations)` : `this conversation of ${agent.id} only`);
@@ -303,7 +328,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				const r = run();
 				const summary = scope === "global" ? `subscribe ALL agents to the event source "${name}"` : `subscribe the agent ${agent.id} as such to the event source "${name}": its main conversation is woken, not this one, and it stays when this conversation is closed`;
 				const why = scope === "global" ? "this changes what wakes every agent, not only this one" : "asked for in another conversation than the one that will be woken. Deny it if you meant this conversation only";
-				const decision = await r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "subscribe", summary: `${summary}${details.note ? `\nNote: ${details.note}` : ""}`, why }, signal));
+				const decision = await r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "subscribe", summary: `${summary}${details.note ? `\nNote: ${details.note}` : ""}`, why }, signal));
 				if (!decision.allow) throw new Error(`not subscribed (${decision.by}). Do not retry with this scope. If your owner meant this conversation only, subscribe without a scope.`);
 			}
 			if (scope === "global") {
@@ -648,7 +673,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					// agent is called again by itself as soon as the turn ends, in the same conversation:
 					// nobody should have to send a message, let alone start a new chat, to go on.
 					let goesOn = false;
-					if (!profile.leaf && !r.task.session.startsWith("_t")) {
+					// (Not when the main agent added it for another agent: that agent is in the middle of nothing.)
+					if (!behalf && !profile.leaf && !r.task.session.startsWith("_t")) {
 						try {
 							manager.submit({
 								agent: agent.id,
@@ -941,6 +967,182 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					},
 				}),
 			);
+			// The agents themselves, and pine's settings: what only the main agent administers
+			// (src/admin.ts). A change is a few named values, each checked; the owner confirms it; and
+			// none of it is done from a conversation that outside content may steer.
+			const notHere = (what: string) => {
+				if (live.tainted) throw new Error(`Not done: this conversation has read content from outside (${live.tainted}), and ${what} is not done from such a conversation. Tell your owner: in a new conversation, or after /reset, you can do it.`);
+			};
+			const listOf = (v: unknown) => (typeof v === "string" ? v.split(",").map((x) => x.trim()).filter(Boolean) : undefined);
+			const some = (list: string[]) => list.join(", ") || "none";
+			const about = (a: AgentConfig) => {
+				const has = manager.holdings(a.id);
+				const reach = `${sandboxScope(cfg, a)}${a.sandbox.network ? " + network" : ""}`;
+				const opened = [...a.sandbox.read.map((p) => `${p} (read)`), ...a.sandbox.write.map((p) => `${p} (read and change)`)];
+				return `- ${a.id}${a.id === mainId ? " (the main agent: you)" : ""}: ${a.description || "no description"}
+    model ${a.model ?? `${cfg.defaults.model} (the default)`} · reasoning ${a.thinking} · mode ${a.mode} · reach ${reach} · built-in tools ${some(a.tools ?? AGENT_TOOLS)}
+    conversations: ${some(has.conversations)} · event sources: ${some(has.sources)} · MCP servers: ${some(has.servers)} · schedules: ${some(has.schedules)} · skills: ${some(has.skills)} · ${has.files} file${has.files === 1 ? "" : "s"} in its workspace${has.working ? " · working right now" : ""}${opened.length ? `\n    folders opened for it: ${opened.join(", ")}` : ""}`;
+			};
+			tools.push(
+				defineTool({
+					name: "agents",
+					label: "Agents",
+					description: 'List pine\'s agents: what each is for, its model, mode and reach, and what it has (conversations, event sources, MCP servers, schedules, skills). With "id": one agent in full, with its workspace and its instructions. Use it when your owner asks which agents there are, and before you change or remove one. Do not look for this in files: pine\'s files are closed to you.',
+					parameters: Type.Object({ id: Type.Optional(Type.String({ description: "One agent, in full. Leave out for all of them" })) }),
+					execute: async (_id, p) => {
+						if (!p.id) return ok(`${Object.keys(cfg.agents).length} agent${Object.keys(cfg.agents).length === 1 ? "" : "s"}.\n${[cfg.agents[mainId], ...Object.values(cfg.agents).filter((a) => a.id !== mainId)].map(about).join("\n")}\n\ncreate_agent makes one, update_agent changes one, remove_agent takes one out. What an agent has is listed and changed with sources, mcp_servers, schedules and skills and their add_ and remove_ tools, each with "agent".`);
+						const a = cfg.agents[p.id];
+						if (!a) throw new Error(`there is no agent "${p.id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+						const text = readOwn(path.join(a.workspace, "AGENTS.md"), 6000);
+						return ok(`${about(a)}\n    workspace: ${a.workspace}\n    may hand work to: ${some(a.delegates)}\n\nIts instructions (AGENTS.md in its workspace, which it also keeps itself):\n${text === undefined ? "(none, or not readable)" : text.trim() || "(empty)"}`);
+					},
+				}),
+				defineTool({
+					name: "update_agent",
+					label: "Change agent",
+					description: `Change an agent's settings, when your owner asks for it: what it is for, its instructions, its model, how much it reasons, its mode, its built-in tools, whom it may hand work to, how far its shell and file tools reach, and folders outside its workspace that it may use. Give only what changes; the rest stays. Your owner sees the change and confirms it, and it holds from the agent's next message on. What an agent has (event sources, MCP servers, schedules, skills) is not changed here: use those tools with "agent".`,
+					parameters: Type.Object({
+						id: Type.String({ description: `The agent. Agents: ${Object.keys(cfg.agents).join(", ")}` }),
+						description: Type.Optional(Type.String({ description: "One line: what it is for" })),
+						instructions: Type.Optional(Type.String({ description: "The whole new text of its instructions, written to the agent itself. It replaces what is there: read the present text with agents (id) first and give back all of it with your change" })),
+						model: Type.Optional(Type.String({ description: 'As provider/model. "default" for pine\'s default model' })),
+						thinking: Type.Optional(Type.String({ description: "How much it reasons: off, minimal, low, medium, high, xhigh, max" })),
+						mode: Type.Optional(Type.String({ description: "manual (every action waits for your owner), auto, bypass (nothing waits), plan (nothing is done)" })),
+						tools: Type.Optional(Type.String({ description: `Its built-in tools, all of them, separated by commas, from: ${AGENT_TOOLS.join(", ")}` })),
+						delegates: Type.Optional(Type.String({ description: 'The agents it may hand work to, all of them, separated by commas. "*" is every agent' })),
+						scope: Type.Optional(Type.String({ description: 'How far its shell and file tools reach: workspace (its own folders), account (your owner\'s whole user account and the network), or default' })),
+						network: Type.Optional(Type.Boolean({ description: "Whether its shell may use the network" })),
+						read: Type.Optional(Type.Array(Type.String(), { description: "Folders outside its workspace that it may read from now on, each as a full path" })),
+						write: Type.Optional(Type.Array(Type.String(), { description: "Folders outside its workspace that it may read and change from now on, each as a full path" })),
+						forget: Type.Optional(Type.Array(Type.String(), { description: "Folders to take away from it again, each as a full path" })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						notHere("changing an agent");
+						const target = cfg.agents[p.id];
+						if (!target) throw new Error(`there is no agent "${p.id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+						const change: AgentChange = { description: p.description, instructions: p.instructions, model: p.model, thinking: p.thinking, mode: p.mode, tools: listOf(p.tools), delegates: listOf(p.delegates), scope: p.scope, network: p.network, read: p.read, write: p.write, forget: p.forget };
+						const checked = checkAgentChange(cfg, target, change, p.model && p.model !== "default" ? await manager.availableModels() : []);
+						const decision = await confirm("update_agent", `change the agent "${target.id}"\n${checked.lines.join("\n")}`, `this changes an agent in pine's configuration${checked.warnings.length ? `. Note: ${checked.warnings.join("; ")}` : ""}`, signal);
+						if (!decision.allow) throw new Error(`not changed (${decision.by}). Do not retry; tell your owner what you proposed.`);
+						applyAgentChange(cfg, target, checked);
+						await manager.refreshSessions(change.delegates ? undefined : [target.id]);
+						return ok(`Your owner confirmed it. Changed for ${target.id}:\n${checked.lines.join("\n")}\nIt holds from ${target.id === agent.id ? "your" : "its"} next message on.`);
+					},
+				}),
+				defineTool({
+					name: "remove_agent",
+					label: "Remove agent",
+					description: `Remove an agent from pine for good, when your owner asks for it: its work is stopped, its conversations, event sources, schedules, MCP servers, skills and the routes that wake it go with it, and its folder with its workspace and its private home are deleted. Nothing of it is left. Your owner sees what goes and confirms it. This is how an agent is removed: never tell your owner to delete folders by hand, and do not try it with the shell. You, the main agent, cannot be removed.`,
+					parameters: Type.Object({
+						id: Type.String({ description: `The agent to remove. Agents besides you: ${Object.keys(cfg.agents).filter((id) => id !== agent.id).join(", ") || "none"}` }),
+						keep_files: Type.Optional(Type.Boolean({ description: "true to keep its folder (workspace, conversations) instead of deleting it: it is moved to removed/ in pine's home, where nothing uses it. Only when your owner wants to keep what the agent made. Default false" })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						notHere("removing an agent");
+						const target = cfg.agents[p.id];
+						if (!target) throw new Error(`there is no agent "${p.id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+						if (target.id === agent.id) throw new Error("you are the main agent: you administer pine and cannot be removed");
+						const has = manager.holdings(target.id);
+						const woken = cfg.routes.filter((x) => x.agent === target.id).map((x) => x.name);
+						const files = p.keep_files ? `Its folder is KEPT: moved to removed/ in pine's home, where nothing uses it (${has.files} file${has.files === 1 ? "" : "s"} in its workspace).` : `Its folder is DELETED, with ${has.files} file${has.files === 1 ? "" : "s"} in its workspace and everything said to it. This cannot be undone.`;
+						const summary = `remove the agent "${target.id}": ${target.description || "no description"}\n${has.working ? "It is working right now and is stopped. " : ""}With it go: conversations: ${some(has.conversations)}; event sources: ${some(has.sources)}; MCP servers: ${some(has.servers)}; schedules: ${some(has.schedules)}; skills: ${some(has.skills)}${woken.length ? `; routes that wake it: ${woken.join(", ")}` : ""}\n${files}${has.outside ? `\nIts workspace ${target.workspace} lies outside pine's home and is left as it is.` : ""}`;
+						const decision = await confirm("remove_agent", summary, "this takes an agent out of pine for good", signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						const gone = await manager.removeAgent(target.id, p.keep_files === true);
+						return ok(
+							`Your owner confirmed it. The agent ${target.id} is removed: it is stopped, and its conversations, sources, schedules, servers and skills are gone, and so is what pine kept under its name.${gone.routes.length ? ` The route${gone.routes.length === 1 ? "" : "s"} that woke it went with it: ${gone.routes.join(", ")}.` : ""}${gone.unsubscribed.length ? ` It was subscribed to: ${gone.unsubscribed.join(", ")}.` : ""} ${gone.kept ? `Its folder is kept at ${gone.kept}.` : "Its folder is deleted."}${gone.workspaceLeft ? ` Its workspace ${gone.workspaceLeft} lies outside pine's home and was left as it is.` : ""}${gone.problem ? ` WARNING, tell your owner: what is left of pine's configuration does not load (${gone.problem}), so the folder was kept and pine may not start again until that is corrected.` : ""} The other agents no longer see it from their next message on.`,
+						);
+					},
+				}),
+				defineTool({
+					name: "settings",
+					label: "Settings",
+					description: "List pine's settings that you can change, with what is in force now: the default model, reasoning and mode of agents, how far agents reach by default, limits, and what happens after outside content. Use it when your owner asks how pine is set up, and before set_setting. Do not look for this in files: pine's files are closed to you.",
+					parameters: Type.Object({}),
+					execute: async () => ok(`pine's settings (set_setting changes one; your owner confirms each change):\n${settingsText(cfg)}\n\nOne agent's own model, mode, reach and tools: update_agent. What agents have (event sources, MCP servers, schedules, skills), and model servers: their own tools. The address of pine's control API and its secrets are your owner's alone.`),
+				}),
+				defineTool({
+					name: "set_setting",
+					label: "Change setting",
+					description: `Change one of pine's settings, when your owner asks for it. The settings tool lists them with what each means. Your owner sees the old and the new value and confirms. Settings: ${Object.keys(SETTINGS).join(", ")}.`,
+					parameters: Type.Object({
+						key: Type.String({ description: "The setting, as the settings tool names it, for example defaults.model" }),
+						value: Type.String({ description: 'The new value, as text. "default" takes the entry out, so that pine\'s default holds' }),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						notHere("changing pine's settings");
+						const setting = SETTINGS[String(p.key)];
+						const checked = checkSetting(cfg, String(p.key), p.value, setting?.kind === "model" ? await manager.availableModels() : []);
+						const now = checked.setting.now(cfg);
+						if (checked.value !== undefined && checked.text === now) return ok(`${checked.key} is ${now} already. Nothing changed.`);
+						const decision = await confirm("set_setting", `set ${checked.key} to ${checked.text} (now: ${now})\n${checked.setting.about}`, `this changes pine's configuration, for all agents${checked.wider ? `. Note: ${checked.wider}` : ""}`, signal);
+						if (!decision.allow) throw new Error(`not changed (${decision.by}). Do not retry; tell your owner what you proposed.`);
+						applySetting(cfg, checked);
+						if (checked.setting.live) await manager.refreshSessions();
+						return ok(`Your owner confirmed it. ${checked.key} is now ${checked.setting.live ? checked.setting.now(cfg) : checked.text}.${checked.setting.live ? "" : " It is saved, and holds from the next start of pine: tell your owner that pine has to be restarted for it."}`);
+					},
+				}),
+				// Routes: rules of the owner's own in pine.json. Most wishes need none: an agent that is
+				// to react to something subscribes to a source, and what happens at a time is a schedule.
+				defineTool({
+					name: "routes",
+					label: "Routes",
+					description: "List pine's routes: rules that say what happens when an event arrives (wake an agent, write shared state, publish another event, ask a model once). What agents subscribe to is not here: the sources tool lists that. Use it when your owner asks which rules there are, and before add_route or remove_route.",
+					parameters: Type.Object({}),
+					execute: async () => ok(cfg.routes.length ? `${cfg.routes.length} route${cfg.routes.length === 1 ? "" : "s"}.\n${routesText(cfg)}\n\nadd_route makes one, remove_route takes one out. To change one, remove it and add it again.` : "There are no routes. Most things need none: to have an agent react to a folder, a device or a web address, use add_source and subscribe; for something at a time, add_schedule. A route (add_route) is for a rule of your owner's own: write shared state from an event, ask a model once and pass the answer on, wake an agent only when a condition holds."),
+				}),
+				defineTool({
+					name: "add_route",
+					label: "Add route",
+					description: `Add a route: a rule that says what happens when an event arrives. Only when your owner asks for a rule that a subscription or a schedule cannot do: write shared state from an event ("set"), ask a model one question without tools and publish its answer ("call_prompt" with "publish_topic"; {{result}} is the answer), publish another event, or wake an agent only when a condition holds ("when"). To have an agent react to a source, use subscribe instead; for a time, add_schedule. In texts, {{payload.x}}, {{topic}} and {{time}} stand for the event's values. Your owner sees the route and confirms it; it works at once.`,
+					parameters: Type.Object({
+						name: Type.String({ description: "Short name for it: lowercase letters, digits, - and _ (for example front-door)" }),
+						on: Type.String({ description: "The topic it listens to, as the sources tool shows it for a source (for example source/house/message). Several separated by commas; + and # are wildcards" }),
+						when: Type.Optional(Type.String({ description: 'Only events that match, as JSON, for example {"payload.topic": "house/door/front", "payload.value.open": true}. A key starting with state. looks at shared state' })),
+						agent: Type.Optional(Type.String({ description: `The agent to wake. Agents: ${Object.keys(cfg.agents).join(", ")}` })),
+						prompt: Type.Optional(Type.String({ description: "What the agent is told when it is woken. Leave out to hand it the event as it is" })),
+						session: Type.Optional(Type.String({ description: 'The conversation it is woken in: "main", "new" for a fresh one each time, or a name. Default: main' })),
+						set: Type.Optional(Type.String({ description: 'Shared state to write, as JSON: {"house/mode": "{{payload.value}}"}' })),
+						publish_topic: Type.Optional(Type.String({ description: "Publish another event on this topic" })),
+						publish_payload: Type.Optional(Type.String({ description: 'What that event carries, as JSON, for example {"file": "{{payload.file}}", "verdict": "{{result}}"}' })),
+						call_prompt: Type.Optional(Type.String({ description: "Ask a model this, once, without tools. The answer is {{result}} in publish_payload" })),
+						call_system: Type.Optional(Type.String({ description: "The instructions for that one call" })),
+						call_model: Type.Optional(Type.String({ description: "The model for that call, as provider/model. Default: pine's default model" })),
+						throttle: Type.Optional(Type.String({ description: 'After one event, ignore matching ones for this long, for example "5m"' })),
+						debounce: Type.Optional(Type.String({ description: 'Wait until this long has passed without a new event, then handle the last one, for example "4s"' })),
+						trust: Type.Optional(Type.String({ description: 'Leave out. "owner" only when your owner said that nobody but them can cause these events: they are then treated like their own messages' })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						notHere("adding a route");
+						const checked = checkRoute(cfg, p, p.call_model ? await manager.availableModels() : []);
+						const decision = await confirm("add_route", `add the route "${p.name}"\n${checked.lines.join("\n")}`, `this adds a rule to pine's configuration that acts on events by itself${checked.wider ? `. Note: ${checked.wider}` : ""}`, signal);
+						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
+						manager.router?.add(addRoute(cfg, checked.entry));
+						return ok(`Your owner confirmed it. The route "${p.name}" is added and works from now on:\n${checked.lines.join("\n")}\nTo change it, remove it and add it again.`);
+					},
+				}),
+				defineTool({
+					name: "remove_route",
+					label: "Remove route",
+					description: "Remove a route, when your owner no longer wants that rule. Your owner confirms it. It stops acting at once.",
+					parameters: Type.Object({ name: Type.String({ description: "Name of the route, as the routes tool lists it" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						notHere("removing a route");
+						const found = cfg.routes.find((x) => x.name === p.name);
+						if (!found) throw new Error(`there is no route called "${p.name}". ${cfg.routes.length ? `Routes: ${cfg.routes.map((x) => x.name).join(", ")}` : "There are no routes"}. What an agent is subscribed to ends with unsubscribe, and a schedule with remove_schedule.`);
+						const decision = await confirm("remove_route", `remove the route "${found.name}"\n${routesText({ ...cfg, routes: [found] })}`, "this takes a rule out of pine's configuration", signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						dropRoute(cfg, found.name);
+						manager.router?.remove(found.name);
+						return ok(`Removed the route "${found.name}". It no longer acts.`);
+					},
+				}),
+			);
 		}
 	}
 
@@ -994,6 +1196,68 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 				},
 			}),
 		);
+	}
+
+	// The main agent administers what every agent has. Each tool that is about that takes "agent":
+	// the call is then carried out by that agent's own tool, under that agent's own rules, as if it
+	// had been called in that agent's main conversation (or the one named). So nothing is written
+	// by a second road, and what is checked for an agent is checked here too. What takes
+	// something away from another agent asks the owner in every case.
+	if (isMain && !behalf && live.trust === "owner" && !profile.leaf) {
+		for (let i = 0; i < tools.length; i++) {
+			const tool = tools[i];
+			if (!FOR_ANY_AGENT.includes(tool.name)) continue;
+			const takes = /^(remove_|unsubscribe)/.test(tool.name);
+			tools[i] = {
+				...tool,
+				description: `${tool.description} You administer pine: with "agent" you do this for another agent, as if that agent had called it in its main conversation${takes ? "; your owner confirms it" : ""}.`,
+				parameters: Type.Object({
+					...tool.parameters.properties,
+					agent: Type.Optional(Type.String({ description: `Another agent's id, to do this for that agent instead of for you. Leave out for yourself. Agents besides you: ${Object.keys(cfg.agents).filter((id) => id !== agent.id).join(", ") || "none"}` })),
+					conversation: Type.Optional(Type.String({ description: 'One conversation by its name, of that agent or of yours, for something that only that conversation has. Leave out for the agent as such' })),
+				}),
+				execute: async (id: string, p: any, signal: any, onUpdate: any) => {
+					const { agent: who, conversation, ...rest } = p ?? {};
+					const targetId = typeof who === "string" && who.trim() ? who.trim() : agent.id;
+					const session = typeof conversation === "string" && conversation.trim() ? safeName(conversation.trim()) : undefined;
+					const r = run();
+					if (targetId === agent.id && (session === undefined || session === here())) return tool.execute(id, rest, signal, onUpdate);
+					const target = cfg.agents[targetId];
+					if (!target) throw new Error(`there is no agent "${targetId}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+					const key = session ?? "main";
+					const whose = targetId === agent.id ? `your conversation "${key}"` : `the agent ${target.id}${session ? `, its conversation "${session}"` : ""}`;
+					// Ending what wakes another agent is taking something away, and that tool asks nobody.
+					if (tool.name === "unsubscribe") {
+						const decision = await r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: tool.name, summary: `end a subscription of ${whose} to the event source "${String(rest.source ?? "")}"`, why: `this changes what wakes ${targetId === agent.id ? "another conversation" : "another agent"}${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
+						if (!decision.allow) throw new Error(`not done (${decision.by}). Do not retry; tell your owner.`);
+					}
+					// The other agent's conversation, standing in this run: the questions it leads to are
+					// put in this conversation, and the outside-content mark of this one counts.
+					const task = Object.create(r.task, { session: { value: key } });
+					const current = Object.create(r, { task: { value: task } });
+					const stand: Live = Object.create(live, {
+						agent: { value: target },
+						key: { value: key },
+						perm: { value: `${target.id}:${key}` },
+						current: { get: () => (live.current ? current : undefined) },
+						session: { value: undefined },
+						runtime: { value: undefined },
+						folder: { value: undefined },
+						mode: { value: () => (takes ? "manual" : live.mode()) },
+					});
+					const theirs = pineTools(manager, target, stand, manager.profileFor(target, "owner"), { asker: agent.id }).find((t) => t.name === tool.name);
+					if (!theirs) throw new Error(`${tool.name} cannot be done for ${whose}: that agent does not have it`);
+					try {
+						const res = await theirs.execute(id, rest, signal, onUpdate);
+						const lead = targetId === agent.id ? `For ${whose}. In what follows, "this conversation" means that one.` : `Done for ${whose}. In what follows, "you", "your" and "this conversation" mean ${target.id}${session ? ` and its conversation "${session}"` : " and its main conversation"}, not you.`;
+						const [first, ...more] = res.content ?? [];
+						return { ...res, content: first?.type === "text" ? [{ ...first, text: `${lead}\n\n${first.text}` }, ...more] : [{ type: "text" as const, text: lead }, ...(res.content ?? [])] };
+					} catch (e) {
+						throw new Error(`For ${whose}: ${errText(e)}`);
+					}
+				},
+			};
+		}
 	}
 	return tools;
 }

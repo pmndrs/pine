@@ -17,10 +17,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { dropConversationSkills, renameConversationSkills, skillDirs } from "./skills.ts";
-import { type AgentConfig, conversationsDir, delegateTargets, effectiveMcp, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, PINE_ROOT, type PineConfig, sandboxScope, toPiMcp, userFile, WORKSPACE_FILES } from "./config.ts";
+import { type AgentConfig, loadConfig, agentSkillsDir, conversationsDir, delegateTargets, effectiveMcp, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, PINE_ROOT, type PineConfig, sandboxScope, toPiMcp, userFile, WORKSPACE_FILES } from "./config.ts";
 import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
 import { type Approvals, checkPath, denialTools, globMatch, grantable, grantPath, isInside, isOpen, matchesToolPattern, outsidePath, ownFileOf, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
+import { countFiles, eraseAgent } from "./admin.ts";
+import { createAgent, type NewAgent } from "./agent-admin.ts";
+import type { Router } from "./router.ts";
 import { Denials, fromOutput, gather, looksFailed, reaches, sortDenials, there, type Want, wantKey, wantText } from "./access.ts";
 import type { Bus, Kv, State, TaskStore } from "./store.ts";
 import { editJson, removeServer } from "./mcp-config.ts";
@@ -38,7 +41,7 @@ import { onBranch, redoMessage, Turns, type TurnView, type UndoHost, undoMessage
 import { type Action, actionKey, type Blocked, classify, LOOK_TOOLS, parseVerdict, PLAN_REFUSAL, reviewPrompt, rulesFrom, SETUP_TOOLS, type Verdict } from "./actions.ts";
 import { Type } from "typebox";
 import type { ContextUse, ImageRef, PineEvent, ReplyTarget, Task, TaskKind, TaskResult, TaskStatus, Todo, TranscriptEntry, Trust } from "./types.ts";
-import { errText, expandHome, type Logger, programName, safeName, since, truncate } from "./util.ts";
+import { errText, expandHome, type Logger, programName, safeName, since, sleep, truncate } from "./util.ts";
 
 const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
@@ -70,8 +73,8 @@ function basePrompt(cfg: PineConfig, agent: AgentConfig, trust: Trust = "owner")
 	const mainId = mainAgentId(cfg);
 	const role =
 		agent.id === mainId
-			? `You are the main agent. Only you can create other agents (create_agent), set things up for all agents (scope "global") and bring in a new kind of event source (add_source_type); your owner confirms each.`
-			: `Creating agents, and anything that is for all agents, is the main agent's job (its id is ${mainId}): you have no tools for it. When your owner wants that, tell them to ask ${mainId}.`;
+			? `You are the main agent, and pine's administrator: what your owner wants changed about pine, you change with your tools, and you never tell them to edit pine's files or delete its folders by hand. Only you can create, change and remove agents (create_agent, update_agent, remove_agent; agents lists them), change pine's settings (settings, set_setting) and its routes (routes, add_route, remove_route), set things up for all agents (scope "global") and bring in a new kind of event source (add_source_type). And you can do for another agent what it can do for itself: each tool for event sources, MCP servers, schedules and skills takes "agent". Your owner confirms what matters.`
+			: `Creating, changing and removing agents, pine's settings, and anything that is for all agents, is the main agent's job (its id is ${mainId}): you have no tools for it. When your owner wants that, tell them to ask ${mainId}.`;
 	const user = userFile(cfg);
 	const owner = agent.id === mainId ? `What all agents know about your owner is in ${user}; you are the one who keeps it.` : `What is known about your owner (USER.md) is kept by ${mainId} for all agents; when you learn something that belongs there, say so.`;
 	// How far its tools reach is fixed for an agent and its kind of run, so it is said here. What a
@@ -99,7 +102,7 @@ const BASE_PROMPT = `You are an agent in pine, a system that runs several AI age
 
 <limits>
 - {{REACH}} When a tool call is refused, do not look for a way around it: say what you could not do.
-- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove MCP servers, remote ones by their address and local ones by their command (add_mcp_server, remove_mcp_server), write down how something is done as a skill (add_skill, remove_skill), and do things at set times (add_schedule, remove_schedule); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. What you have of each, and whom it is for, a tool tells you: sources (event sources and subscriptions), mcp_servers, skills, schedules. Call it when your owner asks what you have or what is connected; never guess it, and never look for it in pine's files. {{ROLE}} Everything else (your built-in tools, your model) your owner changes in pine's home folder, followed by a restart: look it up in pine's manual and explain the steps for them to take.
+- pine's setup is changed through tools, never by writing its files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove MCP servers, remote ones by their address and local ones by their command (add_mcp_server, remove_mcp_server), write down how something is done as a skill (add_skill, remove_skill), and do things at set times (add_schedule, remove_schedule); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. What you have of each, and whom it is for, a tool tells you: sources (event sources and subscriptions), mcp_servers, skills, schedules. Call it when your owner asks what you have or what is connected; never guess it, and never look for it in pine's files. {{ROLE}} What has no tool (the control API, secrets) your owner changes in pine's home folder, followed by a restart: look it up in pine's manual and explain the steps for them to take.
 - How pine itself works is in its manual, which you search with the manual tool: your tools and what they take, event sources and their options, schedules, the configuration files and every key in them, modes and approvals, the sandbox, the terminal UI, the pine command. Search it before you answer a question about pine, before you say that pine cannot do something, and when one of your tools refuses and you want to know why. Do not answer such questions from memory.
 - Passwords, tokens and keys are not yours to handle. Never ask your owner to write one into the conversation, and do not look for one in files: a tool that needs one gets it from your owner through pine's own dialog, or by its name in pine's .env file.
 - Some actions need your owner's approval. If one is not approved, do not retry it: report what you wanted to do and why.
@@ -234,6 +237,8 @@ export class AgentManager {
 	private log: Logger;
 	/** Event sources and subscriptions. Set by the daemon once both exist. */
 	sources?: SourceHost;
+	/** Set by pine.ts. Routes of pine.json that are added or removed while the daemon runs go through it. */
+	router?: Router;
 	/** Set by the daemon once the scheduler exists. */
 	schedules?: Scheduler;
 	private modelRuntime!: ModelRuntime;
@@ -1110,6 +1115,77 @@ export class AgentManager {
 		this.saveUiTabs(ui.tabs.filter((t) => !(t.agent === agentId && t.session === session)), ui.active);
 		if (removed) this.log.info(`removed the conversation ${session} of ${agentId}${sources.length ? `, with its sources ${sources.join(", ")}` : ""}${servers.length ? `, with its MCP servers ${servers.join(", ")}` : ""}`);
 		return { removed, unsubscribed, sources, servers };
+	}
+
+	/** Make an agent while the daemon runs (the create_agent tool and `pine agent add` both end here). */
+	async addAgent(spec: NewAgent): Promise<AgentConfig> {
+		if (spec.model) this.resolveModel(spec.model);
+		const made = createAgent(this.cfg, spec);
+		this.sources?.agentsChanged();
+		this.schedules?.agentsChanged();
+		await this.refreshSessions();
+		this.log.info(`created the agent ${made.id}`);
+		return made;
+	}
+
+	/** What an agent has, for telling the owner what goes with it. */
+	holdings(agentId: string): { conversations: string[]; sources: string[]; servers: string[]; schedules: string[]; skills: string[]; files: number; outside: boolean; working: boolean } {
+		const agent = this.cfg.agents[agentId];
+		if (!agent) throw new Error(`there is no agent "${agentId}"`);
+		const names = (dir: string) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => !n.startsWith(".")) : []);
+		return {
+			conversations: this.conversations(agentId).map((c) => c.session).sort((a, b) => Number(b === "main") - Number(a === "main") || a.localeCompare(b)),
+			sources: Object.keys(agent.sources),
+			servers: Object.keys(agent.mcp),
+			schedules: (this.schedules?.available(agentId) ?? []).filter((s) => s.scope === agentId).map((s) => s.name),
+			skills: names(agentSkillsDir(agent)),
+			files: countFiles(agent.workspace),
+			outside: !isInside(realish(agent.dir), realish(agent.workspace)),
+			working: [...this.running.values()].some((r) => r.task.agent === agentId),
+		};
+	}
+
+	/**
+	 * Take an agent out of pine: its work is stopped, each of its conversations goes the way a
+	 * conversation goes, what it watched and had scheduled ends, and then everything that is left
+	 * of it is erased (`eraseAgent`): the routes that wake it, its name in the lists of others,
+	 * what is stored under its name, its private home and its folder (or, with `keepFiles`, the
+	 * folder is moved to `removed/` in pine's home, where nothing reads it). Only the owner's yes
+	 * leads here: the tool and the command ask first.
+	 */
+	async removeAgent(agentId: string, keepFiles = false): Promise<{ unsubscribed: string[]; routes: string[]; kept?: string; workspaceLeft?: string; problem?: string }> {
+		const agent = this.cfg.agents[agentId];
+		if (!agent) throw new Error(`there is no agent "${agentId}"`);
+		if (agentId === mainAgentId(this.cfg)) throw new Error("the main agent administers pine and cannot be removed");
+		for (const t of this.tasks.list({ agent: agentId, limit: 1000 })) if (t.status === "pending" || t.status === "running") this.cancel(t.id);
+		const working = () => [...this.running.values()].some((r) => r.task.agent === agentId);
+		for (let i = 0; i < 50 && working(); i++) await sleep(100);
+		if (working()) throw new Error(`${agentId} is still working and did not stop. Try again in a moment`);
+		const unsubscribed: string[] = [];
+		for (const c of this.conversations(agentId)) if (this.keysOf(c.session)[0] !== "main") unsubscribed.push(...(await this.removeSession(agentId, c.session)).unsubscribed);
+		// Then what the agent has as such, in its main conversation.
+		unsubscribed.push(...((await this.sources?.closeSession(agentId, "main")) ?? []));
+		for (const name of Object.keys(agent.sources)) await this.sources?.remove(agentId, name);
+		for (const sub of [...agent.subscribe]) await this.sources?.unsubscribe(agentId, sub.source);
+		for (const s of (this.schedules?.available(agentId) ?? []).filter((x) => x.scope === agentId)) this.schedules!.remove(agentId, s.name);
+		for (const live of [...this.lives.values()]) if (live.agent.id === agentId) await this.dispose(live);
+		for (const key of ["main", "main~u"]) {
+			this.programs.stopAll(`${agentId}:${key}`);
+			this.goals.drop(agentId, key);
+			this.turns.forget(agentId, key);
+			this.bypassAnyway.delete(`${agentId}:${key}`);
+			this.allowed.delete(`${agentId}:${key}`);
+			this.dropGrants(`${agentId}:${key}`);
+		}
+		// Then what is left of it in pine's files and store, routes and private home included (src/admin.ts).
+		const gone = eraseAgent(this.cfg, { kv: this.kv, tasks: this.tasks }, agentId, keepFiles);
+		for (const name of gone.routes) this.router?.remove(name);
+		if (gone.problem) this.log.error(`after removing the agent ${agentId} the configuration does not load: ${gone.problem}. Its folder is kept at ${gone.kept}`);
+		this.sources?.agentsChanged();
+		this.schedules?.agentsChanged();
+		await this.refreshSessions();
+		this.log.info(`removed the agent ${agentId}${gone.routes.length ? `, with the route${gone.routes.length === 1 ? "" : "s"} ${gone.routes.join(", ")}` : ""}${gone.kept ? `; its folder is kept at ${gone.kept}` : ", with its folder"}`);
+		return { unsubscribed: [...new Set(unsubscribed)], ...gone };
 	}
 
 	/** Give a conversation another name. Everything stays with it: its history, its pin, what it listens to. */

@@ -18,7 +18,8 @@ set `"enabled": false` on it.
 
 ## Who has it
 
-If an agent does not have the tools to operate apps in its list, the reason is in this table.
+If an agent does not have the tools to operate apps in its list, the reason is in this table:
+who may operate apps, and who may not.
 
 | Who | App control |
 |---|---|

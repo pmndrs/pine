@@ -39,7 +39,9 @@ pine events --topic "source/#" --limit 50
 
 ## Routes
 
-A route is an entry in `routes` in `pine.json`.
+A route is an entry in `routes` in `pine.json`. You can write it there yourself, or ask the main
+agent: it lists, adds and removes routes with `routes`, `add_route` and `remove_route`
+([setup.md](setup.md), "Routes"), checked and without a restart.
 
 ```json
 {

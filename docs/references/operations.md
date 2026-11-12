@@ -207,7 +207,10 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine start` | Run the daemon in the foreground. Ctrl-C or SIGTERM stops it cleanly |
 | `pine dev-model [--port 7464] [--model haiku]` | The `claude -p` model server |
 | `pine status` | Running tasks, live sessions (and whether they are tainted), model slots |
-| `pine agents` | Configured agents |
+| `pine agents` | Configured agents, as the daemon has them (JSON) |
+| `pine agent list` | The agents, readable: what each is for, model, reasoning, mode, reach, and what it has (conversations, sources, MCP servers, schedules, skills, routes that wake it, files in its workspace). Read from the files; needs no daemon |
+| `pine agent add <id> --description "..." [--instructions "..."] [--instructions-file <file>] [--model provider/model] [--tools read,bash,...]` | Create an agent, as `create_agent` does: its folder with `agent.json` and a workspace with its instructions. Without instructions it starts from its description. A running daemon has it at once; without one it is there at the next start |
+| `pine agent remove <id> [--keep-files] [--yes]` | Remove an agent and everything it has, so that nothing of it is left: conversations, sources, schedules, servers, skills, the routes that wake it, what pine stored under its name, its folder and its private home. It lists what goes and asks before it deletes; `--yes` answers for a script. `--keep-files` moves the folder to `removed/` in pine's home instead of deleting it. Through a running daemon when there is one, in the files when not. See "Changing and removing an agent" in [setup.md](setup.md) |
 | `pine send <agent> <text...>` | Give an agent a task as yourself and print the answer. `--session <key>`, `--no-wait` |
 | `pine emit <topic> [json]` | Publish an event as yourself |
 | `pine events` | The event log. `--topic <pattern>`, `--limit <n>` (30), `-f` to follow |
@@ -263,6 +266,7 @@ are JSON with `Content-Type: application/json`.
 | `GET /mcp` | Configured MCP servers |
 | `POST /mcp` `{ name, server, agent? }` or `{ name, remove: true, agent? }` | Add or remove a server while the daemon runs |
 | `POST /mcp/refresh` | Close idle sessions so they start again with the current servers |
+| `POST /agents` `{ id, description, instructions, model?, tools? }`, `POST /agents/<id>/erase` `{ agent, keepFiles? }` | Create an agent, or remove one with everything it has, while the daemon runs (`agent` repeats the id: removing an agent is not done by a mistyped address). What `pine agent add` and `pine agent remove` call |
 | `POST /models/refresh` | Read `models.json` and `.env` again, after a model server was added or removed in the files. `pine model add` and `pine model remove` call it |
 | `GET /agents/<id>/sessions` | The agent's conversations: name, number of messages, last use, whether pinned or open in a tab, the folder opened for it, and when one will be removed by itself |
 | `POST /agents/<id>/pin` `{ session, pinned? }` | Pin a conversation so that it is kept, or with `pinned: false` take the pin off |

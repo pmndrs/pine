@@ -30,11 +30,18 @@ is about what agents can do.
 | An MCP server, remote or local | any agent (`add_mcp_server`) | any agent, when you say so | **only the main agent** |
 | A skill | any agent (`add_skill`) | any agent, when you say so | **only the main agent** |
 | A new agent | | | **only the main agent** (`create_agent`) |
+| Changing an agent, removing an agent | | | **only the main agent** (`update_agent`, `remove_agent`), you confirm every time |
+| pine's settings | | | **only the main agent** (`set_setting`), you confirm every time |
+| A route (a rule of your own) | | | **only the main agent** (`add_route`, `remove_route`), you confirm every time |
+| Any of the first five rows, for another agent | | **only the main agent** (the same tools, with `agent`) | |
 | A new type of event source (a program) | | | **only the main agent** (`add_source_type`), you confirm every time |
 | A model server of your own (llama.cpp, vLLM, LM Studio, ...) | | | **only the main agent** (`add_model_server`), you confirm every time |
 
 The main agent is the one `pine.json` names with `"main"`; without that entry it is the agent
-called `main`, or else the first one. The other agents do not have `create_agent`,
+called `main`, or else the first one. It is pine's administrator: what you want changed about
+pine, you ask it for, and it does it with tools that check what they are given, instead of
+you or an agent editing files. See "The main agent administers pine" below. The other agents do not have `create_agent`,
+`update_agent`, `remove_agent`, `agents`, `settings`, `set_setting`,
 `add_source_type` or `add_model_server`, and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
 an agent you ask for something that is not its to do sends you to the main agent instead of
 trying.
@@ -142,7 +149,7 @@ Which model the agent runs on is told to it with your message, so it needs no to
 | `add_skill` `name` `description` `instructions` [`files`] [`scope`] | Writes a skill; the same name in the same place replaces it. `files` is a folder in the agent's workspace whose contents go along. |
 | `remove_skill` `name` | Deletes a skill in pine's own skill folders (`skills/`, `agents/<id>/skills/`, a conversation's), also one you put there by hand. A skill in a folder named under `skills` in a configuration file is yours to remove. |
 | **Agents** | |
-| `create_agent` `id` `description` `instructions` [`model`] [`tools`] | Main agent only. See below. |
+| `create_agent` `id` `description` `instructions` [`model`] [`tools`] | Main agent only. See below. Changing and removing one, and pine's settings: "The main agent administers pine". |
 | **Model servers** | |
 | `add_model_server` `name` `url` [`context`] | Main agent only. Adds a model server of your own by its address; pine asks the server for its models. See "Adding a model server". |
 | `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default or the reviewer uses one of its models. You are asked. |
@@ -209,8 +216,126 @@ exists at once: it is in the terminal UI's agent list (`/agent books`), `pine se
 reaches it, and the main agent can hand it work with `delegate`. It starts with no MCP servers
 and no event sources of its own, and sets those up itself when you ask it to.
 
-Agents are not removed by tool call: an agent's folder holds its workspace and everything said
-to it. To remove one, stop pine and delete `agents/<id>`.
+## The main agent administers pine
+
+The point of pine is that nobody has to edit its configuration, you included. The main agent
+is the administrator: it has tools for everything that can be set up, each tool takes a few
+named values and checks them, what it writes is read back through the same loader pine starts
+with, and a change that does not load is undone. So a wrong value is an error message to the
+agent, not a pine that does not start.
+
+| What | Tools of the main agent |
+|---|---|
+| Agents | `agents` (list), `create_agent`, `update_agent`, `remove_agent` |
+| What an agent has: event sources, subscriptions, MCP servers, skills, schedules | The tools every agent has for itself, with `agent` for another agent, and with `scope: "global"` for all agents |
+| Types of event source, model servers | `add_source_type`, `remove_source_type`, `add_model_server`, `remove_model_server` |
+| pine's settings | `settings` (list), `set_setting` |
+| Routes: rules of your own in `pine.json` | `routes` (list), `add_route`, `remove_route` |
+
+The ones only it has:
+
+| Tool | Does |
+|---|---|
+| `agents` [`id`] | Lists the agents: what each is for, its model, reasoning, mode and reach, and what it has (conversations, event sources, MCP servers, schedules, skills, files in its workspace). With `id`, one agent in full, with its workspace and its instructions. Asks nobody. |
+| `update_agent` `id` [`description`] [`instructions`] [`model`] [`thinking`] [`mode`] [`tools`] [`delegates`] [`scope`] [`network`] [`read`] [`write`] [`forget`] | Changes an agent's settings; only what is given changes. You see the change line by line and confirm it. See "Changing and removing an agent". |
+| `remove_agent` `id` [`keep_files`] | Removes an agent for good, with everything it has. You see what goes and confirm it. See "Changing and removing an agent". |
+| `settings` | Lists the settings it can change, with what is in force and what each means. Asks nobody. |
+| `set_setting` `key` `value` | Changes one setting in `pine.json`; `"default"` takes the entry out. You see the old and the new value and confirm. See "pine's settings". |
+| `agent`, `conversation` (parameters) | Every tool under event sources, MCP servers, skills and schedules above takes `agent`: the call is then done for that agent, as if it had made it in its main conversation. With `conversation`, for one of its conversations. See "The main agent administers pine". |
+
+**For another agent.** "Add a schedule for books: every Monday at eight, sum up the week" is
+one call of the main agent: `add_schedule` with `agent: "books"`. It is carried out by that
+agent's own tool, under that agent's own rules, as if the agent had been asked in its main
+conversation: the same checks, the same questions to you, the same entry in its `agent.json`.
+The listing tools (`sources`, `mcp_servers`, `skills`, `schedules`) take `agent` too, which is
+how the main agent sees what another agent has. Something that only one conversation of an
+agent has is reached with `conversation` and its name. Taking something away from another
+agent (`remove_source`, `remove_mcp_server`, `remove_skill`, `remove_schedule`, `unsubscribe`)
+asks you every time, and the question says that the main agent asks.
+
+**Not from a conversation that has read outside content.** `update_agent`, `remove_agent`,
+`set_setting`, `add_route` and `remove_route` are refused there without a question to you: a web page that says "remove the
+agent" or "switch the reviewer off" must not get as far as your approval dialog. A new
+conversation, or `/reset`, does it.
+
+## Changing and removing an agent
+
+`update_agent` changes what is given and leaves the rest:
+
+| Value | What it is |
+|---|---|
+| `description` | One line on what the agent is for |
+| `instructions` | The whole new text of its `AGENTS.md`. It replaces the file, so the main agent reads the present text first (`agents` with `id`) |
+| `model`, `thinking`, `mode` | Its model (`"default"` for pine's default), how much it reasons, and `manual`, `auto`, `bypass` or `plan` |
+| `tools` | Its built-in tools, all of them: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls` |
+| `delegates` | The agents it may hand work to, all of them; `*` is every agent |
+| `scope`, `network` | How far its shell and file tools reach (`workspace`, `account`, `default`), and whether its shell may use the network |
+| `read`, `write`, `forget` | Folders outside its workspace that it may read, or read and change, from now on; and folders to take away again. This is how a folder is opened for an agent for good |
+
+You see every line of the change before it is made, with a note where it gives the agent more
+(the account, the network, bypass mode). It holds from the agent's next message on. pine's own
+folder, pine's code and another agent's workspace are refused as folders.
+
+`remove_agent` takes an agent out of pine, and nothing of it is left. You are shown what goes
+with it: its conversations, event sources, MCP servers, schedules, skills, the routes that wake
+it, and how many files lie in its workspace. After your yes:
+
+- its work is stopped, and each conversation, source, schedule, server and skill is removed the
+  way it would be removed one by one (a source stops, its secrets leave `.env`);
+- the routes in `pine.json` that wake it are taken out, and they stop at once;
+- the lists that name it are corrected: other agents' `delegates`, a server or source of all
+  agents that was only for some;
+- what pine stored under its name goes: its tasks, the outside-content marks and answers of
+  its conversations, pins and open tabs, the recorded states of its folders, what its sources
+  kept;
+- its folder `agents/<id>` (workspace, conversations, skills) and its private home
+  `sandbox/<id>` are deleted.
+
+An agent of the same name made later starts from nothing. With `keep_files` the folder alone
+is not deleted but moved to `removed/<id>-<time>` in pine's home, where nothing reads it. One
+thing is left as it is: a workspace that you put outside pine's home, which is your folder.
+What stays in any case is the past: the event log and pine's log name the agent where it
+acted. The main agent cannot remove itself. `pine agent remove <id>` does the same from a
+shell, with or without a running daemon ([operations.md](operations.md)).
+
+## Routes
+
+A route is a rule of your own in `pine.json`: when an event arrives, and a condition holds,
+write shared state, ask a model once, publish another event, or wake an agent
+([events.md](events.md)). Most wishes need none, because a subscription is a route pine makes
+for you. The main agent has three tools for the ones you do want:
+
+| Tool | Does |
+|---|---|
+| `routes` | Lists the routes: what each listens to, its condition, and what it does. Asks nobody. |
+| `add_route` `name` `on` [`when`] [`agent` `prompt` `session`] [`set`] [`publish_topic` `publish_payload`] [`call_prompt` `call_system` `call_model`] [`throttle`] [`debounce`] [`trust`] | Adds a route. Each value is checked (a name that is free, an agent and a model that exist, JSON where JSON is wanted, a time, at least one thing to do, no topic that only pine publishes on). You see it line by line and confirm, and it acts from then on, without a restart. |
+| `remove_route` `name` | Takes one out. You confirm; it stops at once. To change a route, remove it and add it again. |
+
+`trust: "owner"` makes every event on the route count as your own words, which gives whoever
+can cause such an event the agent's full tools. The question to you says so. Where a reply is
+to go (`reply`), `whenBusy`, `priority` and `key` are not offered by the tool: write those in
+`pine.json`. Like the other administration tools, the two that change something are refused in
+a conversation that has read outside content.
+
+## pine's settings
+
+`settings` lists what `set_setting` can change, with what is in force:
+
+| Setting | What it is |
+|---|---|
+| `defaults.model`, `defaults.thinking`, `defaults.mode`, `defaults.scope` | What an agent gets that does not say otherwise: model, reasoning, mode, reach |
+| `defaults.bashTimeoutSec`, `defaults.taskTimeoutSec` | Seconds a shell call and a task may run. From the next start |
+| `limits.maxConcurrentRuns` | How many agents work at the same time. From the next start |
+| `limits.maxDelegationDepth`, `limits.maxDownloadMb` | How often a task is handed on, and the largest download |
+| `security.review`, `security.reviewer`, `security.reviewTimeout` | What happens after outside content, and who reviews |
+| `security.askAccess` | Whether pine asks you itself when a call needs something outside the sandbox |
+| `security.taint`, `security.bypassWhenTainted`, `security.approvalTimeout` | How long outside content counts, whether bypass survives it, and how long a question to you waits (from the next start) |
+
+A value is checked for what it has to be (a model that exists, one of a few words, a number in
+a range, a time), you see the old and the new value, and where the new one gives something up
+the question says so. `"default"` as the value takes the entry out of `pine.json`. Most
+settings hold at once; the ones marked hold from the next start of pine, and the agent tells
+you so. Not settable by any agent: the control API (address, port, token) and secrets.
 
 ## What is written
 
@@ -249,8 +374,8 @@ for.
 
 ## What stays yours
 
-An agent's built-in tools, model, mode, its sandbox settings, routes, local MCP
-servers that are to run outside an agent's sandbox, the options of a server once it is added,
-source types you write yourself, and removing agents: these are changed in the files
-or with the `pine` command, and most need a restart. See [configuration.md](configuration.md),
+The control API and its token, secrets in `.env`, a route's `reply`, local MCP servers that are to run
+outside an agent's sandbox, the options of a server once it is added, and source types you
+write yourself: these are changed in the files or with the `pine` command, and most need a
+restart. Everything else the main agent changes for you. See [configuration.md](configuration.md),
 [agents.md](agents.md), [mcp.md](mcp.md) and [sources.md](sources.md).

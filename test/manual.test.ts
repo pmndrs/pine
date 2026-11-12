@@ -36,6 +36,12 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 	// [what is asked, a part that must be among the first three]
 	const cases: Array<[string, RegExp]> = [
 		["telegram pairing code", /^sources#telegram$/],
+		["my owner wants an agent deleted together with its folder", /^(setup#(changing-and-removing-an-agent|the-main-agent-administers-pine|the-tools)|pine#if-you-are-an-agent-running-inside-pine)/],
+		["give another agent a different model and let it read a folder", /^setup#(changing-and-removing-an-agent|the-main-agent-administers-pine|the-tools)/],
+		["set up a schedule for another agent instead of for myself", /^setup#(the-main-agent-administers-pine|the-tools|who-can-set-up-what)/],
+		["add a rule that wakes an agent only when the door opens while nobody is home", /^(events#|setup#routes)/],
+		["remove an agent from the command line", /^(operations#|setup#changing-and-removing-an-agent)/],
+		["switch the reviewer off for all agents", /^(setup#(pine-s-settings|the-tools|the-main-agent-administers-pine)|configuration#|security#)/],
 		["my owner was asked to let me read a folder although I never asked for it", /^(security#(when-a-call-needs-something-outside|modes-how-much-an-agent-does-without-asking)|operations#problems)/],
 		["ls says no such file for a folder in my owner's home that I wrote with ~", /^(security#when-a-call-needs-something-outside|operations#problems)/],
 		["a command was refused a file it did not name, what happens then", /^security#when-a-call-needs-something-outside/],

@@ -263,7 +263,7 @@ test("setup by tool call: for the conversation by default, for the agent when as
 	assert.match(r.text, /Only the main agent \(main\) can add MCP servers for all agents\. Tell your owner/);
 	const gonzo = h.mock.state.requests.at(-1);
 	assert.ok(!h.toolsOffered(gonzo).includes("create_agent") && h.toolsOffered(gonzo).includes("add_mcp_server"));
-	assert.ok(h.system(gonzo).includes("Creating agents, and anything that is for all agents, is the main agent's job (its id is main): you have no tools for it."));
+	assert.ok(h.system(gonzo).includes("Creating, changing and removing agents, pine's settings, and anything that is for all agents, is the main agent's job (its id is main): you have no tools for it."));
 	r = await run("main", "main", [{ tools: [call("add_mcp_server", { name: "shared", url: stub.url, scope: "global" })] }]);
 	assert.match(r.text, /Added "shared" for all agents/);
 	assert.ok((await offered("gonzo", "main")).includes("mcp__shared__lookup"));

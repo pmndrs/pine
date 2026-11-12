@@ -225,6 +225,17 @@ export class HttpServer {
 				await this.manager.refreshSessions(agent ? [agent] : undefined);
 				return send(200, { ok: true });
 			}
+			// Agents are made and removed by the owner here (`pine agent add`, `pine agent remove`), as the main agent does it by tool.
+			if (url.pathname === "/agents") {
+				if (typeof body.id !== "string" || typeof body.description !== "string" || typeof body.instructions !== "string") throw new HttpError(400, "id, description and instructions required");
+				const made = await this.manager.addAgent({ id: body.id, description: body.description, instructions: body.instructions, model: typeof body.model === "string" ? body.model : undefined, tools: Array.isArray(body.tools) ? body.tools.map(String) : undefined });
+				return send(200, { id: made.id, workspace: made.workspace });
+			}
+			// (An address of its own, and the agent's name once more in the body: "/agents/<id>/remove" removes a conversation.)
+			if (parts[0] === "agents" && parts[2] === "erase" && parts.length === 3) {
+				if (body.agent !== parts[1]) throw new HttpError(400, `to remove the agent ${parts[1]} with everything it has, send { "agent": "${parts[1]}" }`);
+				return send(200, await this.manager.removeAgent(parts[1], body.keepFiles === true));
+			}
 			if (parts[0] === "agents" && parts[2] === "mode" && parts.length === 3) {
 				this.manager.setMode(parts[1], body.mode, body.anyway === true && typeof body.session === "string" ? body.session : undefined);
 				return send(200, { mode: body.mode });

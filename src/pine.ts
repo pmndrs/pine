@@ -104,6 +104,7 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 	const router = new Router({ cfg, bus, state, manager: agents, complete, log: log.child("router"), mediaRoots: () => sources.mediaRoots });
 	sources = new SourceHost({ cfg, bus, kv, redactor, router, log: log.child("sources"), http: Boolean(cfg.http && opts.http !== false), approvals });
 	agents.sources = sources;
+	agents.router = router;
 	router.start();
 	await sources.start();
 	const timers = new Scheduler(cfg, bus, kv, log.child("timers"), router);

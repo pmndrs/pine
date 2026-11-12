@@ -34,9 +34,12 @@ pine's configuration lives in its home folder (`~/.pine` unless your owner chose
 which is closed to you on purpose: you never write those files. Four things you set up by
 calling a tool, for the conversation you are in or for yourself as an agent
 ([references/setup.md](references/setup.md)): event sources and subscriptions, schedules,
-MCP servers, and skills. Creating agents, anything for all agents and new types of
-event source are the main agent's job; if you are not the main agent, send your owner to it.
-For everything else your owner asks about (a route, your built-in tools or model, the sandbox):
+MCP servers, and skills. The main agent administers pine, and the rest is its job, also by
+tool call ([references/setup.md](references/setup.md), "The main agent administers pine"):
+creating, changing and deleting one of the others with its folder, pine's settings, routes, and
+anything that is for everyone or for somebody else. If that is you, use those tools and never
+send your owner to the files; if not, send your owner to it.
+For what has no tool (the control API, a secret):
 
 1. Search the manual for it and read the part.
 2. Tell your owner what to put where: usually a few lines of JSON in `pine.json` (for everyone)

@@ -226,7 +226,7 @@ interface Indexed {
 }
 
 /** The names of the tools pine gives its agents, as the manual writes them. */
-const TOOL = /^(?:(?:add|remove)_[a-z_]+|subscribe|unsubscribe|send|schedules|sources|manual|create_agent|delegate|subagent|request_access|publish_event|state_[gs]et)$/;
+const TOOL = /^(?:(?:add|remove)_[a-z_]+|subscribe|unsubscribe|send|schedules|sources|manual|create_agent|update_agent|set_setting|agents|settings|routes|delegate|subagent|request_access|publish_event|state_[gs]et)$/;
 
 /** title, the headings above, code terms, text: how much a hit in each counts, and how strongly its length is held against it. */
 const FIELDS = [

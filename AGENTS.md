@@ -37,6 +37,8 @@ src/
                     mcp_servers, skills); and the setup tools (subscribe, unsubscribe, add_/remove_ source, source_type,
                     mcp_server, skill, schedule, model_server; create_agent)
   agent-admin.ts    create_agent: checks a proposed agent and writes its folder
+  admin.ts          what only the main agent administers: a change to an agent (`checkAgentChange`), pine's settings
+                    (`SETTINGS`), routes (`checkRoute`), and everything that goes with a removed agent (`eraseAgent`)
   security.ts       the sandbox's rules (macOS profile; `sandboxArgv` for either system), path checks, approvals, redaction, configuration audit
   sandbox-linux.ts  the same rules as bubblewrap mounts; what a mount cannot forbid is removed after the command (`Guard`)
   sandbox-setup.ts  what `pine init` does on Linux: installs bubblewrap, the AppArmor rule and the browser's libraries after one yes
@@ -118,7 +120,23 @@ These are invariants. A change that breaks one needs a test that shows why it is
    (`sandboxed`, set by `add_mcp_server` and wrapped where the session registers it): never a
    program with the daemon's rights or environment, and never through a shell. Global scope, agent creation and new source types are
    refused to every agent but the main one. Removing something must leave things as they were
-   before it was added. A new kind of thing an agent can set up follows the same scopes and
+   before it was added.
+   The main agent is pine's administrator: besides `create_agent` it has `agents`,
+   `update_agent`, `remove_agent`, `settings`, `set_setting`, `routes`, `add_route` and
+   `remove_route` (`src/admin.ts`). An agent that is removed leaves nothing: `eraseAgent` is the
+   one place that knows what carries an agent's name (routes, lists of others, secrets, stored
+   keys, folders under `data/`, its folder and private home), for the tool, the control API and
+   `pine agent remove` alike, and `test/admin.test.ts` looks for anything named after a removed
+   agent. Whatever is added to pine that is kept by agent goes into `eraseAgent` too. Each change is
+   a few named values that are checked one by one, never text into a file; it is put to the
+   owner in every mode; the configuration is read back through `loadConfig` and the file put
+   back if it does not load; and the ones that change something are refused in a tainted
+   conversation without asking. A new setting gets an entry in `SETTINGS` with what a value has
+   to be, never a way to write a key by name. For another agent the main agent uses the tools
+   that agent has itself (`FOR_ANY_AGENT`, the end of `pineTools`): the call is handed to that
+   agent's own tool with a stand-in for its conversation, so there is one implementation and
+   one set of rules. Do not write a second road for "the admin does X to agent Y". What takes
+   something away from another agent asks the owner in every case. A new kind of thing an agent can set up follows the same scopes and
    wording (`scopeOf`, `forWhom`, `whoIs` in `src/tools.ts`), not rules of its own.
    What an agent writes and pine reads back is text for its own prompt, never code or
    configuration: `AGENTS.md`, `SOUL.md` and `MEMORY.md` at the top of its workspace, and for

@@ -28,6 +28,11 @@ others tell you to ask it. See [setup.md](setup.md).
 By hand: make the folder with an `agent.json` (`{}` is enough) and a `workspace/AGENTS.md`,
 run `pine check`, and restart.
 
+To change an agent later (its model, its tools, its reach, a folder it may use, its
+instructions) or to remove it, ask the main agent as well: `update_agent` and `remove_agent`,
+described in [setup.md](setup.md) under "Changing and removing an agent". Nobody has to edit
+`agent.json` or delete a folder by hand.
+
 ## The files an agent keeps itself
 
 An agent's instructions are files in its workspace, and the agent can write them. Together

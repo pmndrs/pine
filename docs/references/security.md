@@ -579,7 +579,15 @@ What no mode opens:
   instructions) and a model server of your own (`add_model_server`: you confirm the address
   every time, before any request goes there; its key is typed into pine's dialog and kept in
   `.env`; the name cannot be a provider's that exists, so no stored key is sent to a new
-  address; refused in a conversation that has read outside content). Only the main agent can set anything up for all agents. Runs with the reduced
+  address; refused in a conversation that has read outside content). The main agent is also the
+  one that changes and removes agents and changes pine's settings and routes (`update_agent`,
+  `remove_agent`, `set_setting`, `add_route`, `remove_route`): each takes a few named values and checks them, shows you the
+  change before it is made, notes where it gives an agent more (the account, the network,
+  bypass mode, no reviewer), reads the configuration back through the loader and undoes what
+  does not load, and is refused outright, without a question to you, in a conversation that
+  has read outside content. What it does for another agent (`agent` on the tools for sources,
+  servers, skills and schedules) is carried out by that agent's own tool under that agent's
+  rules, and taking something away from another agent asks you every time. Only the main agent can set anything up for all agents. Runs with the reduced
   tool set (layer 2) have none of these tools, and a proposal from a conversation that has read
   outside content says so in the dialog, because a web page asking for "this handy server" is
   the obvious trick.

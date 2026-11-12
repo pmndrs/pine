@@ -222,7 +222,7 @@ test("agents are told how pine works and can read its manual, but not pi's or pi
 	const system = h.system(h.mock.state.requests[0]);
 	assert.ok(system.startsWith("You are an agent in pine"), system.slice(0, 80));
 	assert.ok(system.includes("pine's setup is changed through tools, never by writing its files") && system.includes("look it up in pine's manual") && system.includes("you search with the manual tool"));
-	assert.ok(system.includes("You are the main agent. Only you can create other agents (create_agent)") && !system.includes("{{ROLE}}"));
+	assert.ok(system.includes("You are the main agent, and pine's administrator:") && system.includes("Only you can create, change and remove agents (create_agent, update_agent, remove_agent; agents lists them)") && !system.includes("{{ROLE}}"));
 	assert.ok(!system.includes("<name>pine</name>") && h.toolsOffered(h.mock.state.requests[0]).includes("manual"), "the manual is searched with a tool, not carried in the prompt as a skill");
 	assert.ok(!system.includes("pi-coding-agent") && !system.includes("running inside pi,"), "nothing points at pi's manuals, which agents cannot read");
 	assert.ok(system.includes("PERSONA-MAIN") && system.includes("<pine>"), "the agent's own instructions and the per-turn block are still there");

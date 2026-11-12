@@ -71,6 +71,83 @@ test("the command line drives a running daemon", async (t) => {
 	await h.close();
 });
 
+test("pine agent list, add and remove: in the files when no daemon runs, through the daemon when one does; a removed agent leaves nothing", async (t) => {
+	const port = await freePort();
+	const h = await harness({
+		pine: { http: { port }, logLevel: "warn", routes: [{ name: "wake-old", on: "test/old", agent: "old", prompt: "x" }, { name: "keep", on: "test/keep", set: { seen: "yes" } }] },
+		agents: { main: {}, old: { agent: { description: "Kept the old books" }, files: { "ledger/2025.csv": "row" } }, aide: { agent: { description: "Second pair of hands", delegates: ["old"] } } },
+		start: false,
+	});
+	const pine = async (...args: string[]) => (await run(process.execPath, [CLI, ...args, "--home", h.home])).stdout.trim();
+	const fails = (...args: string[]) => run(process.execPath, [CLI, ...args, "--home", h.home]).then((r) => `NO ERROR: ${r.stdout}`, (e) => String(e.stderr) + String(e.stdout));
+	const file = (...parts: string[]) => path.join(h.home, ...parts);
+	const json = (f: string) => JSON.parse(fs.readFileSync(f, "utf8"));
+
+	// ---- no daemon: the files are changed, and checked the way pine checks them at a start
+	let list = await pine("agent", "list");
+	assert.match(list, /^main \(main\): /);
+	assert.match(list, /old: Kept the old books\n    model mock\/m \(the default\) · reasoning off · mode auto · reach workspace\n    conversations: none · sources: none · MCP servers: none · schedules: none · skills: none · routes: wake-old · 1 file in /);
+	assert.match(await pine("agent", "add", "books", "--description", "Keeps the books", "--tools", "read,grep"), /^Created the agent books \(tools: read, grep\)\. Its workspace is .*agents\/books\/workspace\. It is there when pine is started\.$/);
+	assert.deepEqual(json(file("agents", "books", "agent.json")), { description: "Keeps the books", tools: ["read", "grep"] });
+	assert.equal(fs.readFileSync(file("agents", "books", "workspace", "AGENTS.md"), "utf8"), "You are books. Keeps the books.\n");
+	assert.match(await fails("agent", "add", "Bad Id", "--description", "x"), /is not a usable agent id/);
+	assert.match(await fails("agent", "add", "books", "--description", "again"), /an agent called books exists already/);
+	assert.match(await fails("agent", "add", "nodesc"), /usage: pine agent add <id> --description/);
+
+	// Removing asks first, and says what goes.
+	fs.mkdirSync(file("sandbox", "old", "tmp"), { recursive: true });
+	fs.mkdirSync(file("data", "sources", "papers@old"), { recursive: true });
+	const { Kv, openDb } = await import("../src/store.ts");
+	let db = openDb(file("data"));
+	new Kv(db).set("taint:old:main", "something from outside");
+	db.close();
+	const refused = await fails("agent", "remove", "old");
+	assert.match(refused, /old: Kept the old books\nWith it go: conversations: none; event sources: none; MCP servers: none; schedules: none; skills: none; routes that wake it: wake-old\nIts folder .*agents\/old is deleted, with 1 file in its workspace and everything said to it\. This cannot be undone\./);
+	assert.match(refused, /not removed: this asks before it deletes\. Run it in a terminal, or add --yes/);
+	assert.ok(fs.existsSync(file("agents", "old")));
+	assert.match(await fails("agent", "remove", "main", "--yes"), /main is the main agent: it administers pine and cannot be removed/);
+	assert.match(await fails("agent", "remove", "ghost", "--yes"), /there is no agent "ghost"/);
+	assert.match(await pine("agent", "remove", "old", "--yes"), /Removed the agent old\.$/);
+	for (const gone of [file("agents", "old"), file("sandbox", "old"), file("data", "sources", "papers@old"), file("removed")]) assert.ok(!fs.existsSync(gone), gone);
+	assert.deepEqual(json(file("pine.json")).routes, [{ name: "keep", on: "test/keep", set: { seen: "yes" } }], "the route that woke it is gone with it");
+	assert.deepEqual(json(file("agents", "aide", "agent.json")).delegates, []);
+	db = openDb(file("data"));
+	assert.equal(new Kv(db).get("taint:old:main"), undefined);
+	db.close();
+	assert.ok(!/^old:/m.test(await pine("agent", "list")));
+	assert.match(await pine("check"), /ok|agents/i, "what is left is a configuration pine starts with");
+
+	// ---- a daemon runs: it does it, at once
+	const daemon = spawn(process.execPath, [CLI, "start", "--home", h.home], { stdio: ["ignore", "ignore", "pipe"] });
+	let stderr = "";
+	daemon.stderr.on("data", (d) => (stderr += d));
+	t.after(() => daemon.kill("SIGKILL"));
+	await until(async () => (await fetch(`http://127.0.0.1:${port}/health`).catch(() => undefined))?.ok, 8000, `the daemon to listen (${stderr})`);
+	assert.match(await pine("agent", "add", "scout", "--description", "Looks things up", "--instructions", "You are SCOUT."), /^Created the agent scout .* Talk to it with: pine send scout "\.\.\."$/);
+	assert.equal(await pine("send", "scout", "are you there"), "ECHO[are you there]", "it exists without a restart");
+	assert.deepEqual(JSON.parse(await pine("agents")).map((a: any) => a.id).sort(), ["aide", "books", "main", "scout"]);
+	const out = await pine("agent", "remove", "scout", "--yes", "--keep-files");
+	assert.match(out, /Its folder is kept: moved to .*removed/);
+	assert.match(out, /Removed the agent scout\. Its folder is kept at .*removed\/scout-/);
+	assert.equal(fs.readdirSync(file("removed")).length, 1);
+	const walk = (d: string): string[] => (fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)])) : []);
+	assert.deepEqual([...walk(file("agents", "scout")), ...walk(file("sandbox", "scout"))].map((f) => path.relative(h.home, f)), [], "neither its folder nor its private home is there again");
+	assert.deepEqual([file("agents", "scout"), file("sandbox", "scout")].filter((d) => fs.existsSync(d)).map((d) => `${path.relative(h.home, d)}: ${fs.readdirSync(d).join(",")}`), []);
+	assert.match(await fails("send", "scout", "x"), /unknown agent "scout"/);
+	// Removing an agent is not what a mistyped or half-filled request does: the address is its own, and the name is said twice.
+	const token = fs.readFileSync(file("data", "http-token"), "utf8").trim();
+	const post = (url: string, body: unknown) => fetch(`http://127.0.0.1:${port}${url}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+	assert.equal((await post("/agents/books/erase", {})).status, 400);
+	assert.equal((await post("/agents/books/erase", { agent: "aide" })).status, 400);
+	assert.equal((await post("/agents/books/remove", { session: "side" })).status, 200, "removing a conversation is another request");
+	assert.ok(fs.existsSync(file("agents", "books")) && JSON.parse(await pine("agents")).some((a: any) => a.id === "books"), "and leaves the agent");
+	assert.match(await pine("agent", "remove", "books", "--yes"), /Removed the agent books\.$/);
+	assert.deepEqual(JSON.parse(await pine("agents")).map((a: any) => a.id).sort(), ["aide", "main"]);
+	daemon.kill("SIGTERM");
+	await new Promise((r) => daemon.once("exit", r));
+	await h.close();
+});
+
 test("pine login stores a provider key privately and makes its models available", async (t) => {
 	const { login } = await import("../src/login.ts");
 	const { loadConfig } = await import("../src/config.ts");

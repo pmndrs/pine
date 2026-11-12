@@ -41,10 +41,10 @@ export class Router {
 	}
 
 	start(): void {
-		for (const route of this.cfg.routes) this.offs.push(this.bus.subscribe(route.on, (e) => this.onEvent(route, e), `route:${route.name}`));
+		for (const route of this.cfg.routes) this.add(route);
 	}
 
-	/** Routes that come and go while the daemon runs: the subscriptions of agents to event sources. */
+	/** Every route by its name: the ones in pine.json, and the ones that come and go while the daemon runs (subscriptions, schedules). */
 	private added = new Map<string, () => void>();
 
 	add(route: RouteConfig): void {
