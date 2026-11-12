@@ -283,6 +283,29 @@ export function bin(name: string): string {
 let kind: "macos" | "linux" | null | undefined;
 let bwrap = "";
 let whyNot = "";
+let bwrapSaid = "";
+let userNamespacesRestricted = false;
+
+/**
+ * The rights a container has to be started with for a sandbox to work inside it: to create
+ * namespaces, to give a sandbox without network its loopback interface, and past Docker's own
+ * system call filter and AppArmor profile, which forbid the mounts. An ordinary user in the
+ * container needs one more, to mount the sandbox's own /proc. (Each was tried by leaving it out.)
+ */
+export const containerFlags = (root = process.getuid?.() === 0) =>
+	`--cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined${root ? "" : " --security-opt systempaths=unconfined"}`;
+
+/** Whether pine runs inside a container (Docker, Podman, Kubernetes). */
+export function inContainer(): boolean {
+	const reads = (file: string) => {
+		try {
+			return fs.readFileSync(file, "utf8");
+		} catch {
+			return "";
+		}
+	};
+	return fs.existsSync("/.dockerenv") || fs.existsSync("/run/.containerenv") || /docker|containerd|kubepods|lxc/.test(reads("/proc/1/cgroup"));
+}
 
 /**
  * Which sandbox this machine has: Apple's sandbox-exec on macOS, bubblewrap on Linux. On Linux
@@ -297,7 +320,7 @@ export function sandboxKind(): "macos" | "linux" | undefined {
 		else whyNot = "sandbox-exec is missing";
 	} else if (process.platform === "linux") {
 		bwrap = [...(process.env.PATH ?? "").split(":").filter((d) => path.isAbsolute(d)), "/usr/bin", "/bin", "/usr/local/bin"].map((d) => path.join(d, "bwrap")).find((f) => fs.existsSync(f)) ?? "";
-		if (!bwrap) whyNot = "bubblewrap is not installed (the package is usually called bubblewrap; the program is bwrap)";
+		if (!bwrap) whyNot = 'bubblewrap is not installed (the program is bwrap). Run "pine init": it installs it';
 		else {
 			try {
 				const probe = jailed(bwrap, [...helperArgs([]), bin("true")], false);
@@ -310,11 +333,34 @@ export function sandboxKind(): "macos" | "linux" | undefined {
 				try {
 					apparmor = fs.readFileSync("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").trim() === "1";
 				} catch {}
-				whyNot = `bubblewrap is installed (${bwrap}) but cannot make a sandbox here ("${said}"). ${apparmor ? "This system restricts user namespaces through AppArmor: give bubblewrap an AppArmor profile that allows them, or set kernel.apparmor_restrict_unprivileged_userns=0" : "Ordinary users may not create user namespaces here (a container, or a system that has switched them off)"}`;
+				bwrapSaid = said;
+				userNamespacesRestricted = apparmor;
+				const why = inContainer()
+					? `This is a container that was started without the rights for one. Start it with: docker run ${containerFlags()} ...`
+					: apparmor
+						? 'AppArmor keeps it from creating user namespaces. Run "pine init": it adds the rule that allows it'
+						: "Ordinary users may not create user namespaces here (a system that has switched them off)";
+				whyNot = `bubblewrap is installed (${bwrap}) but cannot make a sandbox here ("${said}"). ${why}`;
 			}
 		}
 	} else whyNot = `no sandbox is implemented for ${process.platform}`;
 	return kind ?? undefined;
+}
+
+/**
+ * What the try on Linux found, for setting the sandbox up (src/sandbox-setup.ts): where bwrap
+ * is, whether it could make a sandbox, what it said when not, and whether AppArmor is why.
+ */
+export function sandboxFound(): { bwrap: string; works: boolean; said: string; apparmor: boolean } {
+	const works = sandboxKind() === "linux";
+	return { bwrap, works, said: bwrapSaid, apparmor: userNamespacesRestricted };
+}
+
+/** Look again: something that was missing may have been installed since. */
+export function sandboxRecheck(): void {
+	kind = undefined;
+	bwrap = whyNot = bwrapSaid = "";
+	userNamespacesRestricted = false;
 }
 
 export const sandboxAvailable = () => sandboxKind() !== undefined;

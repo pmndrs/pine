@@ -36,6 +36,7 @@ src/
   agent-admin.ts    create_agent: checks a proposed agent and writes its folder
   security.ts       the sandbox's rules (macOS profile; `sandboxArgv` for either system), path checks, approvals, redaction, configuration audit
   sandbox-linux.ts  the same rules as bubblewrap mounts; what a mount cannot forbid is removed after the command (`Guard`)
+  sandbox-setup.ts  what `pine init` does on Linux: installs bubblewrap, the AppArmor rule and the browser's libraries after one yes
   sandbox-fs.ts     read/write/edit/grep/find/ls executed inside the sandbox
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
   manual.ts         pine's manual made searchable: docs/ cut into parts, BM25 over them, synonyms; the `manual` tool and `pine manual`

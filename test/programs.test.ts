@@ -79,7 +79,9 @@ test("programs: what a command leaves running is listed for its conversation, th
 });
 
 test("tui: the code pane lists what the agent left running and stops it on a click", mac, async (t) => {
-	const h = await harness({ pine: { main: "main", http: { port: 0 } }, agents: { main: {} } });
+	// With the owner's account, as pine ships the main agent. (In the workspace sandbox Linux ends
+	// what a command leaves behind together with the command; see security.md, "On Linux".)
+	const h = await harness({ pine: { main: "main", defaults: { scope: undefined }, http: { port: 0 } }, agents: { main: {} } });
 	t.after(() => {
 		for (const p of h.pine.agents.programsOf("main", "main")) h.pine.agents.stopProgram("main", "main", p.id);
 	});

@@ -100,10 +100,14 @@ Not verified yet, in rough order of importance:
    of sub-agents when slots are scarce.
 5. **Long uptimes.** Weeks of running: database growth, session file growth, MCP servers that
    die and reconnect.
-6. **Linux.** The whole suite has run on Ubuntu 24.04 on arm64 (in a VM), as a user and as
-   root, and the sandbox's command line in a Docker container. Not run: x86-64 (the system
-   call filter has that processor's numbers, untested), other distributions, and the terminal
-   UI in a real Linux terminal (only through the suite's fake terminal). With the network
+6. **Linux.** The whole suite has run on Ubuntu 24.04 on arm64 (in a VM). `pine init` was run
+   there on a machine without bubblewrap (it installed it, wrote and loaded the AppArmor
+   rule), and in a bare `node:24` container with pine installed from its npm package (it
+   installed bubblewrap and the browser's libraries; the browser then started). Not run:
+   x86-64 (the system call filter has that processor's numbers, untested), other
+   distributions and their package managers (dnf, yum, pacman, zypper, apk: the commands are
+   written, none was run), Podman, and the terminal UI in a real Linux terminal (only through
+   the suite's fake terminal). With the network
    granted, Linux still lets a command reach socket files in the temp folders, which macOS
    refuses. There is no sandbox
    on other systems; the shell tool is withheld there.

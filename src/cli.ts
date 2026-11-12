@@ -24,8 +24,9 @@ Start here
   pine model list | pine model remove <name>
 
 Daemon
-  pine init [dir]                 set pine up: a home directory (default ~/.pine) from the example, and the
-                                  browser its web tools use. Safe to run again
+  pine init [dir] [--yes]         set pine up: a home directory (default ~/.pine) from the example, the browser
+                                  its web tools use, and on Linux the sandbox (asks before it runs anything
+                                  as administrator; --yes skips the question). Safe to run again
   pine check                      validate the configuration and list what it sets up
   pine start                      run the daemon in the foreground
   pine dev-model [--port 7464] [--model haiku]
@@ -86,7 +87,7 @@ function parseArgs(argv: string[]) {
 		const a = argv[i];
 		if (a === "-f") flags.follow = true;
 		else if (a.startsWith("--no-")) flags[a.slice(5)] = false;
-		else if (a.startsWith("--")) flags[a.slice(2)] = argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") && !["follow", "json", "api-key", "oauth", "taints", "offline", "always", "separate", "global"].includes(a.slice(2)) ? argv[++i] : true;
+		else if (a.startsWith("--")) flags[a.slice(2)] = argv[i + 1] !== undefined && !argv[i + 1].startsWith("--") && !["follow", "json", "api-key", "oauth", "taints", "offline", "always", "separate", "global", "yes"].includes(a.slice(2)) ? argv[++i] : true;
 		else rest.push(a);
 	}
 	return { flags, rest };
@@ -274,16 +275,36 @@ async function main(): Promise<void> {
 		// Everything the built-in tools need comes with it, so that what is set up also works. The
 		// browser is the one large piece; a second run finds it there and takes a moment.
 		// (PINE_SKIP_DOWNLOADS is for pine's own tests, which must not fetch 600 MB.)
+		let noBrowser = 0;
 		if (!process.env.PINE_SKIP_DOWNLOADS) {
 			out("\nGetting the browser the built-in web tools drive (about 600 MB, once) ...");
-			const status = await installBrowser();
-			if (status !== 0) {
-				out(`\nThe browser could not be downloaded (exit ${status}). Everything else is set up; web search and page reading work without it. Run "pine init" again when you are online to get it.`);
-				process.exitCode = 1;
-				return;
-			}
+			noBrowser = await installBrowser();
 		}
-		out(`\nReady. Start with: pine${target === defaultHome() ? "" : ` --home ${target}`}\nThe example uses Claude through "claude -p". For another model: pine login <provider>, then /model in the UI.`);
+		// On Linux the sandbox needs a package and, on some systems, a rule only an administrator
+		// can load; the browser needs system libraries. pine says what it would run and does it
+		// after one yes; nothing is left to a manual.
+		let noSandbox = false;
+		if (process.platform === "linux") {
+			const { setUpSandbox } = await import("./sandbox-setup.ts");
+			noSandbox = !(await setUpSandbox({
+				out,
+				yes: flags.yes === true,
+				confirm: async (question) => {
+					if (!process.stdin.isTTY) return undefined;
+					const readline = await import("node:readline");
+					const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+					const answer = await new Promise<string>((resolve) => rl.question(`${question} [Y/n] `, resolve));
+					rl.close();
+					return !/^n/i.test(answer.trim());
+				},
+			}));
+		}
+		if (noBrowser !== 0) {
+			out(`\nThe browser could not be downloaded (exit ${noBrowser}). Everything else is set up; web search and page reading work without it. Run "pine init" again when you are online to get it.`);
+			process.exitCode = 1;
+			return;
+		}
+		out(`\nReady. Start with: pine${target === defaultHome() ? "" : ` --home ${target}`}\nThe example uses Claude through "claude -p". For another model: pine login <provider>, then /model in the UI.${noSandbox ? "\nThe sandbox is not set up (see above): until it is, agents get no shell. pine check says where it stands." : ""}`);
 		return;
 	}
 

@@ -117,13 +117,18 @@ authors you would let instruct it. See [coding.md](coding.md).
 
 #### On Linux
 
-bubblewrap has to be installed (`apt install bubblewrap`, `dnf install bubblewrap`,
-`pacman -S bubblewrap`) and has to be allowed to create user namespaces. pine tries it once at
-start. Where it does not work, `pine check` gives the reason and pine behaves as on a machine
-without a sandbox (below). The usual reasons:
+The sandbox needs bubblewrap, and bubblewrap has to be allowed to create user namespaces.
+`pine init` takes care of both, and of the system libraries the browser of the web tools
+needs: it looks at what is missing, shows the commands it would run as administrator, and runs
+them after one yes (`sudo` asks for the password; `pine init --yes` does not ask). pine tries the sandbox once at each start. Where it does not work, `pine check`
+gives the reason and pine behaves as on a machine without a sandbox (below).
 
-- **Ubuntu 24.04 and later** restrict user namespaces through AppArmor. Give bubblewrap a
-  profile that allows them: a file `/etc/apparmor.d/bwrap` with
+What `pine init` does, and what it cannot do:
+
+- **bubblewrap is missing**: it installs the package with the system's package manager (apt,
+  dnf, yum, pacman, zypper, apk).
+- **Ubuntu 24.04 and later** restrict user namespaces through AppArmor. pine writes a rule
+  that allows them for bubblewrap, to `/etc/apparmor.d/bwrap`, and loads it:
 
   ```
   abi <abi/4.0>,
@@ -134,14 +139,23 @@ without a sandbox (below). The usual reasons:
   }
   ```
 
-  loaded with `sudo apparmor_parser -r /etc/apparmor.d/bwrap`. (Setting
-  `kernel.apparmor_restrict_unprivileged_userns=0` does it for every program instead.)
-- **A container** (Docker, Podman) forbids a sandbox inside it. With pine as root in the
-  container it needs `--cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt
-  seccomp=unconfined --security-opt apparmor=unconfined --security-opt
-  systempaths=unconfined` (or `--privileged`). Without them pine in a container has no agent
-  sandbox; the container is then the only wall, and it is around all agents and pine's secrets
-  together.
+  A file that is there already is left as it is and only loaded again. (Setting
+  `kernel.apparmor_restrict_unprivileged_userns=0` would allow them for every program
+  instead; pine does not do that.)
+- **A container** (Docker, Podman) forbids a sandbox inside it unless it was started with the
+  rights for one, and those cannot be given from inside. With pine as root in the container
+  it needs `--cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined
+  --security-opt apparmor=unconfined`: to create namespaces, to give a sandbox without
+  network its own loopback interface, and past Docker's system call filter and AppArmor
+  profile, which forbid the sandbox's change of root and its mounts. As an ordinary user in
+  the container it also needs `--security-opt systempaths=unconfined`, to mount the sandbox's
+  own `/proc`. (`--privileged` does all of it.) Each was tried by leaving it out. `pine init`
+  installs bubblewrap in the container and names the flags when a right is missing. Without them pine in a container has no agent sandbox; the container is then the
+  only wall, and it is around all agents and pine's secrets together.
+- **No `sudo` and not root**: pine prints the commands for whoever administers the machine.
+- **The browser's system libraries** (a server or a container image has few of them): where
+  apt is, pine installs them through Playwright's own list of packages, with the same yes.
+  Elsewhere it names what is missing; web search and page reading work without the browser.
 - **A systemd unit** with `RestrictNamespaces=` or `PrivateUsers=`.
 
 What differs from macOS:
@@ -152,7 +166,7 @@ What differs from macOS:
 | Instruction files, and a repository's hooks and configuration, in a run that read outside content (layer 4) | Cannot be written or created, at any depth | What exists is read-only. What did not exist can be created by a shell command, and pine removes it when the command ends. Both are looked for six folders deep, and not inside folders of installed packages or build output (`node_modules`, `.venv`, `dist`, `build`, `target` and the like) |
 | Programs on the same machine (the session bus, the keyring, a container daemon, a terminal multiplexer, an editor's helper) | Without the network, no connection of any kind. Keychain, clipboard, AppleScript and launching apps are refused by name, also with the network | Without the network a command cannot make a socket to another program (a system call filter, on x86-64 and arm64; programs built for 32 bit do not run then). The session's folder (`/run/user`) is empty and the sockets in `/run` are covered, also with the network |
 | With the network granted | Addresses only: the internet and your local network. Socket files stay closed, except in the agent's own folders (not the shared temp folder), where its own programs talk to each other | Also programs that listen on a socket file where the agent can read outside `/run` (a tmux server or an ssh agent in the temp folder), and those that listen on a socket without a file (an X server does) |
-| Processes a command leaves in the background | Not ended by the sandbox | End with the command |
+| Processes a command leaves in the background | Not ended by the sandbox ([coding.md](coding.md) says where they show) | The same for an agent that works with your account. In the workspace sandbox they end with the command: its processes are a group of their own that ends with it |
 | pine run as root | Commands run as root | Commands run as root without root's special powers (capabilities), which they could otherwise use to undo the sandbox |
 
 The file tools refuse a protected name at any depth on both systems; the rows above about

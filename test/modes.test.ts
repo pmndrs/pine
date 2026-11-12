@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { loadConfig, sandboxScope } from "../src/config.ts";
-import { audit, rootsFor, sandboxAvailable, shellEnv } from "../src/security.ts";
+import { audit, rootsFor, sandboxAvailable, shellEnv, sandboxKind } from "../src/security.ts";
 import { harness, MCP_STUB, mockMsg, notesOf, until, refused } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
@@ -163,7 +163,7 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 
 	// The agent is told, and can put it to the owner again with a reason.
 	answer = true;
-	await run("a", [{ tools: [call("request_access", { account: true, reason: "the notes are part of the task" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}; echo $HOME` }), call("write", { path: "MEMORY.md", content: "LEARNED: where the notes are\n" }), call("bash", { command: "echo EVIL | tee CLAUDE.md .pi" })] }]);
+	await run("a", [{ tools: [call("request_access", { account: true, reason: "the notes are part of the task" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}; echo $HOME` }), call("write", { path: "MEMORY.md", content: "LEARNED: where the notes are\n" })] }, { tools: [call("bash", { command: "echo EVIL | tee CLAUDE.md .pi" })] }]);
 	assert.ok(notesOf(h.mock.state.requests.at(-1)).join("\n").includes("limited this conversation to your workspace"), notesOf(h.mock.state.requests.at(-1)).join("\n"));
 	out = h.toolResults().slice(-5);
 	assert.equal(asked.length, 2, "one yes covers the account, the shell and the agent's memory");
@@ -174,7 +174,9 @@ test("auto mode, main agent: once a conversation has read outside content, the o
 	// Its own memory is part of what it keeps. What else would be read as instructions stays closed.
 	assert.match(out[3], /Successfully wrote/);
 	assert.equal(fs.readFileSync(path.join(h.workspace("main"), "MEMORY.md"), "utf8"), "LEARNED: where the notes are\n");
-	assert.match(out[4], refused);
+	// macOS refuses the write. Linux cannot forbid a file that is not there yet: the command
+	// makes it, and pine takes it away again before anything reads it. Either way it is not there.
+	assert.ok(refused.test(out[4]) || sandboxKind() === "linux", out[4]);
 	assert.ok(!fs.existsSync(path.join(h.workspace("main"), "CLAUDE.md")) && !fs.existsSync(path.join(h.workspace("main"), ".pi")));
 
 	// A yes: one question for the conversation, whatever comes after.

@@ -277,7 +277,10 @@ test("secrets: asked of the owner by pine, or named from .env; a yes without the
 	await h.close();
 });
 
-test("tui: a secret is typed into the dialog without being shown, and never appears in the conversation", async (t) => {
+// The picture in it is converted for the terminal: by sips on macOS, by ffmpeg elsewhere.
+const pictures = { skip: process.platform !== "darwin" && !["/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"].some((f) => fs.existsSync(f)) };
+
+test("tui: a secret is typed into the dialog without being shown, and never appears in the conversation", pictures, async (t) => {
 	const tg = await fakeTelegram();
 	t.after(() => tg.close());
 	const h = await harness({ pine: { main: "main", http: { port: 0 } }, agents: { main: {} } });

@@ -25,7 +25,7 @@ PINE of course also handles regular chat, coding, tasks and orchestration. Agent
 - **Orchestration:** Agents can delegate, create sub-agents in parallel. A pinned tab simply persists an agent and its task. Name it, give it instructions, chat with it or subscribe it to events.
 
 > [!IMPORTANT]
-> pine runs on macOS and Linux (see [Linux](#linux) for Ubuntu and Docker). Windows users can try docker. It remains open what exactly is necessary to make it run completely in Windows.
+> pine runs on macOS and Linux; `pine init` sets up what it needs. Windows users can try [Docker](#docker). It remains open what exactly is necessary to make it run completely in Windows.
 
 <br/>
 
@@ -108,7 +108,8 @@ PINE of course also handles regular chat, coding, tasks and orchestration. Agent
 
 ## Quick start
 
-Sets everything up: the browser the web tools drive, and your user folder (`~/.pine`).
+Sets everything up: the browser the web tools drive, and your user folder (`~/.pine`). On Linux
+also the sandbox agents work in; it shows what it would install and asks once.
 
 ```bash
 pine init
@@ -160,41 +161,36 @@ To get a newer version later, with whatever it needs:
 pine update
 ```
 
-## Linux
+## Docker
 
-The agent sandbox is built on [bubblewrap](https://github.com/containers/bubblewrap). Without
-it pine runs, but agents get no shell. `pine check` says whether it works, and why not.
-
-```bash
-sudo apt install bubblewrap
-```
-
-**Ubuntu 24.04 and later** keep bubblewrap from working until AppArmor allows it. Put this into
-`/etc/apparmor.d/bwrap`:
-
-```
-abi <abi/4.0>,
-include <tunables/global>
-
-profile bwrap /usr/bin/bwrap flags=(unconfined) {
-  userns,
-}
-```
-
-and load it:
+Agents run their commands in a sandbox, and a container may only make one when it is started
+with the rights for it:
 
 ```bash
-sudo apparmor_parser -r /etc/apparmor.d/bwrap
+docker run -it --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined -v pine:/root/.pine node:24 bash
 ```
 
-**Docker** forbids a sandbox inside a container unless the container is started with the
-rights for one:
+| Part | What it is for |
+| --- | --- |
+| `--cap-add SYS_ADMIN` | lets the sandbox create its namespaces |
+| `--cap-add NET_ADMIN` | lets a sandbox without network have its own loopback interface |
+| `--security-opt seccomp=unconfined` | Docker's system call filter forbids the sandbox's change of root |
+| `--security-opt apparmor=unconfined` | Docker's AppArmor profile forbids its mounts |
+| `-v pine:/root/.pine` | keeps pine's home (configuration, conversations) when the container is replaced |
+
+Inside, it is the same as anywhere:
 
 ```bash
-docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined ...
+npm install -g @pmndrs/pine
 ```
 
-What differs from macOS is in [security.md](docs/references/security.md), "On Linux".
+```bash
+pine init
+```
+
+`pine init` installs what the image lacks (bubblewrap, the browser's system libraries) and says
+so if a right is missing. With pine as an ordinary user in the container instead of root, add
+`--security-opt systempaths=unconfined`. `--privileged` works in place of all of them.
 
 ## Documentation
 

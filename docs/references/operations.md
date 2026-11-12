@@ -2,10 +2,10 @@
 
 ## Requirements
 
-- macOS, or Linux with [bubblewrap](https://github.com/containers/bubblewrap) installed
-  (`apt install bubblewrap`). The agent sandbox is built on `sandbox-exec` and on `bwrap`;
-  without one of them pine starts, but withholds the shell tool, and `pine check` says why.
-  See [security.md](security.md), "On Linux".
+- macOS or Linux. The agent sandbox is built on the system's own: `sandbox-exec` on macOS,
+  [bubblewrap](https://github.com/containers/bubblewrap) on Linux, which `pine init` installs
+  and sets up. Without a sandbox pine starts, but withholds the shell tool, and `pine check`
+  says why. See [security.md](security.md), "On Linux".
 - Optional: `ffmpeg` for videos in the terminal UI (on Linux also for pictures other than
   png); on Linux `xclip` or `wl-copy` for copying a selection.
 - Node 24 or newer. From a checkout Node runs the TypeScript sources directly; the npm package
@@ -45,6 +45,14 @@ sets everything up in one step:
 - From a fresh checkout, `bin/pine` first installs pine's dependencies (`npm install`), once.
 - It copies the example home to `~/.pine`: one agent, `main`, with web search and the browser, a
   `models.json`, an empty `.env`. Nothing is overwritten if you run it again.
+- On Linux it makes the sandbox work. If bubblewrap is missing it installs the package (apt,
+  dnf, yum, pacman, zypper or apk), and on Ubuntu 24.04 and later it writes and loads the
+  AppArmor rule bubblewrap needs there. It shows the commands first and asks once; they run
+  with `sudo`, which asks for your password itself. `pine init --yes` does not ask, for a
+  script or a container build. Where pine cannot do it (no `sudo`, a container without the
+  rights), it says what would; pine runs either way, without a shell for agents until then.
+  The same question covers the system libraries the browser needs, which a server or a
+  container image lacks (installed with apt, through Playwright).
 - It downloads the Chromium build the bundled browser tools drive (about 600 MB, into
   Playwright's cache). A second run finds it there and takes a moment. If the download fails,
   everything else is set up and `pine init` can simply be run again.
@@ -136,6 +144,21 @@ slots, so each run gets `c / np` tokens; that is the number the server reports a
 down. Add `--alias <name>` to give the model a plain name: without it the name is the path of
 the model file.
 
+## In a container
+
+A container may only make a sandbox when it is started with the rights for one:
+
+```bash
+docker run -it --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined -v pine:/root/.pine node:24 bash
+```
+
+Inside, `npm install -g @pmndrs/pine` and `pine init` as anywhere; `pine init` installs
+bubblewrap and the browser's libraries, which the image does not have, and names the flags if
+one is missing. `-v pine:/root/.pine` keeps pine's home when the container is replaced. What
+each flag is for, and the one more an ordinary user in the container needs, is in
+[security.md](security.md), "On Linux". Without the rights pine runs, but agents get no
+shell, and the container is the only wall around all of them.
+
 ## Updating
 
 ```bash
@@ -172,7 +195,7 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine .`, `pine <folder>` | The terminal UI with one more tab: a conversation of the main agent that works in that folder (the one from last time, if there is one). A first word that is a command stays a command. See [coding.md](coding.md) |
 | `pine login <provider>`, `pine logout <provider>` | Sign in to a model provider. `--api-key` or `--oauth` force the kind of sign-in |
 | `pine model add <name> <address>`, `pine model list`, `pine model remove <name>` | Add a model server of your own by its address, list them, take one out. `--context <tokens>`, `--reasoning`, `--no-reasoning` for what the server does not say. See "With a model server of your own" |
-| `pine init [dir]` | Set pine up: a home directory from the example and the browser its web tools drive. Safe to run again |
+| `pine init [dir] [--yes]` | Set pine up: a home directory from the example, the browser its web tools drive and, on Linux, the sandbox (asks before running anything as administrator; `--yes` skips the question). Safe to run again |
 | `pine update [--check]` | Bring pine up to date. `--check` only says whether there is something newer. See "Updating" |
 | `pine version` | Which version this is and how it is installed |
 | `pine browser-install` | Fetch the browser again. `pine init` and `pine update` do this already |
