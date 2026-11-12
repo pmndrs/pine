@@ -96,7 +96,9 @@ Nothing in the system prompt changes from one turn to the next. That is delibera
 server keeps what it has already read (the prompt cache) only as long as the beginning of the
 prompt is identical, and on a local model a miss means reading the whole conversation again
 before the first word of the answer. What does change, pine puts in front of your message
-instead, in a `<pine-note>`: the local time and date, the mode, the folder opened for the
+instead, in a `<pine-note>`: the local time and date, the mode, the model the agent runs on
+(as `provider/id` with its name from `models.json`, so that an agent asked which model it is
+says that one and does not guess), the folder opened for the
 conversation, whether its shell has network access, a reminder when `MEMORY.md` has grown
 long, the shared state listed in `state.inject`, and whether the session has to be careful
 with outside content. The note is only added when something other than the time of day has
