@@ -41,6 +41,8 @@ src/
   sandbox-linux.ts  the same rules as bubblewrap mounts; what a mount cannot forbid is removed after the command (`Guard`)
   sandbox-setup.ts  what `pine init` does on Linux: installs bubblewrap, the AppArmor rule and the browser's libraries after one yes
   sandbox-fs.ts     read/write/edit/grep/find/ls executed inside the sandbox
+  access.ts         what a call needs beyond its sandbox, found so that the owner can be asked: the paths a command
+                    names (`reaches`), the system's reports of what a sandbox refused (`Denials`, macOS), a failed command's words
   sources.ts        event sources and subscriptions: starts a source on its first subscriber, turns a subscription into a route
   manual.ts         pine's manual made searchable: docs/ cut into parts, BM25 over them, synonyms; the `manual` tool and `pine manual`
   skills.ts         skills by tool call: where one lies says whom it is for (all agents, an agent, a conversation)
@@ -155,6 +157,15 @@ These are invariants. A change that breaks one needs a test that shows why it is
    neither, and a helper that touches bytes from anywhere goes behind `helperArgv()`; nothing
    else names either program. `checkPath()` only produces a clear error early; do not rely on it. Never add a tool that reads or writes files in
    the daemon process on a path the model chose.
+   What a call needs beyond its sandbox, pine asks the owner for (`seek` in `coreExtension`):
+   before the call for what a file tool is given or a command names (`reaches` in
+   `src/access.ts`), after a command for what the system reports the sandbox refused it
+   (`Denials`: a text of the command's own in the profile, read back from the macOS log). Both
+   only find whom to ask and what to say. The answer is a grant like `request_access` gives
+   (`live.grant`), which the sandbox enforces, or a no that is kept for the conversation
+   (`AgentManager.refused`). Nothing they find allows or refuses a call by itself, a run
+   started from outside is never asked about, and what no answer can open (pine's home, pine's
+   code, another agent's files: `grantable`) is never put to the owner.
 3. **Trust comes from where an event entered, never from what it says.** Out of the box three
    things publish `trust: "owner"`: a Telegram account the owner paired in pine (or listed), the
    authenticated control API, and a schedule. Everything else is `untrusted`
@@ -351,6 +362,10 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
 - A model call pine makes itself, without tools (the reviewer, the judge of goal mode), is
   scripted with the mock's `withoutTools` option: see `reviewed()` in `test/review.test.ts` and
   `judged()` in `test/goals.test.ts`.
+- pine's own question for what a call needs outside the sandbox (`security.askAccess`) is off in
+  `harness()`, so that a test about the sandbox meets the sandbox and not a question. The tests
+  about it (`test/access.test.ts`) turn it on, set `HOME` to a folder of their own for "the
+  owner's files", and say what "the system reports" through a stand-in for the log (`standIn`).
 - A new security property needs a test that fails without the code that provides it.
 
 ## Style

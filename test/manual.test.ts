@@ -36,6 +36,10 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 	// [what is asked, a part that must be among the first three]
 	const cases: Array<[string, RegExp]> = [
 		["telegram pairing code", /^sources#telegram$/],
+		["my owner was asked to let me read a folder although I never asked for it", /^(security#(when-a-call-needs-something-outside|modes-how-much-an-agent-does-without-asking)|operations#problems)/],
+		["ls says no such file for a folder in my owner's home that I wrote with ~", /^(security#when-a-call-needs-something-outside|operations#problems)/],
+		["a command was refused a file it did not name, what happens then", /^security#when-a-call-needs-something-outside/],
+		["how do I turn off the question pine asks itself when a command needs a folder outside the sandbox", /^(configuration#pine-json|security#when-a-call-needs-something-outside)/],
 		["how do I see what the model was thinking before it answered", /^tui#what-a-model-thinks/],
 		["the context window is nearly full, how do I shorten the conversation", /^tui#(commands|mouse)/],
 		["save the conversation as a file", /^tui#commands/],

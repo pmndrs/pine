@@ -111,6 +111,7 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `security.reviewTimeout` | `90s` | A review that takes longer counts as no verdict, and the action is put to you instead. The judge of goal mode has the same time; when it takes longer, the goal is paused. |
 | `security.rules` | built in | The reviewer's rules in plain language: `{ "hard": [...], "soft": [...], "allow": [...] }`. `hard`: never. `soft`: only if you asked for exactly this. `allow`: ordinary work. `"$defaults"` in a list keeps the built-in entries at that place; a list without it replaces them. |
 | `security.bypassWhenTainted` | `false` | Keep bypass mode in force in a session that has read outside content. Off, such a session asks again. |
+| `security.askAccess` | `true` | pine asks you itself when a call of an agent in the workspace scope needs a file or folder outside its sandbox, or the network: before a file tool or a shell command that names it, and on macOS after a command the sandbox refused something. `false`: you are only asked when the agent calls `request_access`. See "When a call needs something outside" in [security.md](security.md). |
 | `http` | on, loopback, port 7463 | Control API and webhooks. `false` turns it off (the CLI's client commands then do not work). |
 | `http.host`, `http.port` | `127.0.0.1`, `7463` | Where the control API listens. Anything but loopback is reported by `pine check`. |
 | `http.token` | generated | Bearer token of the control API. When unset, pine generates one into `data/http-token`. |

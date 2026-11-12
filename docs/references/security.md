@@ -102,7 +102,8 @@ The workspace scope, the same on both systems:
 | Can write | Its workspace, its private home (`sandbox/<id>/`, which is `$HOME` in its shell), temp. The main agent also `USER.md` in pine's home, and nothing else there |
 | Cannot read or write | Your home folder, pine's home (configuration, `.env`, database, other agents' folders), other agents' workspaces |
 | Cannot | Use the network (unless `sandbox.network` or you granted it to the conversation; the `download` tool is the exception described under Modes), signal or inspect other processes, or reach the services of your session: launching apps, AppleScript, the keychain or keyring, the clipboard, the session bus, the container daemon, an ssh agent |
-| Environment | A handful of variables (`PATH`, `LANG`, ...). Nothing from the daemon's environment, no secrets |
+| Can compute on | macOS: the graphics chip and the neural engine, which the system's own recognition of text and pictures runs on (a Swift script that reads the text of a scanned page with Vision works). They compute; they reach no file, address or other program |
+| Environment | A handful of variables (`PATH`, `LANG`, ...). Nothing from the daemon's environment, no secrets. `HOME` is the private home. On macOS `CFFIXED_USER_HOME` names it too, so that Apple's libraries take the same home, and `CLANG_MODULE_CACHE_PATH` puts the compilers' cache of built modules into it (the first `swift` run of an agent builds them and takes a while) |
 
 How the two systems say it differs. On macOS the sandbox gets a profile that starts from
 "deny everything" and allows what the table lists. On Linux the command is given a file
@@ -211,6 +212,42 @@ Consequences worth knowing:
   does one of yours that you mark `"sandboxed": true` ([mcp.md](mcp.md)).
 - `trustWorkspace` stays `false`: pi then loads nothing executable from the workspace, so an
   agent cannot plant an extension for the daemon to run.
+
+### When a call needs something outside: pine asks you
+
+An agent in the workspace scope does not have to know where its sandbox ends, and does not
+have to think of asking. When one of its calls needs a file or folder of yours, or the network,
+pine puts the question to you itself. It arrives like any approval, under the name
+`request_access`, and says what is wanted and for which call.
+
+| When | What happens |
+|---|---|
+| A file tool is given a path outside the agent's folders | You are asked before the call. Yes: it runs. No: it is refused, and the agent is told that you said no |
+| A shell command names such a path (`cat /Users/you/notes/a.txt`, a redirect into one, `cp` to one) | You are asked before the command runs. Reading is asked for a path that exists; writing for the target of a redirect and for what `touch`, `mkdir`, `rm`, `mv`, `tee`, `cp` and the like name |
+| A command writes `~` or `$HOME` for something that is in your home and not in the agent's private one | In the agent's shell `~` is its own private home (`sandbox/<id>/`). You are asked for the path in your home, and the agent is told to run the command again with that path written out |
+| A command is refused something it did not name: a script opens a file, a program wants the network | macOS: pine reads the system's own reports of what the sandbox refused that command, asks you, and adds a line of its own to the end of the command's output: what was refused, what you answered, and to run the command again after a yes |
+
+A yes is the grant `request_access` gives: it holds for that conversation and its sub-agents
+until the conversation is reset or pine restarts. A no is kept for the conversation too: pine
+does not ask for the same thing again there. The agent can still call `request_access` itself,
+with a reason.
+
+What is never asked: pine's home, pine's code and other agents' workspaces. No answer of yours
+opens them, so the agent is told that they are closed and not to look for another way. What a
+program looks for on its own account is not asked either unless the command names it: names
+that start with a dot in your home, `Library`, the system's folders. The network is asked for
+only when the command failed without it. A run that an event from outside started is never
+asked about: it is told that it cannot be given more. After outside content the question says
+so ("Careful: ..."), because the command may be what that content wanted.
+
+How pine knows on macOS: every command's sandbox profile carries a text of its own, the system
+writes each refusal into its log with that text, and pine reads the log for it (`log stream`,
+which runs while an agent's commands run and for some seconds after, not all the time).
+None of this decides anything. The sandbox has refused already; the report only tells pine
+whom to ask, and what the agent gets is what you grant. On Linux the sandbox reports nothing,
+and where the log cannot be read pine has less to go on: the paths a command names before it
+runs, and after it the words of a failed command ("Operation not permitted", "Read-only file
+system", "Could not resolve host").
 
 ### The whole account
 
@@ -424,15 +461,16 @@ approval prompts.
 | Mode | Approvals | Sandbox |
 |---|---|---|
 | `manual` | Every action that changes or sends something waits for you, unless you answered "always" for it in this conversation. Reading files and state and read-only MCP tools are free. | The agent's scope |
-| `auto` (default) | Almost nothing. Your `approve` list asks. After outside content, what reaches out, sends or changes the agent's memory is checked by the reviewer, which blocks with a reason instead of asking; you are asked only when it keeps blocking or cannot answer | The agent's scope: your account for the main agent, the workspace for others. For anything beyond the workspace scope the agent calls `request_access`, and you decide |
+| `auto` (default) | Almost nothing. Your `approve` list asks. After outside content, what reaches out, sends or changes the agent's memory is checked by the reviewer, which blocks with a reason instead of asking; you are asked only when it keeps blocking or cannot answer | The agent's scope: your account for the main agent, the workspace for others. For anything beyond the workspace scope you are asked: by pine when a call needs it, or by the agent with `request_access` |
 | `bypass` | Nothing waits | Shell and file tools reach your whole account and the network, whatever the scope |
 | `plan` | Nothing waits, because nothing is done: a call that does not only look is refused, without a question. See "Plan mode" below | The agent's scope, as in `auto` |
 
 `request_access` is how an agent in the workspace scope gets at something outside its
 workspace: it names a path (read, or read and write) or asks for network access from its shell,
 with a reason. You see the request like any approval. If you allow it, the access holds for that
-conversation until you reset it or the daemon restarts. Refusals tell the agent to ask this way
-instead of probing.
+conversation until you reset it or the daemon restarts. The agent does not have to call it:
+when a call needs something outside, pine asks you the same question itself (see "When a call
+needs something outside" above).
 
 The bundled browser has one question of the same kind: when the agent opens an address on this
 computer or your network (`http://localhost:5173`), you are asked, and a yes allows that host

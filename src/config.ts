@@ -288,6 +288,12 @@ export interface PineConfig {
 		/** Keep bypass mode in force after a session has seen outside content. Off: such a session asks again. */
 		bypassWhenTainted: boolean;
 		/**
+		 * Whether pine asks the owner itself when a call of an agent in the workspace scope needs a
+		 * file or folder outside its sandbox, or the network (src/access.ts). Off: only the agent
+		 * asks, with request_access.
+		 */
+		askAccess: boolean;
+		/**
 		 * What happens in auto mode once a conversation has read outside content.
 		 * "model": it keeps its rights, and each action that reaches out, sends or changes the
 		 *          agent's memory is checked by a reviewer first (src/actions.ts).
@@ -554,6 +560,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			taint: raw.security?.taint ?? "session",
 			taintTools: strings(raw.security?.taintTools, []),
 			bypassWhenTainted: raw.security?.bypassWhenTainted === true,
+			askAccess: raw.security?.askAccess !== false,
 			review: raw.security?.review === "ask" || raw.security?.review === "off" ? raw.security.review : "model",
 			reviewer: typeof raw.security?.reviewer === "string" && raw.security.reviewer ? raw.security.reviewer : undefined,
 			reviewTimeoutMs: parseDuration(raw.security?.reviewTimeout ?? "90s"),

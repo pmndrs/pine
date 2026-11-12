@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type AgentConfig, agentSkillsDir, conversationsDir, globalSkillsDir, mainAgentId, PINE_ROOT, type PineConfig, sandboxScope, userFile, WORKSPACE_FILES } from "./config.ts";
+import type { DenialTools } from "./access.ts";
 import { bwrapArgs, Guard, helperArgs, jailed, type Protected, protectedNow, SESSIONS } from "./sandbox-linux.ts";
 import type { Bus } from "./store.ts";
 import { type Logger, truncate } from "./util.ts";
@@ -138,6 +139,56 @@ export function checkPath(roots: Roots, kind: "read" | "write", given: string, c
 	return kind === "write" && restricted ? ownRules(roots, target, p) : undefined;
 }
 
+/** Whether the owner can give a conversation this path at all: not pine's own files, not another agent's. What `request_access` refuses. */
+export function grantable(roots: Roots, kind: "read" | "write", p: string): boolean {
+	const about = (root: string) => isInside(root, p) || isInside(p, root);
+	if (roots.secrets.some(about) || about(roots.home)) return false;
+	if (kind === "write" && about(PINE_CODE)) return false;
+	return !roots.others.some(about);
+}
+
+/**
+ * The path a file tool is refused only because it lies outside what the agent was given: the
+ * owner can be asked for exactly that. Undefined when the path is fine, or closed for another reason.
+ */
+export function outsidePath(roots: Roots, kind: "read" | "write", given: string, cwd: string, variant: SandboxVariant | boolean): string | undefined {
+	if (isOpen(variant)) return undefined;
+	const target = tilde(given);
+	const p = realish(path.isAbsolute(target) ? target : path.join(cwd, target));
+	if (!grantable(roots, kind, p)) return undefined;
+	return (kind === "read" ? roots.read : roots.write).some((r) => isInside(r, p)) ? undefined : p;
+}
+
+/**
+ * Whether the sandbox of an agent that works in its own folders refuses its shell this path: it
+ * reads everything except the owner's home, and writes only what it was given. (The file tools
+ * are judged by `checkPath`, which is stricter about reading.)
+ */
+export function shellRefuses(roots: Roots, kind: "read" | "write", p: string): boolean {
+	if (kind === "write") return !roots.write.some((r) => isInside(r, p));
+	return isInside(realish(os.homedir()), p) && !roots.read.some((r) => isInside(r, p));
+}
+
+/**
+ * What to ask the owner for when a command needs `p`. On Linux a path that does not exist yet
+ * cannot be mounted, so a file that is still to be made is asked for as the folder it goes into.
+ */
+export function grantPath(p: string): string {
+	if (sandboxKind() !== "linux") return p;
+	let cur = p;
+	while (!present(cur) && path.dirname(cur) !== cur) cur = path.dirname(cur);
+	return cur;
+}
+
+const present = (p: string) => {
+	try {
+		fs.lstatSync(p);
+		return true;
+	} catch {
+		return false;
+	}
+};
+
 /** What a run that has handled outside content may not write in the agent's own folders, however far it reaches otherwise. */
 function ownRules(roots: Roots, target: string, p: string): string | undefined {
 	// Its own files, when the owner has said so for this conversation.
@@ -199,14 +250,17 @@ const subpaths = (list: string[]) => list.map((p) => `(subpath ${q(p)})`).join("
  * other processes (signals, their arguments and environment), launching apps, AppleScript,
  * the keychain, the clipboard, and the network unless the agent's configuration turns it on.
  */
-export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false): string {
+export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false, tag?: string): string {
 	const userHome = realish(os.homedir());
+	// The system reports every refusal in its log, with this text: how pine finds out what a
+	// command was refused (src/access.ts). It changes nothing about what is refused.
+	const said = tag ? ` (with message ${q(tag)})` : "";
 	const restricted = variant === true || variant === "restricted" || variant === "open-restricted";
 	// What is read into the prompt cannot be rewritten by a run that outside content may steer.
 	const frozen = () => {
-		const out = [`(deny file-write* ${[roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))].map((f) => `(literal ${q(f)})`).join(" ")})`];
+		const out = [`(deny file-write* ${[roots.userFile, ...WORKSPACE_FILES.map((f) => path.join(roots.workspace, f))].map((f) => `(literal ${q(f)})`).join(" ")}${said})`];
 		for (const dir of [roots.workspace, ...(roots.folder ? [roots.folder] : [])]) {
-			out.push(`(deny file-write* (regex #"^${rx(dir)}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") (regex #"^${rx(dir)}/${GIT_RUNS_PROFILE}") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(dir, d)))})`);
+			out.push(`(deny file-write* (regex #"^${rx(dir)}/(.*/)?(${INSTRUCTION_FILES.map(rx).join("|")})$") (regex #"^${rx(dir)}/${GIT_RUNS_PROFILE}") ${subpaths(INSTRUCTION_DIRS.map((d) => path.join(dir, d)))}${said})`);
 		}
 		// The owner let this conversation keep its own files: exactly those, by name, and nothing
 		// that was not the agent's to write before. The last rule that matches a file decides.
@@ -220,18 +274,18 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		return `${[
 			"(version 1)",
 			"(allow default)",
-			`(deny file-read* file-write* (subpath ${q(roots.home)}))`,
+			`(deny file-read* file-write* (subpath ${q(roots.home)})${said})`,
 			`(allow file-read-metadata (subpath ${q(roots.home)}))`,
 			`(allow file-read* ${subpaths(roots.ownedRead.filter((r) => isInside(roots.home, r)))})`,
 			`(allow file-write* ${subpaths(roots.ownedWrite.filter((r) => isInside(roots.home, r)))})`,
-			`(deny file-read* file-write* ${subpaths(roots.secrets)})`,
-			`(deny file-write* (subpath ${q(PINE_CODE)}))`,
+			`(deny file-read* file-write* ${subpaths(roots.secrets)}${said})`,
+			`(deny file-write* (subpath ${q(PINE_CODE)})${said})`,
 			...(restricted ? frozen() : []),
 		].join("\n")}\n`;
 	}
 	const lines = [
 		"(version 1)",
-		"(deny default)",
+		`(deny default${said})`,
 		"(allow process-exec)",
 		"(allow process-fork)",
 		"(allow signal (target same-sandbox))",
@@ -240,19 +294,27 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		"(allow ipc-posix-shm-read*)",
 		"(allow ipc-posix-sem)",
 		"(allow pseudo-tty)",
-		'(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo") (global-name "com.apple.system.DirectoryService.libinfo.v1") (global-name "com.apple.system.notification_center") (global-name "com.apple.system.logger") (global-name "com.apple.logd") (global-name "com.apple.bsd.dirhelper"))',
+		'(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo") (global-name "com.apple.system.DirectoryService.libinfo.v1") (global-name "com.apple.system.opendirectoryd.membership") (global-name "com.apple.system.notification_center") (global-name "com.apple.system.logger") (global-name "com.apple.logd") (global-name "com.apple.bsd.dirhelper"))',
+		// Computing on the graphics chip and the neural engine: what the system's own recognition of
+		// text and pictures runs on. Devices that compute, and the service that loads a model for
+		// them, which is handed the model's files from the agent's own folders. Neither reaches a
+		// file, an address or another program. (Found by leaving each out: without one of them,
+		// reading the text of a scanned page fails with an error that names nothing.)
+		'(allow iokit-open (iokit-user-client-class "IOSurfaceRootUserClient") (iokit-user-client-class "IOSurfaceAcceleratorClient") (iokit-user-client-class "AGXDeviceUserClient") (iokit-user-client-class "H1xANELoadBalancerDirectPathClient"))',
+		'(allow mach-lookup (global-name "com.apple.appleneuralengine"))',
+		`(allow file-issue-extension ${subpaths(roots.ownedWrite)})`,
 		'(allow file-ioctl (regex #"^/dev/tty") (literal "/dev/null"))',
 		"(allow file-read*)",
 		`(allow file-write* ${subpaths(roots.write)} (literal "/dev/null") (literal "/dev/zero") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/"))`,
-		`(deny file-read* (subpath ${q(userHome)}))`,
+		`(deny file-read* (subpath ${q(userHome)})${said})`,
 		`(allow file-read-metadata (subpath ${q(userHome)}))`,
 		`(allow file-read* ${subpaths(roots.read)})`,
 		// pine's home is closed wherever it lies, except for this agent's own folders.
-		`(deny file-read* file-write* (subpath ${q(roots.home)}))`,
+		`(deny file-read* file-write* (subpath ${q(roots.home)})${said})`,
 		`(allow file-read-metadata (subpath ${q(roots.home)}))`,
 		`(allow file-read* ${subpaths(roots.ownedRead)})`,
 		`(allow file-write* ${subpaths(roots.ownedWrite)})`,
-		`(deny file-read* file-write* ${subpaths([...roots.secrets, ...roots.others])})`,
+		`(deny file-read* file-write* ${subpaths([...roots.secrets, ...roots.others])}${said})`,
 	];
 	if (restricted) lines.push(...frozen());
 	if (agent.sandbox.network || network) {
@@ -381,8 +443,8 @@ const protectedOf = (roots: Roots): Protected => ({
  * both systems, said to Apple's sandbox as a profile and to bubblewrap as mounts. Made anew for
  * every command, because on Linux what exists at that moment is part of it.
  */
-export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false): string[] {
-	if (sandboxKind() !== "linux") return ["/usr/bin/sandbox-exec", "-p", sandboxProfile(cfg, agent, roots, variant, network)];
+export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, variant: SandboxVariant | boolean, network = false, tag?: string): string[] {
+	if (sandboxKind() !== "linux") return ["/usr/bin/sandbox-exec", "-p", sandboxProfile(cfg, agent, roots, variant, network, tag)];
 	const v: SandboxVariant = variant === true ? "restricted" : variant === false ? "normal" : variant;
 	const net = agent.sandbox.network || network;
 	// With the whole account it is the owner's own session. Otherwise sockets between programs go with the network, as on macOS.
@@ -392,8 +454,9 @@ export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, v
 			userHome: realish(os.homedir()),
 			pineHome: roots.home,
 			pineCode: PINE_CODE,
-			read: roots.read,
-			write: roots.write,
+			// A folder that is gone cannot be mounted, and one missing mount would fail every command.
+			read: roots.read.filter(present),
+			write: roots.write.filter(present),
 			ownedRead: roots.ownedRead,
 			ownedWrite: roots.ownedWrite,
 			closed: isOpen(v) ? roots.secrets : [...roots.secrets, ...roots.others, ...SESSIONS],
@@ -403,6 +466,19 @@ export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, v
 		}),
 		isOpen(v) || net,
 	);
+}
+
+/**
+ * How pine reads what the macOS sandbox refused (src/access.ts): the system's log, for reports
+ * that carry a text of pine's, and a refusal pine makes itself to know that it has read up to
+ * now. Linux reports nothing of the kind.
+ */
+export function denialTools(): DenialTools {
+	const mac = () => sandboxKind() === "macos" && fs.existsSync("/usr/bin/log");
+	return {
+		stream: (needle) => (mac() ? ["/usr/bin/log", "stream", "--style", "ndjson", "--predicate", `eventMessage CONTAINS "${needle.replace(/[^\w:-]/g, "")}"`] : undefined),
+		mark: (tag) => (mac() ? ["/usr/bin/sandbox-exec", "-p", `(version 1)(allow default)(deny file-read-data (literal "/private/etc/hosts") (with message ${q(tag)}))`, "/bin/cat", "/private/etc/hosts"] : undefined),
+	};
 }
 
 /**
@@ -451,6 +527,14 @@ export function shellEnv(agent: AgentConfig, roots: Roots, sessionEnv: NodeJS.Pr
 	env.HOME = roots.sandboxHome;
 	env.TMPDIR = path.join(roots.sandboxHome, "tmp");
 	env.GIT_CONFIG_GLOBAL = path.join(roots.sandboxHome, ".gitconfig");
+	if (process.platform === "darwin") {
+		// Apple's libraries ask the system for the user's home, not the environment. Told this, they
+		// take the agent's, and their caches and settings land where it may write.
+		env.CFFIXED_USER_HOME = roots.sandboxHome;
+		// The compilers keep built modules in a folder of the owner's, which the agent reads and
+		// cannot write: a program that needs a module nobody has built yet would not compile.
+		env.CLANG_MODULE_CACHE_PATH = path.join(roots.sandboxHome, ".cache", "clang", "ModuleCache");
+	}
 	env.PINE_AGENT = agent.id;
 	return { ...env, ...agent.sandbox.env };
 }
