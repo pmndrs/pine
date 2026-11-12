@@ -1,0 +1,11 @@
+# What the render writes
+*.mp4
+sfx.wav
+sfx.json
+frames/
+
+# Pictures the film shows that are not ours to publish. README.md says what each is.
+assets/wallpaper.jpg
+assets/meme.jpg
+assets/cones.jpg
+assets/spag-*.jpg
