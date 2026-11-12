@@ -6,7 +6,7 @@
 |---|---|---|
 | Node 24+ | Runtime | Runs the TypeScript sources directly in a checkout (type stripping); the npm package holds them compiled to JavaScript (`npm run build`). No bundler. |
 | `@earendil-works/pi-coding-agent` 1.5.1 | The agent loop | Sessions, model calls, tool execution, compaction, retries, MCP client, skills, extensions. pine embeds it through its SDK. |
-| `node:sqlite` | Storage | One file, `data/pine.db`: events, tasks, shared state, and what pine keeps for itself (what sources remember, when schedules last fired, which conversations have read outside content, their folders and pins, the open tabs). WAL mode. |
+| `node:sqlite` | Storage | One file, `data/pine.db`: events, tasks, shared state, and what pine keeps for itself (what sources remember, when schedules last fired, which conversations have read outside content, their folders, pins, goals and lists of steps, what `/undo` can take back, the open tabs). WAL mode. |
 | `undici` | HTTP client behind `fetch` | pine installs timeouts for the model servers' connection pools; the `web` MCP server, the `download` tool and the `http` source use it for address checks at connect time. |
 | `@earendil-works/pi-mcp` | MCP naming | pi's MCP package; pine uses its function that turns a server name into the prefix of its tool names. |
 | `mqtt` | MQTT client | Only loaded when an `mqtt` source starts. |
@@ -14,8 +14,11 @@
 | `highlight.js` | Code colours | Colours code blocks in the terminal UI. |
 | `@playwright/mcp` | Browser automation | Started as a child of `mcp/browser.ts`, which filters its tools and proxies its traffic. `pine init` downloads the browser it drives. |
 | `sandbox-exec`, `bwrap` | Containment | The system's sandbox: Apple's on macOS, driven by a generated profile; bubblewrap on Linux, driven by generated mounts. One set of rules for both (`src/security.ts`, `src/sandbox-linux.ts`). |
+| `git` | Changes, diffs and undo | The system's own. The code pane asks it what changed in a folder, and `/undo` keeps the states of a folder as git trees in `data/snapshots`. It always runs inside a sandbox, without network and with everything a repository's settings could make it start turned off; only undo may write, and only pine's own snapshot folder and the conversation's folder (`src/workspace-view.ts`, `src/snapshots.ts`). |
+| `swiftc` | App control on macOS | `mcp/computer.swift`, the helper that reads windows and sends clicks and keys, is compiled on the Mac it runs on the first time it is needed, and kept in pine's home. Needs Apple's command line developer tools (`xcode-select --install`). See [computer.md](computer.md). |
+| `sips`, `ffmpeg` | Pictures and video in the terminal UI | Convert what is shown: `sips` on macOS; `ffmpeg`, if installed, for video and on Linux. Both run confined, without network. |
 | `typebox` | Tool parameter schemas | The same library pi uses. |
-| `claude -p` | Development model | Optional; used by `pine dev-model`, by the terminal UI when the home's model is `dev/...` (the example home), and by the live test. |
+| `claude -p` | Development model | Optional; used by `pine dev-model`, by the terminal UI when the home's model is `dev/...` (the example home), and by the live tests. |
 
 Development only: `typescript` (type check, and compiling the npm package), `@types/node`, `aedes` (an MQTT broker for the tests).
 
@@ -71,14 +74,16 @@ two consecutive user messages.
 
 | Suite | Runs | Against |
 |---|---|---|
-| `npm test` | 145 tests (two of them only run with `test:live`) in about ten seconds, files in parallel | The scripted model server in `baseline/tests/mock.mjs` |
-| `npm run test:live` | Delegation to a specialist that reads its files, then a hostile event; and an agent driving the real browser | A real model through `claude -p`; Chromium and the network |
+| `npm test` | More than 250 tests in about ten seconds, files in parallel. The ones whose name starts with `live:` are skipped | The scripted model server in `baseline/tests/mock.mjs` |
+| `npm run test:live` | The `live:` tests of `test/live.test.ts`, `test/browser.test.ts` and `test/computer.test.ts`: delegation to a specialist that reads its files, then a hostile event; an agent that sets up, uses and removes an MCP server, a skill, an event source and a schedule when asked in plain words; an agent driving the real browser; and, on a Mac, app control with the real helper (its own demo window, and TextEdit when the terminal has the grants) | A real model through `claude -p`; Chromium and the network |
 | `npm run baseline` | 59 checks of pi itself | The scripted model server |
 
 The scripted server answers according to a directive embedded in the prompt
 (`<<MOCK {"steps":[...]}>>`), which makes every tool call in a test deterministic. Tests start a
 whole daemon in-process on a temp home, and real pieces where it matters: a real sandbox, a real
-MQTT broker, real MCP server processes, a fake Telegram API on localhost. The terminal UI is
+MQTT broker, real MCP server processes, a fake Telegram API on localhost. App control is tested
+on a stand-in for its helper, a script that speaks the helper's protocol, so no test of the
+ordinary suite touches a real app or needs macOS. The terminal UI is
 driven through an in-memory terminal (`test/support/terminal.ts`) and asserted on what its
 screen shows.
 

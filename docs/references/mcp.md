@@ -49,11 +49,24 @@ tools, and the server is removed with the conversation (in an agent's main conve
 the agent's, in all its conversations). Say "for you as an agent" to keep it for the agent from
 any conversation, and ask the **main agent** for "all agents": only it can add or remove a
 server for everyone. `remove_mcp_server` takes a server out again. See [setup.md](setup.md).
+
 If you allow it, the server is written to the configuration, without a restart. The agent
 does not have the new tools in the turn in which it added the server, so pine calls it again
 by itself as soon as that turn ends, in the same conversation, and it goes on with the tools.
 You do not have to send a message, and there is no need for a new conversation. The question comes in every mode, bypass included, because
-it changes pine itself.
+it changes pine itself. (Plan mode is the exception the other way: there the agent adds
+nothing, and says what it would add.)
+
+A server added in one conversation is missing in the agent's other conversations. `/mcp` in
+the terminal UI says so: "only this conversation", or "only the conversation X of main, not
+this one"; `pine mcp list` says "only the conversation X of main". The agent sees the same
+with its `mcp_servers` tool, which also says for each server whether its tools are in the
+agent's tool list (connected) or missing (it did not start, or it needs a sign-in). To have
+such a server in every conversation of the agent, tell the agent "add it for yourself as an
+agent", in the conversation that has it or in another: it adds the server again under the
+same name with `scope: "agent"`, you confirm, and the entry of the one conversation is
+replaced. A key the server needs is named again (`secrets`) and typed again in that dialog:
+the one pine kept for the old entry goes with it.
 
 A **local server** is a program that somebody else wrote and that keeps running while the agent
 works. One that an agent adds therefore runs inside the sandbox of the agent that uses it
@@ -156,6 +169,13 @@ wrote) is a normal process of yours: it is not sandboxed, and what it can reach,
 reach through it. Give it the narrowest credentials that do the job, or set `"sandboxed": true`.
 One that an agent added is sandboxed from the start.
 
+What a server says about its own tools counts in two places. A tool it declares read-only
+(`readOnlyHint`) is not asked about (unless the server has `"approve": "always"`), and it is
+the only kind of MCP tool that runs in plan mode:
+search and page reading of `web`, a snapshot or a screenshot of the browser, looking at an app.
+Every other tool is refused in plan mode, opening a page in the browser and the tools of a
+`commands` server among them: pine cannot know that one of those only looks.
+
 pi's `mcp.json` files are not read. The daemon gives pi a folder of its own (`data/pi`) and
 agent sessions load no MCP configuration file, so servers you set up for your own interactive
 pi do not appear in agents.
@@ -178,10 +198,11 @@ Search and page reading without a browser.
 | `braveApiKey` | none | Brave Search API key. |
 | `allowHosts` | all | Only these hosts (and their subdomains) can be fetched. Without `braveApiKey` the search is such a fetch too: add `duckduckgo.com`. |
 | `denyHosts` | none | These cannot. |
-| `allowPrivate` | `false` | Allow every address on this computer and your own network, without asking. Leave it off: one local address at a time is allowed by answering a question, see "Local addresses" below. |
+| `allowPrivate` | `false` | Allow every address on this computer and your own network, without asking. Leave it off: this server never asks. To look at one local address the agent uses the browser, which asks you for that address, see "Local addresses" below. |
 | `maxBytes` | 2 MB | Cut-off for one response. |
 | `maxUrlLength` | 2000 | Longer URLs are refused, which limits how much can be smuggled out in one. |
 | `timeoutMs` | 20000 | Per request. |
+| `userAgent` | a desktop Safari | What the server says it is when it fetches a page. |
 
 It only speaks http and https, follows redirects itself and checks every hop, and refuses
 loopback, private, link-local and similar addresses at the moment the connection is made. A page

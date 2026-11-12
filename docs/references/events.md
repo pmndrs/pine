@@ -74,7 +74,7 @@ unless a conversation is subscribed to it anyway.
 | `agent` | Give an agent a task. |
 | `prompt` | The task text. Default: the payload's `text`, or the payload as JSON. |
 | `session` | Session key template. Default `main`. `new` for one-off work. |
-| `whenBusy` | `queue` (default) or `steer`. |
+| `whenBusy` | `queue` (default): the task waits until the conversation is free. `steer`: if the conversation is working, the text is given to that work, which reads it at its next step; if that work ends first, it is done next as a task of its own. See "Sessions" in [agents.md](agents.md). |
 | `priority` | Higher runs first when model slots are scarce. Default 10 for owner events, 0 otherwise. |
 | `reply` | Where the agent's answer goes: `{ "topic": "...", "payload": {...} }`. Default: the event's own reply target. `false`: nowhere. |
 | `trust` | Override the event's trust. `"owner"` gives events on this route the agent's full tool set: only for sources nobody else can write to. `pine check` lists such routes. |
@@ -181,8 +181,9 @@ shows the task: what a web page says must not become something that is done ever
 | `remove_schedule` `name` | Ends one. This conversation's own goes without a question. |
 
 A schedule that happens once removes itself when it has fired. A one-off, or a `cron` schedule
-with a task, that was due while pine was not running is done once when pine starts again, and
-the agent is told that it comes late. An `every` schedule simply starts counting again. `pine
+with a task, that was due while pine was not running is done once when pine starts again (a
+`cron` time only if it lies no more than seven days back), and the agent is told that it comes
+late. An `every` schedule simply starts counting again. `pine
 schedules` lists everything that is scheduled.
 
 A name is unique among all schedules; a task has at most 4000 characters; an interval an agent
@@ -210,9 +211,10 @@ agent; one without a task only publishes an event.
 | `every` | A fixed interval instead. |
 | `at` | Once, at this local time. The entry is removed when it has fired. If pine was not running at that time, it fires when pine starts again, and the agent is told that it comes late. |
 | `task` | What the agent is to do. Required in an `agent.json`. |
+| `topic` | The topic the event is published on, instead of `timer/<name>`. |
 | `session` | In an `agent.json`: the conversation that is woken. Default: the main one. |
 | `payload` | Fields added to the event's payload (`name` and `scheduled` are always there; `late` when it comes late, `task` when it has one). |
-| `catchUp` | For `cron`: fire once at startup if a time passed while the daemon was down, marked as late. Default: `true` with a task, `false` without. (`at` always catches up; `every` never does.) |
+| `catchUp` | For `cron`: fire once at startup if a time passed while the daemon was down (in the last seven days), marked as late. Default: `true` with a task, `false` without. (`at` always catches up; `every` never does.) |
 
 ### Schedules and routes
 

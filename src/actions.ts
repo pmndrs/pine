@@ -25,9 +25,9 @@ import { truncate } from "./util.ts";
 export type ActionClass = "look" | "local" | "reach" | "send" | "own" | "critical" | "setup";
 
 /** Tools that only look. */
-export const LOOK_TOOLS = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "manual", "schedules", "stop_program", "question", "todo"];
+export const LOOK_TOOLS = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "manual", "schedules", "mcp_servers", "skills", "stop_program", "question", "todo"];
 /** Tools that change pine's setup or ask for access. Each asks the owner where it matters, so the gate does not ask again. */
-export const SETUP_TOOLS = ["request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "add_schedule", "remove_schedule", "create_agent"];
+export const SETUP_TOOLS = ["request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "add_schedule", "remove_schedule", "create_agent", "add_model_server", "remove_model_server"];
 
 /**
  * Files and folders in the owner's home that make other programs run, or that are the keys to

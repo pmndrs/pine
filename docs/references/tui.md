@@ -73,6 +73,8 @@ part of the conversation by itself and carries on (the figure then drops). `/res
 Next to it, `cache 94%` is the share of the last request that the model server took from its
 prompt cache instead of reading it again; it appears once the server reports the figure. Both
 are shown from the first answer on, and from the last one when you reopen a conversation.
+A yellow `outside content` at the end of the bar means that the conversation has read something
+from outside (a web page, an event): see [security.md](security.md) for what changes then.
 The wheel scrolls the conversation.
 
 Web addresses are always printed in full, also for a link an agent wrote as "[click here](...)":
@@ -183,7 +185,7 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/undo` | Take back your last message: what it started is stopped, the files it changed in the conversation's folder are restored, the conversation forgets it and what followed, and its text is in the input again to change and send. Again for the message before it. See [coding.md](coding.md) for what is and is not restored |
 | `/redo` | Bring back what the last `/undo` took, files and conversation. Works until you send a new message |
 | `/compact` | Shorten this conversation: its earlier part becomes a summary the model writes, the most recent part stays as it is. Frees the model's context without forgetting what was agreed; useful with a small local model. It waits its turn like a message. pi also does this by itself when the context fills up |
-| `/notify [on\|off]` | A bell and a notification when the agent is done, stops with an error or needs your approval while the terminal's window is not in front. On by default; the setting is remembered. The notification goes through the terminal (Ghostty, iTerm, Kitty and others show it as a system notification; Terminal.app only rings the bell). Its text is pine's own ("pine: main is done"), never the agent's |
+| `/notify [on\|off]` | A bell and a notification when the agent is done, stops with an error, needs your approval or asks you something while the terminal's window is not in front. On by default; the setting is remembered. The notification goes through the terminal (Ghostty, iTerm, Kitty and others show it as a system notification; Terminal.app only rings the bell). Its text is pine's own ("pine: main is done"), never the agent's |
 | `/copy` | Copy the agent's last answer to the clipboard, as it wrote it (Markdown) |
 | `/export [copy] [full]` | Save this conversation as a Markdown file in the folder pine was started in (`pine-<agent>-<conversation>-<date>.md`). `copy` puts it on the clipboard instead; `full` adds what the agent thought and which tools it called |
 | `/folder [path\|none]` | Open a folder of yours for this conversation: the agent's tools start there and may read and change it. `none` closes it again; without an argument, a list. See [coding.md](coding.md) |
@@ -192,9 +194,10 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/goal [objective\|pause\|resume\|clear]` | Goal mode: with an objective, the agent keeps working by itself, round after round, until a judge says the objective is met. Without an argument it shows the goal and where it stands; `pause`, `resume` and `clear` do what they say. See "Goals" below |
 | `/model [provider/id]` | Switch the agent's model. Without an argument, a list to search and pick from; or type a few letters after it: `/model deepseek` |
 | `/reasoning [level]` | Set how much the model thinks before answering; without an argument, choose from a list. Saved like the model. A model that cannot reason ignores it |
-| `/mode [manual\|auto\|bypass]` | Set how much this agent does without asking; without an argument, choose from a list |
+| `/mode [auto\|plan\|manual\|bypass]` | Set how much this agent does without asking; without an argument, choose from a list. See [Modes](#modes) |
 | `/attach <path>`, `/detach [n]` | Attach files to the next message, or remove them |
-| `/mcp`, `/mcp login [name]` | List the MCP servers with their state; sign in to a remote one through the browser. Without a name: the only remote server, or a list to choose from |
+| `/paste` | Attach the picture that is on the clipboard (a screenshot, for example) to the next message. `ctrl+v` does the same in terminals that pass that key on. Text is pasted with the terminal's own paste |
+| `/mcp`, `/mcp login [name]` | List the MCP servers with their state and whom each is for: all agents, one agent, or one conversation (`only this conversation`, or `only the conversation notes of main, not this one`: a server added in one conversation is missing in the agent's others, see [mcp.md](mcp.md)). `/mcp login` signs in to a remote one through the browser. Without a name: the only remote server, or a list to choose from |
 | `/status` | Model slots, running tasks, live sessions |
 | `/sources` | Event sources: what can wake an agent, whether it runs, who is subscribed |
 | `/subscribe [local\|agent\|global] <source> [what to do]`, `/unsubscribe [local\|agent\|global] <source>` | Wake on a source's events, or stop that. Without a scope it means this tab's conversation, and that subscription ends when the tab is closed; in an agent's main conversation it is the agent's own and stays. See [sources.md](sources.md) |
@@ -258,6 +261,7 @@ one another UI on the same daemon shows.
 | `alt+1` ... `alt+9` | Go to that tab |
 | `ctrl+t`, `ctrl+w` | New conversation; close the tab |
 | `ctrl+g` | Open or close the code pane |
+| `ctrl+v` | Attach the picture that is on the clipboard, like `/paste` (in terminals that pass the key on) |
 | `pgup` / `pgdn`, mouse wheel | Scroll |
 | `ctrl+c` | Clear the input; twice on an empty input quits |
 | `ctrl+d` | Quit (while the input is empty) |
@@ -269,7 +273,7 @@ The bottom bar shows the agent's mode; click it, press `shift+tab`, or use `/mod
 | Mode | What you will notice |
 |---|---|
 | `auto` | The agent works without asking. The main agent has your whole account and the network, and keeps them after reading the web. From then on a reviewer checks what reaches out, sends something or changes the agent's memory; what it blocks is listed under Blocked in the code pane, and you are asked only when it keeps blocking. Another agent asks when it wants something outside its workspace ("read access to ~/dev/gonzo, reason: ..."). Any agent asks, after outside content, before it sends something out or acts on the world |
-| `plan` | The agent looks, reads, searches the web and asks, and changes nothing: no file is written, no command that changes something runs, nothing is sent, and you are not asked about any of it. Its answer is a plan. Read it, say what should be different, then switch to `auto` (`shift+tab`): the agent is told that planning is over and carries it out. Good with a small model: you see what it is about to do before it does it. Shown in magenta |
+| `plan` | The agent looks, reads, searches the web and asks, and changes nothing: no file is written, no command that changes something runs, nothing is sent, and you are not asked about any of it. Its answer is a plan. Read it, say what should be different, then switch to another mode (`/mode auto`, or a click on the mode in the bottom bar; `shift+tab` goes on to `manual`): the agent is told that planning is over and carries it out. Good with a small model: you see what it is about to do before it does it. Shown in magenta |
 | `manual` | A dialog before every command, edit or message, until you answer "Always here" for that tool or server |
 | `bypass` | No dialogs. The agent can read and change files anywhere in your account and use the network. Shown in red |
 
@@ -319,7 +323,9 @@ An agent that cannot go on without your decision asks with its `question` tool. 
 the question and the answers it offers, the one it recommends first. A digit, `enter` on the
 highlighted line or a click picks one; anything you type instead is your own answer, sent with
 `enter`. `esc` leaves it for later (`/approve` opens it again, `/deny` tells the agent that
-there is no answer, and it goes on with an assumption that it names).
+there is no answer, and it goes on with an assumption that it names). If Telegram is set up, a
+question with answers to pick from arrives there too, with a button for each. The tool is
+there in every mode, `plan` too, and not in a run that an outside event started.
 
 ## How answers are drawn
 

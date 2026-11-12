@@ -32,8 +32,10 @@ src/
   config.ts         loads and validates pine.json, agent.json, .env; all defaults live here
   store.ts          SQLite: event log (Bus), shared state (State), private storage (Kv), tasks
   agents.ts         AgentManager: task queue, pi sessions, conversations, the policy gate, the download tool, context block
-  tools.ts          delegate, subagent, publish_event, request_access, state_get, state_set, and the setup tools
-                    (add_mcp_server, remove_mcp_server, sources, subscribe, unsubscribe, add_source, remove_source, create_agent)
+  tools.ts          the tools pine gives an agent: delegate, subagent, publish_event, send, request_access, state_get,
+                    state_set, question, todo, stop_program, manual; the lists of what it has (sources, schedules,
+                    mcp_servers, skills); and the setup tools (subscribe, unsubscribe, add_/remove_ source, source_type,
+                    mcp_server, skill, schedule, model_server; create_agent)
   agent-admin.ts    create_agent: checks a proposed agent and writes its folder
   security.ts       the sandbox's rules (macOS profile; `sandboxArgv` for either system), path checks, approvals, redaction, configuration audit
   sandbox-linux.ts  the same rules as bubblewrap mounts; what a mount cannot forbid is removed after the command (`Guard`)
@@ -46,6 +48,7 @@ src/
   sources/          the built-in source types: folder, mqtt, webhook, ftp, telegram, http, command
   watching.ts       what the polling types share: picking a value, line differences, a page's text
   env-file.ts       sets and removes entries in .env (secrets of sources that agents set up)
+  update.ts         `pine update`: brings pine up to date the way it was installed (git or npm) and fetches what the new version needs
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
   router.ts         routes: filter, debounce, set / publish / call / agent
   timers.ts         the scheduler: cron, intervals and one-offs; a schedule with a task wakes an agent
@@ -71,7 +74,7 @@ src/
                     picture.ts (pictures and video: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing)
   types.ts, util.ts shared types; topics, templates, filters, durations, logger
   dev/claude-model.ts   OpenAI-compatible server backed by `claude -p` (development only)
-mcp/                bundled MCP servers (separate processes): web, browser, commands, computer
+mcp/                bundled MCP servers (separate processes): web, browser, commands, computer; lib.ts is what they share
                     (computer.swift is the macOS helper of computer.ts: accessibility tree, mouse and key events, pictures; it decides nothing)
 examples/home/      what `pine init` copies
 test/               node:test files; support/harness.ts builds a temp home and a daemon
@@ -103,9 +106,11 @@ These are invariants. A change that breaks one needs a test that shows why it is
    configuration only through the setup tools in `src/tools.ts`. There are four things an
    agent can be given, each with the same three scopes (a conversation, the agent, all agents):
    events (`add_source`, `remove_source`, `subscribe`, `unsubscribe`), MCP servers
-   (`add_mcp_server`, `remove_mcp_server`), skills (`add_skill`, `remove_skill`) and schedules
+   (`add_mcp_server`, `remove_mcp_server`; `mcp_servers` lists them), skills (`add_skill`, `remove_skill`) and schedules
    (`add_schedule`, `remove_schedule`); the main
-   agent also has `create_agent` and `add_source_type`. Each validates its input, writes only
+   agent also has `create_agent`, `add_source_type` and `remove_source_type`, and `add_model_server` and
+   `remove_model_server`. What an agent has of the four it is told by a tool, never by a file:
+   `sources`, `mcp_servers`, `skills`, `schedules`; a new kind of thing gets its list too. Each validates its input, writes only
    the entry it is for, and asks the owner where `docs/references/setup.md` says so. A server
    is a remote URL, or a command that runs inside the sandbox of the agent that uses it
    (`sandboxed`, set by `add_mcp_server` and wrapped where the session registers it): never a

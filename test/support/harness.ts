@@ -66,7 +66,7 @@ export async function harness(spec: { pine?: Record<string, unknown>; agents: Re
 	const mock = spec.mock ?? (await startMock({ strip: NOTE, ...(spec.mockOptions ?? {}) }));
 	write(
 		path.join(home, "models.json"),
-		JSON.stringify({ providers: { mock: { name: "Mock", baseUrl: mock.baseUrl, api: "openai-completions", apiKey: "sk-mock", models: [{ id: "m", name: "Mock", contextWindow: 128000, maxTokens: 4096, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...(spec.model ?? {}) }] } } }),
+		JSON.stringify({ providers: { mock: { name: "Mock", baseUrl: mock.baseUrl, api: "openai-completions", apiKey: mock.apiKey ?? "sk-mock", models: [{ id: "m", name: "Mock", contextWindow: 128000, maxTokens: 4096, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...(spec.model ?? {}) }] } } }),
 	);
 	// Tests script the model, and a scripted command must not reach the account of whoever runs
 	// them: every agent stays in its workspace unless a test asks for the account by name.

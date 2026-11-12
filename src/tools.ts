@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type AgentConfig, effectiveMcp, mainAgentId, PINE_ROOT, sandboxScope } from "./config.ts";
+import { type AgentConfig, effectiveMcp, mainAgentId, type McpServerConfig, PINE_ROOT, sandboxScope } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
 import type { AgentManager, Live, Profile } from "./agents.ts";
 import type { PineEvent, TaskResult } from "./types.ts";
@@ -12,7 +12,7 @@ import { setEnv } from "./env-file.ts";
 import { isInside, realish } from "./security.ts";
 import { type Part, pineManual, showRead, showSearch } from "./manual.ts";
 import { addModelServer, checkServerName, listModelServers, lookAt, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
-import { checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
+import { allSkills, checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions } from "./sources.ts";
 import { localTime } from "./timers.ts";
 import { errText, matchesAny, parseDuration, programName, safeName, since, truncate } from "./util.ts";
@@ -170,10 +170,10 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				name: "question",
 				label: "Ask the owner",
 				description:
-					"Ask your owner one question when you cannot go on without their decision: which of two ways, which file, yes or no. Give two to five short answers to pick from when you can, the one you recommend first; they can also answer in their own words. One question at a time. Not for permission to do something: that is asked by itself when it is needed.",
+					"Ask your owner one question when you cannot go on without their decision: which of two ways, which file, yes or no. Give two to six short answers to pick from when you can, the one you recommend first; they can also answer in their own words. One question at a time. Not for permission to do something: that is asked by itself when it is needed.",
 				parameters: Type.Object({
 					question: Type.String({ description: "The question, in one or two sentences" }),
-					choices: Type.Optional(Type.Array(Type.String(), { description: "Two to five short answers to pick from. The one you recommend first." })),
+					choices: Type.Optional(Type.Array(Type.String(), { description: "Two to six short answers to pick from. The one you recommend first." })),
 				}),
 				execute: async (_id, p) => {
 					const r = run();
@@ -543,7 +543,42 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				: `Leave it out, or "local": only THIS conversation gets ${thing}, and it is removed when this conversation is removed. "agent": all your conversations get it, and it stays.${isMain ? ' "global": all agents get it.' : ""} Use ${isMain ? '"agent" or "global"' : '"agent"'} only when your owner said so; if you are not sure, ask them.`;
 		const serverScope = forWhom("the server");
 		const whose = (scope: "local" | "agent" | "global") => (scope === "global" ? "all agents" : scope === "agent" ? "you, in all your conversations" : "this conversation; it is removed when this conversation is removed");
+		const targetOf = (sv: McpServerConfig) => sv.url ?? (sv.pine ? `comes with pine: ${sv.pine}` : [sv.command, ...(sv.args ?? [])].join(" "));
+		/** Why a name is taken, and what to do about it: the server may be the agent's own, in another conversation. */
+		const taken = (name: string): string => {
+			const own = agent.mcp[name];
+			if (own?.session && own.session !== here()) return `a server named "${name}" exists already, but only your conversation "${own.session}" has it, not this one. To have it in all your conversations, call add_mcp_server again with the same name and scope "agent": your owner is asked, and it takes the place of that one. For this conversation alone, give it another name.`;
+			if (own) return `a server named "${name}" exists already: ${own.session ? "this conversation has it" : "you have it, in all your conversations"}. Its tools start with ${mcpNamespace(name)}__; mcp_servers shows whether it is connected. ${own.session ? `To have it in all your conversations, call add_mcp_server again with the same name and scope "agent": your owner is asked. To change it otherwise` : "To change it"}, remove it first.`;
+			if (name in cfg.mcp) return `a server named "${name}" exists already, for all agents${name in effectiveMcp(cfg, agent, here()) ? `, you included: its tools start with ${mcpNamespace(name)}__` : ""}. Pick another name.`;
+			return `a server named "${name}" exists already; pick another name`;
+		};
 		tools.push(
+			defineTool({
+				name: "mcp_servers",
+				label: "MCP servers",
+				description: "List your MCP servers: the ones this conversation has, whom each is for (this conversation, you as an agent, all agents), whether its tools are in your tool list, and servers that only another conversation of yours has. Use it when your owner asks which MCP servers or connections you have, or why a server's tools are missing. Do not look for this in files: pine's files are closed to you.",
+				parameters: Type.Object({}),
+				execute: async () => {
+					const session = here();
+					let names: string[] = [];
+					try {
+						names = live.session.getAllTools().map((x: any) => String(x.name));
+					} catch {
+						// a session that cannot say: the list below then leaves the tools out
+					}
+					const mine = Object.entries(effectiveMcp(cfg, agent, session));
+					const lines = mine.map(([name, sv]) => {
+						const prefix = `${mcpNamespace(name)}__`;
+						const count = names.filter((n) => n.startsWith(prefix)).length;
+						const whom = name in agent.mcp ? (sv.session ? "only this conversation has it" : "yours as an agent, in all your conversations") : "for all agents";
+						const state = !names.length ? `tools start with ${prefix}` : count ? `connected, ${count} ${count === 1 ? "tool" : "tools"} in your tool list, starting with ${prefix}` : `NOT connected: no tool starting with ${prefix} is in your tool list. It did not start, or it needs a sign-in`;
+						return `- ${name} (${targetOf(sv)})${sv.description ? `: ${sv.description}` : ""}\n    ${whom}; ${state}`;
+					});
+					const elsewhere = Object.entries(agent.mcp).filter(([, sv]) => sv.session && sv.session !== session && sv.enabled !== false);
+					const other = elsewhere.map(([name, sv]) => `- ${name} (${targetOf(sv)}): only your conversation "${sv.session}" has it. To have it here too, call add_mcp_server with the same name and scope "agent"; your owner is asked, and then all your conversations have it.`);
+					return ok(`${lines.length ? `Your MCP servers in this conversation:\n${lines.join("\n")}` : "This conversation has no MCP servers."}${other.length ? `\n\nNOT in this conversation:\n${other.join("\n")}` : ""}\n\nadd_mcp_server connects another one, remove_mcp_server takes one out.`);
+				},
+			}),
 			defineTool({
 				name: "add_mcp_server",
 				label: "Add MCP server",
@@ -573,10 +608,15 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					// taint a conversation. Its tools that act (not the ones that only read) still ask once
 					// in a conversation that has read outside content, e.g. a web page.
 					const server = { ...(p.command ? { command: argv[0], ...(argv.length > 1 ? { args: argv.slice(1) } : {}), sandboxed: true } : { url: p.url }), ...(p.description ? { description: p.description } : {}), approve: "tainted" as const, ...(scope === "local" ? { session: here() } : {}) };
-					if (p.name in cfg.mcp || Object.values(cfg.agents).some((a) => p.name in a.mcp)) throw new Error(`a server named "${p.name}" exists already; pick another name`);
+					// A server that only one conversation of this agent has can be made the agent's, from that
+					// conversation or from another: the owner confirms the new entry like any other, and it
+					// takes the place of the old one.
+					const before = agent.mcp[p.name];
+					const widened = scope === "agent" ? before?.session : undefined;
+					if (widened === undefined && (p.name in cfg.mcp || Object.values(cfg.agents).some((a) => p.name in a.mcp))) throw new Error(taken(p.name));
 					validateServer(cfg, p.name, server, target);
 					const reach = scope === "global" ? "It runs in the sandbox of each agent that uses it and reaches what that agent's shell reaches, with the network" : `It runs in the sandbox of ${agent.id} and reaches what its shell reaches (${sandboxScope(cfg, agent) === "account" ? "your whole account" : "its workspace"}), with the network`;
-					const summary = `add MCP server "${p.name}" for ${whoIs(scope)}\n${p.command ? `a program on this computer: ${argv.join(" ")}\n${reach}` : p.url}${secrets.length ? `\nIt needs ${secrets.join(", ")}, which you type here; pine keeps ${secrets.length === 1 ? "it" : "them"} in its .env file` : ""}${p.description ? `\n${p.description}` : ""}`;
+					const summary = `add MCP server "${p.name}" for ${whoIs(scope)}\n${p.command ? `a program on this computer: ${argv.join(" ")}\n${reach}` : p.url}${secrets.length ? `\nIt needs ${secrets.join(", ")}, which you type here; pine keeps ${secrets.length === 1 ? "it" : "them"} in its .env file` : ""}${widened !== undefined ? `\nIt takes the place of the server of that name that only the conversation "${widened}" had` : ""}${p.description ? `\n${p.description}` : ""}`;
 					const why = `adding a server changes pine's configuration; it will be able to offer tools to ${scope === "global" ? "every agent" : scope === "agent" ? "this agent" : "this conversation"}${p.command ? ", and its program runs while they work" : ""}${careful()}`;
 					// Asked in every mode, bypass included: this is a change to pine itself.
 					// A key never passes through the model: the owner types it into the dialog, and it goes
@@ -594,6 +634,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					}
 					try {
 						manager.sources?.keepOut(Object.values(kept));
+						// The old entry goes first, with the keys pine kept for it.
+						if (widened !== undefined) removeServer(cfg, p.name, agent.id);
 						setEnv(cfg.home, kept);
 						addServer(cfg, p.name, secrets.length ? { ...server, env: named } : server, target);
 						// What runs gets the keys themselves; what is written has their names.
@@ -642,7 +684,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					if (!name) throw new Error(`there is no MCP server called "${p.name}". Yours: ${Object.keys(effectiveMcp(cfg, agent, here())).join(", ") || "none"}`);
 					const own = agent.mcp[name];
 					if (!own) mainOnly("remove an MCP server");
-					if (own?.session && own.session !== here()) throw new Error(`"${name}" belongs to your conversation "${own.session}"; it goes when that conversation is removed, or remove it from there.`);
+					if (own?.session && own.session !== here()) throw new Error(`"${name}" belongs to your conversation "${own.session}"; it goes when that conversation is removed, or remove it from there. To have it in all your conversations instead, call add_mcp_server with the same name and scope "agent".`);
 					const mine = own ? (own.session ? own.session === here() : inMain) : false;
 					if (!mine || live.tainted || live.mode() === "manual") {
 						const decision = await confirm("remove_mcp_server", `remove the MCP server "${name}" of ${own ? `agent ${agent.id}` : "ALL agents"}`, `this takes a server, and the tools it offers, out of pine's configuration${careful()}`, signal);
@@ -735,9 +777,24 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 		// outside content may steer.
 		tools.push(
 			defineTool({
+				name: "skills",
+				label: "Skills",
+				description: "List your skills: the ones this conversation has, whom each is for (this conversation, you as an agent, all agents), and skills that only another conversation of yours has. Use it when your owner asks what you know how to do or which skills you have. Do not look for this in files.",
+				parameters: Type.Object({}),
+				execute: async () => {
+					const session = here();
+					const mine = listSkills(cfg, agent, session);
+					const lines = mine.map((sk) => `- ${sk.name}: ${truncate(sk.description, 300)}\n    ${sk.scope === "local" ? "only this conversation has it" : sk.scope === "agent" ? "yours as an agent, in all your conversations" : "for all agents"}${sk.managed ? "" : "; your owner put it there, so add_skill and remove_skill leave it alone"}`);
+					const other = allSkills(cfg)
+						.filter((sk) => sk.agent === agent.id && sk.session !== undefined && sk.session !== safeName(session) && !mine.some((m) => m.name === sk.name))
+						.map((sk) => `- ${sk.name}: only your conversation "${sk.session}" has it. To have it in all your conversations, write it again with add_skill and scope "agent".`);
+					return ok(`${lines.length ? `Your skills in this conversation (read one's instructions when a task calls for it):\n${lines.join("\n")}` : "This conversation has no skills."}${other.length ? `\n\nNOT in this conversation:\n${other.join("\n")}` : ""}\n\nadd_skill writes down how something is done, remove_skill takes a skill away.`);
+				},
+			}),
+			defineTool({
 				name: "add_skill",
 				label: "Add skill",
-				description: `Write down how something is done, as a skill, so that you can do it again later without being told: a procedure your owner explained, the way through a system you worked out, a format they want. A skill has a name, a description (one or two sentences on what it is for and when to use it: that line is always in front of you, and you decide by it whether to read the rest) and instructions (the steps, written to yourself, with the paths and commands that matter). Files the instructions refer to (scripts, templates, references) can go along: put them into a folder in your workspace and name it in "files". Calling this again with the same name replaces the skill. A skill is for this conversation, for yourself as an agent${isMain ? ", or for all agents" : ""}.${isMain ? "" : ` One for all agents is the main agent's to add (${mainId}).`} Use it when your owner says "remember how to do this" or "make a skill for this"; what is a fact rather than a way of doing something belongs into your MEMORY.md instead. Not possible in a conversation that has read outside content.`,
+				description: `Write down how something is done, as a skill, so that you can do it again later without being told: a procedure your owner explained, the way through a system you worked out, a format they want. A skill has a name, a description (one or two sentences on what it is for and when to use it: that line is always in front of you, and you decide by it whether to read the rest) and instructions (the steps, written to yourself, with the paths and commands that matter). Files the instructions refer to (scripts, templates, references) can go along: put them into a folder in your workspace and name it in "files". Calling this again with the same name replaces the skill. A skill is for this conversation, for yourself as an agent${isMain ? ", or for all agents" : ""}.${isMain ? "" : ` One for all agents is the main agent's to add (${mainId}).`} Use it when your owner says "remember how to do this" or "make a skill for this"; what is a fact rather than a way of doing something belongs into your MEMORY.md instead. In a conversation that has read outside content it is checked before it is written, or your owner is asked.`,
 				parameters: Type.Object({
 					name: Type.String({ description: "Short name: lowercase letters, digits and single hyphens (for example invoices, solar-yield)" }),
 					description: Type.String({ description: "One or two sentences: what it is for and when to use it" }),

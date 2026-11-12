@@ -385,6 +385,9 @@ test("tui: /mcp lists the servers with their state and signs in to one", async (
 			list: async () => [
 				{ name: "gateway", scope: "global", agents: ["main"], target: "https://gateway.example/d/abc/mcp", state: signIns.length ? "connected" : "needs sign-in" },
 				{ name: "web", scope: "global", agents: ["main"], target: "bundled: web", state: "connected" },
+				{ name: "cad", scope: "main", session: "side", agents: ["main"], target: "npx -y cad-mcp", state: "connected" },
+				{ name: "here", scope: "main", session: "main", agents: ["main"], target: "npx -y here-mcp", state: "connected" },
+				{ name: "mine", scope: "main", agents: ["main"], target: "npx -y mine-mcp", state: "connected" },
 			],
 			login: async (name, onOutput) => {
 				onOutput(`Sign in to MCP server "${name}" in your browser:\nhttps://gateway.example/authorize?x=1\n`);
@@ -397,6 +400,10 @@ test("tui: /mcp lists the servers with their state and signs in to one", async (
 	await t.send("/mcp");
 	await t.sees(/gateway\s+needs sign-in\s+all agents: main/);
 	await t.sees(/web\s+connected/);
+	// A server that one conversation has alone is not shown as the agent's.
+	await t.sees(/cad\s+connected\s+only the conversation side of main, not this one/);
+	await t.sees(/here\s+connected\s+only this conversation/);
+	await t.sees(/mine\s+connected\s+only main\n/);
 
 	const live = t.h.pine.agents.status().sessions.length;
 	await t.h.pine.agents.run({ agent: "main", prompt: "warm", trust: "owner" });

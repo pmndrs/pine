@@ -76,18 +76,42 @@ difference between the first two: the main conversation is the agent.
 | Register a new type of event source | Always, in every mode. The dialog says that it is a program, how long it is, what it imports and where the file is. |
 | Take a source type out again | Yes. |
 | End a subscription for all agents | No (the main agent only). |
+| Add a model server | Always, in every mode: the address before any request goes there, and in a second dialog its key if it wants one. See "Adding a model server". |
+| Remove a model server | Yes. |
 
 In manual mode, and in a conversation that has read outside content, the questions that are
 otherwise skipped are asked too (ending a subscription: in manual mode only).
+
+In plan mode nothing is set up: every tool that adds, removes, subscribes or sends is refused
+there without a question, and the agent says what it would set up. The tools that only list
+(`sources`, `schedules`, `mcp_servers`, `skills`) work in every mode and are never asked about.
 
 In a conversation that has read outside content two things are stricter, because what they
 write is read back as instructions or runs as a program. `add_skill` is checked by the
 reviewer like a write to the agent's memory ([security.md](security.md), "After outside
 content: the reviewer"; with `security.review: "ask"` it shows you the skill instead).
 `add_source_type` and `add_model_server` are refused: start a new conversation for it.
- Runs with the
-reduced tool set, which outside events start through a route or a subscription marked
-`separate`, have none of these tools, and neither have sub-agents.
+
+Runs with the reduced tool set, which outside events start through a route or a subscription
+marked `separate`, have none of these tools, and neither have sub-agents.
+
+## What an agent has
+
+An agent cannot read pine's configuration: the files are closed to it. What it has been given
+it asks a tool, one for each kind of thing. Each of these lists what the conversation has, whom
+each thing is for (this conversation, the agent, all agents), and what only another
+conversation of the same agent has. So "which MCP servers do you have", "which skills do you
+have", "what are you subscribed to" and "what is scheduled" are answered by a tool call, never
+by a guess and never by looking for a file.
+
+| What you ask about | The tool that lists it |
+|---|---|
+| MCP servers: which are connected, which the agent has | `mcp_servers` |
+| Skills: what the agent knows how to do | `skills` |
+| Events: sources, and who is subscribed and woken | `sources` |
+| Schedules: what happens at set times | `schedules` |
+
+Which model the agent runs on is told to it with your message, so it needs no tool for that.
 
 ## The tools
 
@@ -105,20 +129,36 @@ reduced tool set, which outside events start through a route or a subscription m
 | `add_schedule` `name` `task` + one of `cron`, `every`, `at`, `in` [`scope`] | Does the task at set times, every so often, or once. One that happens once removes itself. |
 | `remove_schedule` `name` | Ends a schedule. |
 | **MCP servers** | |
-| `add_mcp_server` `name` `url` or `command` [`secrets`] [`description`] [`scope`] | Proposes an MCP server: a remote one by its https `url`, or a local one by the line that starts it (one program with its arguments, nothing else). A local one runs inside the sandbox of the agent that uses it. `secrets` names the keys it needs; you type them into the dialog. See [mcp.md](mcp.md). |
-| `remove_mcp_server` `name` | Takes a server out again. |
+| `mcp_servers` | Lists the MCP servers this conversation has: whom each is for (this conversation, the agent, all agents) and whether its tools are in the agent's tool list (connected) or missing (it did not start, or it needs a sign-in). It also names servers that only another conversation of the agent has, which this one cannot use. This is how an agent answers "which MCP servers do you have": the configuration files are closed to it. |
+| `add_mcp_server` `name` `url` or `command` [`secrets`] [`description`] [`scope`] | Proposes an MCP server: a remote one by its https `url`, or a local one by the line that starts it (one program with its arguments, nothing else). A local one runs inside the sandbox of the agent that uses it. `secrets` names the keys it needs; you type them into the dialog. A name can be used once. One exception: a server that only one conversation of the agent has is made the agent's by adding it again under its name with `scope: "agent"`, from that conversation or from another; you are asked, the new entry takes the place of the old one, and then all the agent's conversations have it. See [mcp.md](mcp.md). |
+| `remove_mcp_server` `name` | Takes a server out again. A server that belongs to another conversation is removed there, or with that conversation. |
+| **Asking, and keeping track** | |
+| `question` `question` [`choices`] | Asks your owner one question when you cannot go on without their decision, with two to six short answers to pick from (the one you recommend first). They pick one in a dialog, or on Telegram with a button, or answer in their own words; you get the answer back as the tool's result. No answer is said plainly: go on with a reasonable assumption and say which. It changes nothing, so it also works in plan mode. Not for permission to act (that is asked by itself), and not there in a run your owner did not start |
+| `todo` `items` | Your own list of the steps of a task that has several. Send the whole list every time, each step with a status: `pending`, `in_progress` (one at a time) or `done`. Your owner sees it in the conversation and in the status line ("step 2 of 5"), and with their next message you are shown what is still open, so you can pick the work up where it stood. It belongs to the conversation and goes when that is reset. An empty list clears it. At most 30 steps. Not there in a run your owner did not start |
 | **Programs** | |
-| `question` `question` [`choices`] | Asks your owner one question when you cannot go on without their decision, with two to five short answers to pick from (the one you recommend first). They pick one in a dialog, or on Telegram with a button, or answer in their own words; you get the answer back as the tool's result. No answer is said plainly: go on with a reasonable assumption and say which. It changes nothing, so it also works in plan mode. Not for permission to act (that is asked by itself), and not there in a run your owner did not start |
-| `todo` `items` | Your own list of the steps of a task that has several. Send the whole list every time, each step with a status: `pending`, `in_progress` (one at a time) or `done`. Your owner sees it in the conversation and in the status line ("step 2 of 5"), and with their next message you are shown what is still open, so you can pick the work up where it stood. It belongs to the conversation and goes when that is reset. An empty list clears it |
-| `stop_program` [`id`] | Stops a program that one of the conversation's commands left running, such as a development server, or one the agent started in the background (`background: true`). Without `id` it lists them. Never asks: it only ends what the agent started. See [coding.md](coding.md). |
+| `stop_program` [`id`] | Stops a program that one of the conversation's commands left running, such as a development server, or one the agent started in the background (`background: true`). Without `id` it lists them. Never asks: it only ends what the agent started. Only an agent with `bash` has it. See [coding.md](coding.md). |
 | **Skills** | |
+| `skills` | Lists the skills this conversation has and whom each is for (this conversation, the agent, all agents), and names skills that only another conversation of the agent has. This is how an agent answers "which skills do you have". |
 | `add_skill` `name` `description` `instructions` [`files`] [`scope`] | Writes a skill; the same name in the same place replaces it. `files` is a folder in the agent's workspace whose contents go along. |
 | `remove_skill` `name` | Deletes a skill in pine's own skill folders (`skills/`, `agents/<id>/skills/`, a conversation's), also one you put there by hand. A skill in a folder named under `skills` in a configuration file is yours to remove. |
 | **Agents** | |
 | `create_agent` `id` `description` `instructions` [`model`] [`tools`] | Main agent only. See below. |
 | **Model servers** | |
 | `add_model_server` `name` `url` [`context`] | Main agent only. Adds a model server of your own by its address; pine asks the server for its models. See "Adding a model server". |
-| `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default or the reviewer uses one of its models. |
+| `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default or the reviewer uses one of its models. You are asked. |
+| **Not setup: the other tools pine gives an agent** | |
+| `request_access` [`path`] [`write`] [`network`] [`account`] `reason` | Asks you for access the conversation does not have: a file or folder outside the workspace (`path`; with `write: true` also to change it), the network from the shell (`network: true`), or its full rights back after you limited the conversation (`account: true`). You decide; a yes holds for the conversation until it is reset or pine restarts. pine's home is never granted. See "Modes" in [security.md](security.md). |
+| `delegate` `agent` `task` [`wait`] [`thread`] | Hands a task to another agent and gets its answer. Only there when the agent's `delegates` list is not empty. See [agents.md](agents.md). |
+| `subagent` `tasks` | Runs several copies of the agent side by side, one task each, and returns their answers. See [agents.md](agents.md). |
+| `download` `url` `path` | Fetches a file from a web address into the workspace, byte for byte. See "Downloads" in [security.md](security.md). |
+| `publish_event` `topic` [`text`] [`data`] | Publishes an event on a topic of the agent's `publish` list. Without that list the tool is not there. See [events.md](events.md). |
+| `state_get` `key`, `state_set` `key` `value` | Read and write shared state, within `state.read` and `state.write`. See "Shared state" in [agents.md](agents.md). |
+| `manual` [`search`] [`read`] | Searches and reads this manual. See "The manual tool" in [agents.md](agents.md). |
+
+The built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) are chosen with
+`tools` in `agent.json`; the shell tool's `background` is described in [coding.md](coding.md).
+The tools of MCP servers are in [mcp.md](mcp.md). A run that an outside event started has
+`state_get` and what its `untrusted` profile lists, and none of the others.
 
 Everything takes effect without a restart. An agent has new MCP tools and new skills from its
 next message on, in the same conversation. After `add_mcp_server` that next message is pine's
@@ -209,7 +249,8 @@ for.
 
 ## What stays yours
 
-An agent's built-in tools, model, its sandbox settings, routes, local MCP
-servers, source types you write yourself, and removing agents: these are changed in the files
+An agent's built-in tools, model, mode, its sandbox settings, routes, local MCP
+servers that are to run outside an agent's sandbox, the options of a server once it is added,
+source types you write yourself, and removing agents: these are changed in the files
 or with the `pine` command, and most need a restart. See [configuration.md](configuration.md),
 [agents.md](agents.md), [mcp.md](mcp.md) and [sources.md](sources.md).

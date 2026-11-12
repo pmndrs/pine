@@ -7,7 +7,8 @@
   and sets up. Without a sandbox pine starts, but withholds the shell tool, and `pine check`
   says why. See [security.md](security.md), "On Linux".
 - Optional: `ffmpeg` for videos in the terminal UI (on Linux also for pictures other than
-  png); on Linux `xclip` or `wl-copy` for copying a selection.
+  png); on Linux `xclip`, or on Wayland `wl-copy` and `wl-paste`, for copying a selection and
+  pasting a picture.
 - Node 24 or newer. From a checkout Node runs the TypeScript sources directly; the npm package
   holds them compiled.
 - A model that supports tool calls: a hosted provider pi knows (sign in with `pine login`), or
@@ -43,8 +44,9 @@ pine init
 sets everything up in one step:
 
 - From a fresh checkout, `bin/pine` first installs pine's dependencies (`npm install`), once.
-- It copies the example home to `~/.pine`: one agent, `main`, with web search and the browser, a
-  `models.json`, an empty `.env`. Nothing is overwritten if you run it again.
+- It copies the example home to `~/.pine`: one agent, `main`, with web search, the browser and,
+  on a Mac, app control ([computer.md](computer.md)), a `models.json`, an empty `.env`. Nothing
+  is overwritten if you run it again.
 - On Linux it makes the sandbox work. If bubblewrap is missing it installs the package (apt,
   dnf, yum, pacman, zypper or apk), and on Ubuntu 24.04 and later it writes and loads the
   AppArmor rule bubblewrap needs there. It shows the commands first and asks once; they run
@@ -197,7 +199,8 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine model add <name> <address>`, `pine model list`, `pine model remove <name>` | Add a model server of your own by its address, list them, take one out. `--context <tokens>`, `--reasoning`, `--no-reasoning` for what the server does not say. See "With a model server of your own" |
 | `pine init [dir] [--yes]` | Set pine up: a home directory from the example, the browser its web tools drive and, on Linux, the sandbox (asks before running anything as administrator; `--yes` skips the question). Safe to run again |
 | `pine update [--check]` | Bring pine up to date. `--check` only says whether there is something newer. See "Updating" |
-| `pine version` | Which version this is and how it is installed |
+| `pine version`, `pine --version` | Which version this is and how it is installed |
+| `pine help`, `pine --help` | Prints the list of commands |
 | `pine browser-install` | Fetch the browser again. `pine init` and `pine update` do this already |
 | `pine check` | Validate the configuration; show each agent's workspace, model, tools, MCP servers; list security notes |
 | `pine start` | Run the daemon in the foreground. Ctrl-C or SIGTERM stops it cleanly |
@@ -206,8 +209,8 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine agents` | Configured agents |
 | `pine send <agent> <text...>` | Give an agent a task as yourself and print the answer. `--session <key>`, `--no-wait` |
 | `pine emit <topic> [json]` | Publish an event as yourself |
-| `pine events` | The event log. `--topic <pattern>`, `--limit <n>`, `-f` to follow |
-| `pine tasks` | Recent tasks. `--agent <id>`, `--status pending\|running\|done\|failed\|cancelled` |
+| `pine events` | The event log. `--topic <pattern>`, `--limit <n>` (30), `-f` to follow |
+| `pine tasks` | Recent tasks. `--agent <id>`, `--status pending\|running\|done\|failed\|cancelled`, `--limit <n>` (20) |
 | `pine task <id>` | One task in full |
 | `pine cancel <id>` | Stop a task |
 | `pine state [pattern]` | Shared state |
@@ -216,19 +219,21 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine subscribe --global <source> [--note text] ...`, `pine unsubscribe --global <source>` | The same for every agent that can use the source |
 | `pine approvals`, `pine approve <id> [--always]`, `pine deny <id>` | Answer approval requests; `--always` stops the question for the rest of that conversation |
 | `pine reset <agent> [session]` | Start a conversation over; also clears its taint |
-| `pine mode <agent> [manual\|auto\|bypass]` | Show or change an agent's mode until the daemon restarts |
-| `pine mcp list` | MCP servers, who gets them, whether they connect |
+| `pine mode <agent> [auto\|plan\|manual\|bypass]` | Show or change an agent's mode until the daemon restarts. `plan`: the agent only looks and answers with a plan. See "Modes" in [security.md](security.md) |
+| `pine mcp list` | MCP servers, who gets them (all agents, one agent, or one conversation of an agent), whether they connect. `--offline` lists without connecting |
 | `pine skills` | Lists every skill: whom it is for (all agents, an agent, one conversation) and where it lies |
 | `pine schedules` | Lists what is scheduled: for whom, when, and the task |
-| `pine manual <words>`, `pine manual --read <id>` | Search this manual the way the agents do, or read one part of it in full |
-| `pine mcp add <name> <url>`, `pine mcp add <name> -- <command...>` | Add a remote or a local server. `--agent <id>` for one agent |
+| `pine manual <words>`, `pine manual --read <id>` | Search this manual the way the agents do, or read one part of it in full (several ids with commas). Without words: the list of its parts |
+| `pine mcp add <name> <url>`, `pine mcp add <name> -- <command...>` | Add a remote or a local server. `--agent <id>` for one agent; `--taints`, `--approve always\|tainted`, `--timeout <seconds>`, `--description <text>`, `--exposure <how>` as in [mcp.md](mcp.md) |
 | `pine mcp remove <name> [--agent <id>]` | Remove a server from `pine.json`, or from that agent's `agent.json` |
 | `pine mcp login <name>`, `pine mcp logout <name>` | Sign in to a remote server through the browser, or forget its tokens |
 
 All take `--home <dir>`; the default is `$PINE_HOME` or `~/.pine`. The commands from `status`
 down to `mode` talk to the running daemon over its control API on `127.0.0.1:7463`, using the
-token in `data/http-token`. The `pine mcp` commands work on the files, and `add` and `remove`
-also tell a running daemon, so the change applies at once. `pine help` prints the list.
+token in `data/http-token`. The `pine mcp` and `pine model` commands work on the files, and `add` and `remove`
+also tell a running daemon, so the change applies at once. `pine schedules`, `pine skills`,
+`pine check` and `pine manual` only read the files and need no daemon. `pine help` prints the
+list.
 
 ## Running at login
 
@@ -257,28 +262,30 @@ are JSON with `Content-Type: application/json`.
 | `GET /mcp` | Configured MCP servers |
 | `POST /mcp` `{ name, server, agent? }` or `{ name, remove: true, agent? }` | Add or remove a server while the daemon runs |
 | `POST /mcp/refresh` | Close idle sessions so they start again with the current servers |
-| `GET /agents/<id>/sessions` | The agent's conversations: name, number of messages, last use, whether pinned or open in a tab, and when one will be removed by itself |
+| `POST /models/refresh` | Read `models.json` and `.env` again, after a model server was added or removed in the files. `pine model add` and `pine model remove` call it |
+| `GET /agents/<id>/sessions` | The agent's conversations: name, number of messages, last use, whether pinned or open in a tab, the folder opened for it, and when one will be removed by itself |
 | `POST /agents/<id>/pin` `{ session, pinned? }` | Pin a conversation so that it is kept, or with `pinned: false` take the pin off |
 | `POST /agents/<id>/rename` `{ session, to }` | Give a conversation another name; its history, pin, subscriptions and what was set up for it follow |
 | `POST /agents/<id>/remove` `{ session }` | Remove a conversation for good, with its history and what was set up for it alone. Not the main one, and not while it is working |
-| `GET /ui/tabs`, `POST /ui/tabs` `{ tabs, active, code? }` | The tabs the terminal UI has open (`tabs` is a list of `{ agent, session }`) and whether its code pane was open, kept so that it opens the same way next time |
+| `GET /ui/tabs`, `POST /ui/tabs` `{ tabs, active, code?, notify? }` | The tabs the terminal UI has open (`tabs` is a list of `{ agent, session }`, 50 at most), whether its code pane was open (`code`) and whether it calls for attention with a bell (`notify`, set with `/notify`), kept so that it opens the same way next time. `code` and `notify` stay as they were when left out. A conversation that is open in a tab is not removed for being unused |
 | `GET /agents/<id>/folder?session=`, `GET /agents/<id>/folders`, `POST /agents/<id>/folder` `{ session, folder }` | The folder a conversation works in; every conversation of the agent that has one; open a folder for a conversation (`folder: null` closes it). Refused for pine's home, pine's program and other agents' workspaces, and while the conversation is working |
 | `GET /agents/<id>/goal?session=`, `POST /agents/<id>/goal` `{ session, objective }` or `{ session, action }` | Goal mode. `GET` returns `{ goal }` with the objective, `status` (`active`, `paused`, `met`, `blocked`, `limit`), the round, pine's note on what happened last and the judge's reason; no goal: `{}`. `objective` sets the conversation's goal and starts on it; `action` is `pause`, `resume` or `clear`. Every change is also an event on `agent/<id>/goal`. See "Goal mode" in [agents.md](agents.md) |
 | `GET /agents/<id>/blocked?session=`, `POST /agents/<id>/blocked/allow` `{ session, id }` | What the reviewer blocked in a conversation (tool, what it was about, rule, reason), and allowing one of those calls once. |
 | `GET /agents/<id>/programs?session=`, `POST /agents/<id>/programs/stop` `{ session, id }` | What a conversation's commands left running (command, ports, how long), and stopping one of them. A command the agent started in the background is among them while it runs, with `background: true` and `output` (the file its output goes to). Only a program of that conversation can be stopped. |
 | `GET /agents/<id>/view/changes?session=`, `/view/diff?session=&path=`, `/view/tree?session=&path=`, `/view/file?session=&path=`, `/view/find?session=&q=` | What the code pane shows of a conversation's folder (or of the agent's workspace): what git says changed, one file's diff, what is in a folder, a file's text, the files whose name fits a few letters. Read-only, and nothing outside that folder |
+| `GET /agents/<id>/view/turn?session=`, `/view/turndiff?session=&path=` | What your last message in a conversation changed in its folder, which is what `/undo` would take back: `{ task, prompt, root, files, more, note? }` (at most 300 files; `note` says why there is nothing to show), and one file's diff over that message. While the message is still being worked on: what it has changed so far. See [coding.md](coding.md) |
 | `POST /agents/<id>/model` `{ model }` | Switch an agent's model and save it in its `agent.json` |
 | `GET /agents/<id>/todos?session=` | The list of steps the agent keeps in that conversation |
 | `POST /agents/<id>/compact` `{ session? }` | Shorten a conversation: its earlier part becomes a summary. Queued like a message; answers with the task's id |
 | `POST /agents/<id>/thinking` `{ level }` | Set an agent's reasoning level and save it in its `agent.json` |
-| `POST /agents/<id>/mode` `{ mode, session?, anyway? }` | Switch an agent's mode until the daemon restarts. `anyway: true` with a `session` keeps bypass in force in that conversation although it has read outside content |
+| `POST /agents/<id>/mode` `{ mode, session?, anyway? }` | Switch an agent's mode (`auto`, `plan`, `manual` or `bypass`) until the daemon restarts. `anyway: true` with a `session` keeps bypass in force in that conversation although it has read outside content |
 | `GET /tasks?agent=&session=&status=&limit=`, `GET /tasks/<id>` | Tasks |
 | `GET /tasks/<id>/transcript` | What a task did, step by step: the text it was given, what it wrote, its tool calls with the start of each result. With `?full=1`: with the whole result of each call, up to 200 000 characters |
 | `GET /events?topic=&after=&limit=` | Event log; `after=<id>` pages forward |
 | `GET /events/stream?topic=` | Live events as server-sent events |
 | `GET /state?key=` | Shared state |
 | `POST /events` `{ topic, payload }` | Publish an event (as owner; `"trust": "untrusted"` to lower it) |
-| `POST /agents/<id>/prompt` `{ prompt, session?, wait?, attachments?, whenBusy?, mentions? }` | Give a task. Waits for the result unless `wait` is false. With `"whenBusy": "steer"`, a message for a conversation that is working is given to that work instead of waiting behind it (the answer then carries `steered`, the id of that task). `mentions` lists files of the conversation's folder that the message points at with `@` (`"src/a.ts"`, `"src/a.ts#20-45"`); the agent is told to read them. `attachments` is a list of `{ name, data }` with base64 data; the files are saved to `inbox/` in the agent's workspace |
+| `POST /agents/<id>/prompt` `{ prompt, session?, wait?, attachments?, whenBusy?, mentions? }` | Give a task. Waits for the result unless `wait` is false. With `"whenBusy": "steer"`, a message for a conversation that is working is given to that work instead of waiting behind it (the answer then carries `steered`, the id of that task). `mentions` lists files of the conversation's folder that the message points at with `@` (`"src/a.ts"`, `"src/a.ts#20-45"`); the agent is told to read them. `attachments` is a list of `{ name, data }` with base64 data, at most 10 files of 20 MB each; the files are saved to `inbox/` in the agent's workspace. With `"cancelOnDisconnect": true` the task is cancelled when the caller closes the connection while it waits |
 | `POST /agents/<id>/reset` `{ session? }` | Reset a session. What it was subscribed to on its own ends too |
 | `POST /agents/<id>/undo` `{ session? }`, `POST /agents/<id>/redo` `{ session? }` | Take back the owner's last message in a conversation, with the files it changed, or bring back what the last undo took. See [coding.md](coding.md) |
 | `GET /media/tool/<id>` | A picture a tool returned. The ids are in the `images` field of `agent/<id>/tool` events and of transcript steps |
@@ -290,7 +297,7 @@ are JSON with `Content-Type: application/json`.
 | `POST /subscribe` `{ source, note?, ... }`, `POST /unsubscribe` `{ source }` | The subscription of all agents (written to `pine.json`) |
 | `POST /agents/<id>/close` `{ session }` | A conversation's tab was closed in a UI: ends what it was subscribed to on its own. The conversation itself is kept |
 | `POST /tasks/<id>/cancel` | Cancel |
-| `POST /approvals/<id>` `{ allow, always?, values? }` | Answer an approval. A request that lists `inputs` (a token, a password) is only allowed together with `values: { <name>: "..." }`; the terminal UI has a field for them |
+| `POST /approvals/<id>` `{ allow, always?, values? }` | Answer an approval. A request that lists `inputs` (a token, a password) is only allowed together with `values: { <name>: "..." }`; the terminal UI has a field for them. A question an agent asks with its `question` tool is such a request (`tool: "question"`, with the answers it offers in `choices`): answer it with `values: { "answer": "..." }`, or with `allow: false` for no answer |
 | `POST /state` `{ key, value }` | Write state; `null` deletes |
 | `POST /hook/<name>` | Webhook: a hook from `http.hooks` ([events.md](events.md)) or a running `webhook` source ([sources.md](sources.md)). No token; each has its own secret, unless a hook is declared `"open": true` |
 
@@ -309,7 +316,10 @@ are JSON with `Content-Type: application/json`.
   agents need neither an edit nor a restart: ask an agent ([setup.md](setup.md)), or use
   `pine mcp add` and `pine subscribe`.
 - **An agent is stuck:** `pine status`, then `pine cancel <id>`.
-- **An agent keeps asking for approval:** its session is tainted. `/reset` or `pine reset`.
+- **An agent keeps asking for approval:** it is in manual mode (`pine mode <agent> auto`, or
+  the mode in the bottom bar of the terminal UI), or the question names a tool on its `approve`
+  list. With `security.review: "ask"` it is also what a conversation does after it has read
+  outside content (it is tainted): `/reset` or `pine reset` starts a clean one.
 - **Back up:** the home directory. `data/pine.db` holds events and tasks, `agents/*/sessions`
   the conversations. Workspaces are wherever you put them.
 
@@ -334,7 +344,7 @@ are JSON with `Content-Type: application/json`.
 | A goal is paused with "gave no verdict" | The judge did not answer in time (`security.reviewTimeout`) or not with MET, CONTINUE or BLOCKED. `/goal resume` goes on; if it happens often, give the judge a model that follows a format (`security.reviewer`). |
 | The agent says a call was "blocked by pine's reviewer" | After outside content, and for critical actions always, a reviewer checks an action against what you asked for. Open **Blocked** in the code pane (`/code blocked`): it shows the reason, and `✓ allow once` lets the call through. If it blocks too much, say what you want more exactly, add an entry to `security.rules.allow`, or give it a better model (`security.reviewer`). |
 | The agent says it is limited to its workspace, or cannot change its memory | Only with `security.review: "ask"`: the conversation has read outside content, and you answered no to the one question about its rights, or did not answer. Tell the agent to ask again (`request_access` with `account: true`), or `/reset` the conversation for a clean one. |
-| The agent says a file is "not permitted" | It is outside what the agent reaches. The main agent has your whole account (`sandbox.scope`), but not in a conversation that has read outside content unless you said yes to the question; other agents have their workspace. An agent can ask you with `request_access`; to open a folder for good, use `sandbox.read` / `sandbox.write`. |
+| The agent says a file is "not permitted" | It is outside what the agent reaches. The main agent has your whole account (`sandbox.scope`); other agents have their workspace. After outside content the main agent keeps that reach, except for files that are read as instructions (the `AGENTS.md` of the folder it works in, for example); with `security.review: "ask"` it keeps it only if you said yes to the question. An agent can ask you with `request_access`; to open a folder for good, use `sandbox.read` / `sandbox.write`. |
 | The agent cannot stop a program it started (`kill: Operation not permitted`) | In the workspace scope every command has a sandbox of its own and cannot signal what an earlier one started. The agent's `stop_program` tool works in every scope, and so does `■ stop` under Running in the code pane. |
 | `git` complains about identity | In the workspace scope the agent's shell has its own empty home. Run `git config --global user.name ...` once through the agent, or set it per repository. |
 | A command needs the network | `sandbox.network: true` for that agent, or better a `commands` tool for that one command. |

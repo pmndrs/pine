@@ -109,7 +109,19 @@ your owner wants exactly that action, tell them: they can allow it under Blocked
 terminal UI's code pane, and you are told when they have.
 
 Schedules, skills, sources and servers follow the same rule: leave the scope out and it is for
-the conversation you are in.
+the conversation you are in. What you have of each, you see with a tool, never in pine's files:
+`sources`, `schedules`, `mcp_servers` and `skills` list what this conversation has, whom each
+is for, and what only another conversation of yours has.
+
+When you cannot go on without your owner's decision (which of two ways, which file), ask with
+your `question` tool, with two to five short answers to pick from. For work with several steps,
+keep a list with your `todo` tool; your owner sees it. A command that takes long or keeps
+running (a server, a build, a watcher) you start with `background: true` on the shell tool, and
+`stop_program` ends it ([references/coding.md](references/coding.md), "Commands in the
+background"). When your owner wants you to work on until something is reached, tell them to
+type `/goal` with what they want reached: only they can set a goal
+([references/agents.md](references/agents.md), "Goal mode"). In plan mode you only look and
+answer with a plan; your owner switches the mode when it is to be carried out.
 
 If you are the main agent and your owner asks for a new agent, call `create_agent` with an id,
 one line on what it is for, and its instructions written to the agent itself ("You are ..."):
@@ -129,17 +141,17 @@ hand work to the agents listed in your prompt, and write shared state under your
 | You want to | Read |
 |---|---|
 | See what an agent is given (events, schedules, MCP servers, skills) and how events, tasks and sessions fit together | [references/overview.md](references/overview.md) |
-| Chat with agents in the terminal: tabs, slash commands, approvals, switching models | [references/tui.md](references/tui.md) |
+| Chat with agents in the terminal: tabs, slash commands (`/goal`, `/compact`, `/copy`, `/export`, `/undo`), keys, the four modes (auto, plan, manual, bypass), approvals, an agent's questions and its list of steps, what a model thinks, pictures, switching models | [references/tui.md](references/tui.md) |
 | Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output, what an agent left running, what it runs in the background, and taking a message back with `/undo` and `/redo` | [references/coding.md](references/coding.md) |
-| Install it, start it, use the CLI, run it at login, find out why something did not happen | [references/operations.md](references/operations.md) |
+| Install it, start it, update it, use the CLI (every `pine` command), the control API for scripts, run it at login or in a container, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
-| Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types | [references/setup.md](references/setup.md) |
+| Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types, model servers; how an agent lists what it has; the table of pine's own tools (`question`, `todo`, `stop_program` and the rest) | [references/setup.md](references/setup.md) |
 | Add an agent, give it a workspace, tools and a persona; skills; how agents look pine up (the `manual` tool); delegation, sub-agents, sessions, goal mode (`/goal`: working until an objective is met), shared state | [references/agents.md](references/agents.md) |
 | Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
 | Have something done at a time (schedules); write rules for events yourself: set state, publish, single model calls, debounce | [references/events.md](references/events.md) |
-| Add MCP servers globally or per agent; web search, page reading and the bundled browser; turn shell commands into tools | [references/mcp.md](references/mcp.md) |
+| Add MCP servers globally, per agent or for one conversation; web search, page reading and the bundled browser (showing its window to log in yourself, local addresses); turn shell commands into tools | [references/mcp.md](references/mcp.md) |
 | Operate the apps on a Mac: read a window, press, click, type; who may, what is asked, the grants macOS needs | [references/computer.md](references/computer.md) |
-| Understand the defences against outside abuse and prompt injection, and their limits | [references/security.md](references/security.md) |
+| Understand the defences against outside abuse and prompt injection, and their limits: the sandbox (macOS and Linux), what happens after outside content, the reviewer, the modes, approvals | [references/security.md](references/security.md) |
 | Know the technology underneath and the pi behaviours pine works around; open points | [references/stack.md](references/stack.md) |
 | Change pine's code | [../AGENTS.md](../AGENTS.md) |
 
@@ -169,8 +181,10 @@ below is added on top of that when you need it.
 }
 ```
 
-(An excerpt. `pine init` also writes the web and browser servers and the limits; put the model
-you use where `dev/claude-haiku` stands.)
+(An excerpt. `pine init` also writes the web, browser and app control servers and the limits;
+put the model you use where `dev/claude-haiku` stands. `dev/claude-haiku` answers through
+`claude -p` and needs Claude Code installed and signed in; for another model see "Choosing a
+model" in [references/operations.md](references/operations.md).)
 
 Telegram as a second way in is set up by asking the main agent: "watch Telegram". The dialog
 you confirm has a field for the bot's token; then you write to the bot and type the six-digit
@@ -215,4 +229,6 @@ pine start
 | untrusted | Everything else: data that may contain instructions it has no right to give |
 | tainted | A session that has seen outside content (a web page, an MCP result, an untrusted task) |
 | approval | Your yes or no to one tool call, asked in the terminal UI and over Telegram, or answered with `pine approve` |
+| mode | How much an agent does without asking: `auto` (the default), `plan` (it only looks and answers with a plan), `manual` (every action waits for your yes), `bypass` (nothing waits) |
+| reviewer | A short model call that checks one action against what you asked for, before it runs: after outside content, and for critical actions always. It blocks with a reason instead of asking you |
 | extension | A pi extension: pi's own plug-in format, usable in pine sessions |

@@ -25,7 +25,9 @@ Everything pine needs is in its home directory: `~/.pine` by default, or `$PINE_
   skills/              skills for all agents; no entry needed (the main agent adds them with add_skill)
   sources/             source types the main agent registered (pine's own copies)
   sandbox/             per-agent private home and generated sandbox profiles (written by pine)
-  data/                event log, task queue, media, control token, files of event sources (written by pine)
+  data/                event log, task queue, media, control token, files of event sources, the folder
+                       states kept for undo, what is known of commands in the background, the
+                       helper of app control (written by pine; closed to agents)
 ```
 
 `pine check` validates names, references, paths, models and the entries of sources and
@@ -88,7 +90,7 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `defaults.bashTimeoutSec` | `900` | Longest a shell command may run (15 minutes: a build, an install). The model cannot raise it. A server or another program that should keep running, and whatever needs longer, is started in the background, which is not held to it ([coding.md](coding.md)). |
 | `defaults.taskTimeoutSec` | `7200` | Longest a task may run before it is aborted (two hours). |
 | `defaults.idleMs` | `15m` | A live session without work is closed after this (and resumed from disk later). |
-| `defaults.settings` | `{}` | pi settings applied to every agent, for example `{ "compaction": { "reserveTokens": 8000 } }`. |
+| `defaults.settings` | `{}` | pi settings applied to every agent, for example `{ "compaction": { "reserveTokens": 8000 } }`. They are put on top of pi's own settings files and stay in force when pi reads those files again. |
 | `limits.maxConcurrentRuns` | `2` | Model slots: how many runs talk to the model server at once. Match it to the server's parallel slots. |
 | `limits.maxDelegationDepth` | `3` | How deep a chain of delegations may go. |
 | `limits.maxDownloadMb` | `200` | Largest file the `download` tool fetches. |
@@ -154,7 +156,7 @@ Every key is optional; `{}` is a valid agent.
 | `workspace` | `agents/<id>/workspace` | The agent's working folder. `AGENTS.md`, `SOUL.md` and `MEMORY.md` at its top are the agent's instructions and are loaded into its prompt. Must exist when you set it. |
 | `context` | `[]` | Further instruction files to load into the system prompt. |
 | `model`, `thinking` | from `defaults` | Per-agent model and thinking level. |
-| `settings` | from `defaults.settings` | pi settings for this agent. `agents/<id>/settings.json` is honoured as well. |
+| `settings` | from `defaults.settings` | pi settings for this agent, key by key on top of `defaults.settings`. `agents/<id>/settings.json` is honoured as well; where both set a key, the one here counts. |
 | `taskTimeoutSec`, `idleMs` | from `defaults` | Per-agent overrides. |
 
 ### Tools and extensions
@@ -165,7 +167,7 @@ Every key is optional; `{}` is a valid agent.
 | `mcp` | `{}` | MCP servers only this agent has. An entry with the name of a global server replaces it for this agent. An entry with `"session": "<conversation>"` was added for that conversation alone and is removed with it ([setup.md](setup.md)). |
 | `globalMcp` | `true` | `true`: every global server that includes this agent. `false`: none. A list of names: exactly those. |
 | `sources` | `{}` | Event sources only this agent can subscribe to. An entry with `"session": "<conversation>"` was set up for that conversation alone and is removed with it. See [sources.md](sources.md). |
-| `subscribe` | `[]` | What this agent is subscribed to: a list of names, an object with `note`, `when`, `throttle`, `debounce` per source, or a list of entries with `source` and, for one conversation only, `session`. The agent's `subscribe` tool and `pine subscribe` write here. |
+| `subscribe` | `[]` | What this agent is subscribed to: a list of names, an object with `note`, `when`, `throttle`, `debounce`, `separate`, `prompt` per source, or a list of entries with `source` and, for one conversation only, `session`. The agent's `subscribe` tool and `pine subscribe` write here. Every key is in [sources.md](sources.md), "In the configuration". |
 | `schedules` | `[]` | What this agent does at set times: `{ "name", "cron" or "every" or "at", "task" }`, with `"session": "<conversation>"` for one conversation. The agent adds entries with `add_schedule`. See [events.md](events.md). |
 | `extensions`, `skills` | `[]` | Further pi extension files and skill folders for this agent. Its own `skills/` folder needs no entry. |
 | `bashTimeoutSec` | from `defaults` | Longest shell command. |
@@ -187,7 +189,7 @@ Every key is optional; `{}` is a valid agent.
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | from `defaults` | `manual`: every action waits for approval. `auto`: works within its scope (`sandbox.scope`) and asks for the rest. `bypass`: never asks, and reaches your whole account. `plan`: looks, reads and asks, changes nothing, and answers with a plan. |
-| `sandbox` | on | `false` runs shell and file tools with the daemon's full rights. Do not, unless the machine itself is disposable. |
+| `sandbox` | on | `false` (or `{ "enabled": false }`) runs shell and file tools with the daemon's full rights. Do not, unless the machine itself is disposable. |
 | `sandbox.scope` | `account` for the main agent, `workspace` for others | How far the agent's shell and file tools reach in your own conversations. `workspace`: its own folders, and what you grant. `account`: your whole user account and the network, like you at your terminal, with your home folder and environment; pine's home stays closed. After a conversation has read outside content you are asked once whether it keeps that. See [security.md](security.md), "The whole account". |
 | `sandbox.network` | `false` | Shell commands may use the network: the internet and your local network, ports of this machine included. See [security.md](security.md), "On Linux", for what that means for socket files. |
 | `sandbox.read`, `sandbox.write` | `[]` | Further folders the agent may read / write, besides its workspace. |

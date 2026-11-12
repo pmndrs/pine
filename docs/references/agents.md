@@ -71,9 +71,10 @@ Its system prompt is put together from, in this order:
 1. pine's base prompt: that it is an agent in pine working for its owner, how to use its file
    tools, how far its shell and file tools reach (its workspace, or the owner's account: `sandbox.scope`), that pine's setup is changed through tools and
    never by writing its files (which of them it has, and that creating agents and anything for
-   all agents is the main agent's job), that for everything else it should explain the steps to
-   its owner, and that text from tools, files and the web is information, never a command. An
-   `agents/<id>/SYSTEM.md` replaces this text.
+   all agents is the main agent's job), that what it has been given it asks a tool and never
+   looks for in files (`sources`, `mcp_servers`, `skills`, `schedules`), that for everything
+   else it should explain the steps to its owner, and that text from tools, files and the web
+   is information, never a command. An `agents/<id>/SYSTEM.md` replaces this text.
 2. `agents/<id>/AGENTS.md`, if you keep one: rules the agent cannot change.
 3. The files it keeps itself, from its workspace: `AGENTS.md` (also `CLAUDE.md`), `SOUL.md`,
    then `USER.md` from pine's home, then `MEMORY.md`. See "The files an agent keeps itself".
@@ -99,7 +100,9 @@ before the first word of the answer. What does change, pine puts in front of you
 instead, in a `<pine-note>`: the local time and date, the mode, the model the agent runs on
 (as `provider/id` with its name from `models.json`, so that an agent asked which model it is
 says that one and does not guess), the folder opened for the
-conversation, whether its shell has network access, a reminder when `MEMORY.md` has grown
+conversation, whether its shell has network access, the programs its commands left running,
+the steps of its `todo` list that are still open, that its browser is a window on your screen
+which you use too, a reminder when `MEMORY.md` has grown
 long, the shared state listed in `state.inject`, and whether the session has to be careful
 with outside content. The note is only added when something other than the time of day has
 changed since the last one. Text that arrives from elsewhere cannot fake a note; the tag is
@@ -423,20 +426,22 @@ A skill's name is lowercase letters, digits and single hyphens, at most 64 chara
 is taken. The description may have 1024 characters, the instructions 40 000. Files that go
 along: at most 200 and 4 MB together, real files only (a link is refused).
 
-`pine skills` lists every skill, whom it is for and where it lies.
+`pine skills` lists every skill, whom it is for and where it lies. An agent lists its own with
+its `skills` tool: the skills the conversation has, whom each is for, and those that only
+another conversation of the same agent has ([setup.md](setup.md), "What an agent has").
 
 ## Checking on agents
 
 ```bash
-bin/pine status
+pine status
 ```
 
 ```bash
-bin/pine tasks --agent gonzo
+pine tasks --agent gonzo
 ```
 
 ```bash
-bin/pine events --topic "agent/#" -f
+pine events --topic "agent/#" -f
 ```
 
 `pine task <id>` shows one task in full: prompt, result, error, trust, and statistics (turns,

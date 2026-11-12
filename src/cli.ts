@@ -158,7 +158,7 @@ async function mcpCommand(cfg: PineConfig, argv: string[], out: (v: unknown) => 
 			const servers = listServers(cfg);
 			if (!servers.length) return out("no MCP servers configured");
 			const states = flags.offline ? {} : await serverStates(cfg);
-			for (const s of servers) out(`${s.name.padEnd(14)} ${(s.enabled ? (states[s.name] ?? (s.remote ? "?" : "local")) : "disabled").padEnd(16)} ${s.scope === "global" ? `all: ${s.agents.join(", ") || "nobody"}` : `only ${s.scope}`}\n${" ".repeat(15)}${s.target}${s.taints ? "  [outside content]" : ""}${s.approve !== "never" ? `  [approval: ${s.approve}]` : ""}`);
+			for (const s of servers) out(`${s.name.padEnd(14)} ${(s.enabled ? (states[s.name] ?? (s.remote ? "?" : "local")) : "disabled").padEnd(16)} ${s.scope === "global" ? `all: ${s.agents.join(", ") || "nobody"}` : s.session ? `only the conversation ${s.session} of ${s.scope}` : `only ${s.scope}`}\n${" ".repeat(15)}${s.target}${s.taints ? "  [outside content]" : ""}${s.approve !== "never" ? `  [approval: ${s.approve}]` : ""}`);
 			return;
 		}
 		case "add": {

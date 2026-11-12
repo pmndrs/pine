@@ -99,6 +99,8 @@ export interface ServerInfo {
 	name: string;
 	/** "global", or the id of the agent that owns it. */
 	scope: string;
+	/** The one conversation of that agent that has it, when it was added for a conversation alone. */
+	session?: string;
 	/** Agents that end up with it. */
 	agents: string[];
 	target: string;
@@ -119,7 +121,7 @@ export function listServers(cfg: PineConfig): ServerInfo[] {
 		});
 		out.push({ name, scope: "global", agents: agents.map((a) => a.id), target: describe(s), remote: Boolean(s.url), taints: mcpTaints(s), approve: s.approve ?? "never", enabled: s.enabled !== false });
 	}
-	for (const a of Object.values(cfg.agents)) for (const [name, s] of Object.entries(a.mcp)) out.push({ name, scope: a.id, agents: [a.id], target: describe(s), remote: Boolean(s.url), taints: mcpTaints(s), approve: s.approve ?? "never", enabled: s.enabled !== false });
+	for (const a of Object.values(cfg.agents)) for (const [name, s] of Object.entries(a.mcp)) out.push({ name, scope: a.id, ...(s.session ? { session: s.session } : {}), agents: [a.id], target: describe(s), remote: Boolean(s.url), taints: mcpTaints(s), approve: s.approve ?? "never", enabled: s.enabled !== false });
 	return out;
 }
 

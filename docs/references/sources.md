@@ -214,12 +214,13 @@ unknown accounts get no answer at all and cause no question.
 | Option | Default | |
 |---|---|---|
 | `token` | | The bot's token. Create a bot by writing `/newbot` to @BotFather in Telegram; it answers with the token. Kept in `.env`. |
-| `allow` | pairing | Telegram user ids that may talk to the bot, if you know yours. Without it the bot is paired as described above. |
-| `approvals` | `true` | Approval requests are also sent to that chat, with buttons to answer them. `/allow` and `/deny` work too. A question the agent asks with its `question` tool arrives the same way, with one button for each answer it offers. |
+| `allow` | pairing | Telegram user ids that may talk to the bot, if you know yours. Without it the bot is paired as described above. With several ids, what the agent sends unasked and the approval requests go to the first. |
+| `approvals` | `true` | Approval requests are also sent to that chat, with buttons to answer them: Allow, Deny and, where a yes can be remembered for the conversation, Always. `/allow` and `/deny` work too (with the request's id when more than one is open). A question the agent asks with its `question` tool arrives the same way when it offers answers to pick from, with one button for each and one for "No answer"; an answer in your own words, and a question without answers to pick from, you type in the terminal UI. A request that needs a secret typed is never sent there. |
 | `apiBase` | Telegram's | The address of a Bot API server of your own. |
 
-Event `message`: `{ text, name, username, chatId, messageId, images? }`. A photo you send is
-shown to the model.
+Event `message`: `{ text, name, username, chatId, messageId, images? }`. A photo you send (up
+to 10 MB) is shown to the model. The bot listens only in its private chat with you: what is
+written in a group it was added to reaches no agent.
 
 What makes it different from the other types:
 
@@ -361,7 +362,9 @@ tool says which can and what each takes:
 Where things may go is the source's to decide, not the agent's: Telegram sends to your chat and
 nowhere else, MQTT only to the topics you listed. An answer to a message that came in through
 Telegram is sent back by itself; `send` is for what the agent says unasked. In a conversation
-that has read outside content, `send` asks you first, like every action that reaches out.
+that has read outside content, `send` is checked first, like every action that reaches out: by
+the reviewer, or by you with `security.review: "ask"` and in manual mode
+([security.md](security.md), "After outside content: the reviewer").
 
 A [route](events.md) can send the same way: `"reply": { "topic": "out/source/telegram@main" }`
 puts an agent's answer on Telegram, and an event published on `out/source/<name>` goes out
@@ -589,8 +592,9 @@ text that reads like an instruction.
 An event is therefore handed to the agent framed as data (see above), and the conversation it
 arrives in is marked as having read outside content, exactly as after the agent read a web
 page there. From then on the usual rules of [security.md](security.md) apply in that
-conversation: actions that send information out or act on the world ask you first, and bypass
-mode is paused.
+conversation: actions that send information out, reach out or change the agent's memory are
+checked by the reviewer before they run (with `security.review: "ask"` they ask you instead),
+and bypass mode is paused.
 
 `"trust": "owner"` on a source says: this is my own device, and nobody else can make it say
 things. Its events then leave no mark. Use it for a
@@ -725,8 +729,8 @@ The start function gets a `source` object:
 | `emit(event, payload?, opts?)` | Report something. `event` is a short lowercase word. With `opts.reply` (any fields, a chat to answer in for example) the answer of an agent that is woken by it comes back to `onSend`. |
 | `status(line)` | Say in one line how things stand (who it is connected to, what it waits for). Shown wherever sources are listed. |
 | `onSend(handler)` | For a source that can also send: called with an agent's answer (`text`, and the fields given as `reply`) and with what an agent sends on its own. Return a line on what was done; throw to refuse. |
-| `on(pattern, handler)` | Look at events of the system, read only: `agent/+/started`, `approval/requested`. |
-| `approvals` | `ask(summary, why)` puts a question of the source's own to you in pine's UI; `request(summary, why, inputs)` asks with fields you fill in and returns `{ allow, by, values }`; `pending()` and `decide(id, allow, by, always?)` let it pass on your answer to open requests. |
+| `on(pattern, handler)` | Look at events of the system, read only: `agent/+/started`, `approval/requested`. `pattern` is one topic pattern or a list. |
+| `approvals` | `ask(summary, why)` puts a question of the source's own to you in pine's UI; `request(summary, why, inputs)` asks with fields you fill in and returns `{ allow, by, values }`; `pending()` and `decide(id, allow, by, always?)` let it pass on your answer to open requests; `choose(id, n, by)` answers an agent's question (a request with `tool: "question"`) with the n-th of the answers it offers in `choices`, counted from 0. |
 | `key` | What it is called in events: its name, or `name@agent` for an agent's own. |
 | `poll(every, look)` | Look at something again and again: `look(signal)` runs once at the start and then every `every` (`"30s"`, `"5m"`), never twice at once. Throw from it for a failed look; pine backs off and shows it in the status. See "Looking again and again". |
 | `changed(value, slot?)` | Compare a value with the one of the last look and remember it. Returns `{ previous }` when it differs, nothing when it is the same or the first look. |

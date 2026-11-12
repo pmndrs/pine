@@ -116,7 +116,9 @@ App control acts as the owner, so the owner says where.
 - A **no** blocks the call. The agent says what it wanted to do and does not try another way.
 - In **bypass** mode nothing is asked. In **manual** mode every action waits for a go-ahead as
   all actions do there; looking (`apps`, `app_snapshot`, `app_screenshot`) does not, once the
-  app was allowed.
+  app was allowed. In **plan** mode the agent only looks, after the same yes per app; every
+  other tool here (`app_open`, `app_press`, `app_set_text`, `app_menu` also when it would only
+  list, clicking, typing) is refused without a question.
 - To be asked about every call to these tools, set `"approve": "always"` on the server
   ([mcp.md](mcp.md)).
 
@@ -201,6 +203,7 @@ Under `options` of the server's entry.
 | "... is the app pine itself runs in" | pine does not act in its own terminal app |
 | "... could not be brought to the front" | Something holds the screen: a system dialog, an app in full screen |
 | "not approved" | The owner said no to that app in this conversation |
+| "Not done: you are in plan mode" | The agent's mode is `plan`: it may look at apps and acts in none. The owner switches the mode when the plan is to be carried out |
 | "Operating apps uses your owner's whole account, which this conversation does not have" | `security.review` is `"ask"`, the conversation has read outside content, and the owner has not said that it keeps its full rights |
 | The tools are not in the agent's list | The agent's scope is its workspace, the run was started from outside, the system is not macOS, or the server is not configured |
 

@@ -32,7 +32,8 @@ asking it: two that wake it, and two that it uses while it works.
 
 Each of the four is set up for the conversation it was asked for in, for the agent, or (by the
 main agent only) for all agents. Only the main agent creates other agents and registers new
-types of event source. See [setup.md](setup.md).
+types of event source. What an agent has of each, and whom it is for, it asks a tool:
+`sources`, `schedules`, `mcp_servers`, `skills`. See [setup.md](setup.md).
 
 How pine itself works is not in an agent's prompt. An agent looks it up with its `manual`
 tool, which searches these pages ([agents.md](agents.md)).
@@ -101,6 +102,8 @@ Topics pine itself uses:
 | `agent/<id>/tool` | A tool call starts or ends (live only, not stored) |
 | `agent/<id>/todos` | The agent changed its list of steps (`items`, each with `text` and `status`; live only) |
 | `agent/<id>/steered` | A message was given to a task that was already working (`task`), instead of becoming work of its own (live only) |
+| `agent/<id>/goal` | The goal of a conversation was set, judged, paused, resumed or cleared (the goal with its `objective`, `status`, `round`, `note` and the judge's `reason`, and `event`: what just happened) |
+| `agent/<id>/blocked` | The reviewer did not let the agent make a tool call (`session`, `tool`, `subject`, `rule`, `reason`) |
 | `agent/<id>/undone`, `agent/<id>/redone` | The owner took back their last message in a conversation, or brought it back (`session`, `message`, how many `tasks` and `files`) |
 | `agent/<id>/delta`, `agent/<id>/thinking`, `agent/<id>/message` | Streamed answer text; what the model thinks (`phase: "start"`, then pieces of `text`, then `phase: "end"` with `ms`); the end of a model message with token counts (live only) |
 | `state/<key>` | Shared state changes |
@@ -137,7 +140,9 @@ Three things start work, and the first two need nothing written by hand:
 A task is a prompt for one agent in one session. Tasks for the same session run one after another;
 different sessions run side by side, limited by `limits.maxConcurrentRuns` model slots. A run
 that only waits (for a delegated task, for sub-agents, for an approval) gives its slot up
-meanwhile, so a chain of agents works even with one slot.
+meanwhile, so a chain of agents works even with one slot. One exception to "one after
+another": a message sent with `"whenBusy": "steer"`, as the terminal UI sends yours, is given
+to the task that is working and read at its next step ([agents.md](agents.md), "Sessions").
 
 A session is a pi `AgentSession`: the model loop, tool calls, compaction and retries are pi's.
 Named sessions are stored as JSONL under `agents/<id>/sessions/<key>/` and survive restarts.

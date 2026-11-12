@@ -952,7 +952,7 @@ export interface TuiOptions {
 	/** MCP server administration that needs this machine: connection states and browser sign-in. */
 	mcp?: {
 		/** The configured servers. `states` also asks each one whether it connects, which takes a moment. */
-		list(states?: boolean): Promise<Array<{ name: string; scope: string; agents: string[]; target: string; state?: string }>>;
+		list(states?: boolean): Promise<Array<{ name: string; scope: string; session?: string; agents: string[]; target: string; state?: string }>>;
 		login(name: string, onOutput: (text: string) => void): Promise<number>;
 	};
 }
@@ -2031,7 +2031,7 @@ export class PineTui {
 				},
 			},
 			{
-				name: "code", description: "The pane beside the conversation: changes (git), files, tool output", argumentHint: "[changes|files|output|off]",
+				name: "code", description: "The pane beside the conversation: changes (git), files, tool output", argumentHint: "[changes|files|output|running|blocked|turn|off]",
 				getArgumentCompletions: (prefix) => [...PANE_VIEWS, "turn", "off"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v, description: PANE_HELP[v] })),
 				run: (args) => {
 					const word = args.trim().toLowerCase();
@@ -2086,6 +2086,7 @@ export class PineTui {
 					[
 						{ value: "manual", label: "manual", description: "ask before every action" },
 						{ value: "auto", label: "auto", description: "work freely within the agent's reach, ask for the rest" },
+						{ value: "plan", label: "plan", description: "look and plan only; nothing is changed or sent" },
 						{ value: "bypass", label: "bypass", description: "never ask; shell and files reach your whole account" },
 					].filter((m) => m.value.startsWith(prefix.trim())),
 				run: async (args) => {
@@ -2191,7 +2192,7 @@ export class PineTui {
 					const [sub, given] = args.trim().split(/\s+/);
 					const table = (servers: Awaited<ReturnType<typeof mcp.list>>, checking: boolean) =>
 						servers.length
-							? servers.map((sv) => `${c.bold(sv.name.padEnd(14))} ${(/^connected/.test(sv.state ?? "") ? c.green : /sign-in/.test(sv.state ?? "") ? c.yellow : c.gray)((sv.state ?? (checking ? "checking…" : "")).padEnd(16))} ${c.gray(sv.scope === "global" ? `all agents: ${sv.agents.join(", ") || "nobody"}` : `only ${sv.scope}`)}\n${" ".repeat(15)}${c.gray(sv.target)}`).join("\n")
+							? servers.map((sv) => `${c.bold(sv.name.padEnd(14))} ${(/^connected/.test(sv.state ?? "") ? c.green : /sign-in/.test(sv.state ?? "") ? c.yellow : c.gray)((sv.state ?? (checking ? "checking…" : "")).padEnd(16))} ${c.gray(sv.scope === "global" ? `all agents: ${sv.agents.join(", ") || "nobody"}` : !sv.session ? `only ${sv.scope}` : sv.scope === t.agent && sv.session === t.session ? "only this conversation" : `only the conversation ${sv.session} of ${sv.scope}, not this one`)}\n${" ".repeat(15)}${c.gray(sv.target)}`).join("\n")
 							: c.gray("no MCP servers configured");
 					if (!sub) {
 						// Show what is configured at once; whether each server connects arrives a moment later.

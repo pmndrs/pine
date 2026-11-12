@@ -70,7 +70,7 @@ when no folder is open. In a terminal of 100 columns or more it takes half the w
 ```
  pine  1 main ×  2 main·shop ×   +                                                  ▤ code
 ───────────────────────────────────────────────────────────────────────────────────────────
- make the total include shipping          │  Changes   Files   Output                 ↻  ×
+ make the total include shipping          │  Changes  Files  Output  Running  Blocked ↻  ×
                                           │ main · 2 changed · ~/dev/shop
  ✓ edit src/cart.ts 12 ms                 │─────────────────────────────────────────────────
  ✓ bash npm test 2.1 s                    │ M src/cart.ts  +4 −1
@@ -298,7 +298,10 @@ The control API ([operations.md](operations.md)) has the same things:
 | `GET /agents/<id>/view/diff?session=&path=` | The diff of one file (path from the top of the repository) |
 | `GET /agents/<id>/view/tree?session=&path=` | What is in one folder (path from the conversation's folder) |
 | `GET /agents/<id>/view/file?session=&path=` | A file's text |
+| `GET /agents/<id>/view/find?session=&q=` | The files of the conversation's folder whose name fits a few letters: what `@` offers |
 | `GET /tasks/<id>/transcript?full=1` | A task's steps with the whole output of each tool call |
+| `GET /agents/<id>/programs?session=`, `POST /agents/<id>/programs/stop` `{ session, id }` | What the conversation's commands left running, background commands among them, and stopping one |
+| `GET /agents/<id>/blocked?session=`, `POST /agents/<id>/blocked/allow` `{ session, id }` | What the reviewer blocked in the conversation, and allowing one of those calls once |
 | `POST /agents/<id>/undo` `{ session }` | Take back your last message in a conversation. The answer has the message's text (`prompt`), what was restored (`restored`: `root`, the counts `changed`, `removed` and `back`, the first `files`, and `left` for files too large to record), a `note` when no file was restored, `stopped`, how many messages a redo can bring back (`redo`), and whether there is another message to take back (`more`) |
 | `POST /agents/<id>/redo` `{ session }` | Bring back what the last undo took. The same answer |
 | `GET /agents/<id>/view/turn?session=` | What your last message changed in the conversation's folder: `files` with their line counts, or a `note` saying why there is nothing |
