@@ -52,12 +52,26 @@ const show = (cmd: string, args: string[], cwd?: string) => spawnSync(cmd, args,
 const RESTART = "A pine that is running keeps the old version until it is restarted: quit the terminal UI and open it again, or restart the daemon.";
 
 /**
+ * What to say after an update, and whether it worked: the version on disk has to be the one
+ * that was asked for. npm can say that a version exists and still install an older one for a
+ * few minutes after it was published (its two answers come from different places), and
+ * "pine is now <the old version>" must not read like success.
+ */
+export function outcome(name: string, wanted: string | undefined, now: string): { ok: boolean; text: string } {
+	if (wanted && newer(wanted, now)) {
+		return { ok: false, text: `\nNot updated: pine is still ${now}. npm knows ${wanted} but did not install it; that happens for a few minutes after a version is published. Run "pine update" again in a moment, or install it by its number:\n\n  npm install -g ${name}@${wanted}` };
+	}
+	return { ok: true, text: `\npine is now ${now}. ${RESTART}` };
+}
+
+/**
  * Update pine, or with `check` only say whether there is something newer. Returns the exit code.
  * `browser` fetches the browser build of the version that is on disk afterwards.
  */
 export async function update(opts: { check: boolean; out: (line: string) => void; browser: boolean }): Promise<number> {
 	const { out } = opts;
 	const me = installed();
+	let wanted: string | undefined;
 
 	if (me.kind === "checkout") {
 		const branch = capture("git", ["rev-parse", "--abbrev-ref", "HEAD"], me.root) ?? "?";
@@ -105,19 +119,26 @@ export async function update(opts: { check: boolean; out: (line: string) => void
 			return 0;
 		}
 		out(`Updating pine ${me.version} to ${latest} ...`);
-		if (show("npm", ["install", "-g", `${me.name}@latest`, "--no-audit", "--no-fund"]) !== 0) {
-			out(`npm could not install the new version. Run it yourself to see why:\n\n  npm install -g ${me.name}@latest`);
+		wanted = latest;
+		// By its number, not as "latest": npm then installs this version or says that it cannot.
+		if (show("npm", ["install", "-g", `${me.name}@${latest}`, "--no-audit", "--no-fund"]) !== 0) {
+			out(`npm could not install ${latest}. Right after a version is published that can take a few minutes: run "pine update" again in a moment. To see why, run it yourself:\n\n  npm install -g ${me.name}@${latest}`);
 			return 1;
 		}
 	}
 
+	// The version on disk decides whether it worked, not what npm said it would do.
+	const done = outcome(me.name, wanted, installed(me.root).version);
+	if (!done.ok) {
+		out(done.text);
+		return 1;
+	}
 	// The browser build has to match the new version, so the new version's own installer fetches it.
 	if (opts.browser) {
 		out("Making sure the browser the web tools drive matches ...");
 		const status = show(process.execPath, [path.join(me.root, "bin", "pine.js"), "browser-install"]);
 		if (status !== 0) out(`The browser could not be fetched (exit ${status}). Run "pine browser-install" when you are online.`);
 	}
-	const now = installed(me.root);
-	out(`\npine is now ${now.version}. ${RESTART}`);
+	out(done.text);
 	return 0;
 }
