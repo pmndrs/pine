@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type AgentConfig, effectiveMcp, mainAgentId, type McpServerConfig, PINE_ROOT, sandboxScope } from "./config.ts";
+import { type AgentConfig, effectiveMcp, mainAgentId, type McpServerConfig, PINE_ROOT, RESERVED_TOPICS, sandboxScope } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
 import { addRoute, type AgentChange, applyAgentChange, applySetting, checkAgentChange, checkRoute, checkSetting, dropRoute, routesText, SETTINGS, settingsText } from "./admin.ts";
 import type { AgentManager, Live, Profile } from "./agents.ts";
@@ -19,9 +19,6 @@ import { localTime } from "./timers.ts";
 import { errText, matchesAny, parseDuration, programName, safeName, since, truncate } from "./util.ts";
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
-
-/** Topics only the daemon itself may publish on. */
-export const RESERVED_TOPICS = ["approval/#", "agent/#", "pine/#", "state/#", "timer/#"];
 
 const parseLoose = (s: string | undefined): unknown => {
 	if (s === undefined || s === "") return undefined;

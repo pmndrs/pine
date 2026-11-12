@@ -71,7 +71,7 @@ test("the command line drives a running daemon", async (t) => {
 	await h.close();
 });
 
-test("pine agent list, add and remove: in the files when no daemon runs, through the daemon when one does; a removed agent leaves nothing", async (t) => {
+test("pine agent list, add, update and remove: in the files when no daemon runs, through the daemon when one does; a removed agent leaves nothing", async (t) => {
 	const port = await freePort();
 	const h = await harness({
 		pine: { http: { port }, logLevel: "warn", routes: [{ name: "wake-old", on: "test/old", agent: "old", prompt: "x" }, { name: "keep", on: "test/keep", set: { seen: "yes" } }] },
@@ -93,6 +93,14 @@ test("pine agent list, add and remove: in the files when no daemon runs, through
 	assert.match(await fails("agent", "add", "Bad Id", "--description", "x"), /is not a usable agent id/);
 	assert.match(await fails("agent", "add", "books", "--description", "again"), /an agent called books exists already/);
 	assert.match(await fails("agent", "add", "nodesc"), /usage: pine agent add <id> --description/);
+
+	// Changing an agent in the files: only what is given changes, the rest stays.
+	assert.match(await pine("agent", "update", "books", "--description", "Does the books now", "--tools", "read,bash,grep"), /^Updated the agent books \(it is there when pine is started\):\n  description: Does the books now\n  built-in tools: read, grep -> read, bash, grep$/);
+	assert.deepEqual(json(file("agents", "books", "agent.json")), { description: "Does the books now", tools: ["read", "bash", "grep"] });
+	assert.match(await fails("agent", "update", "ghost", "--description", "x"), /there is no agent "ghost"/);
+	assert.match(await fails("agent", "update", "books"), /nothing to change/);
+	// A model change is the one thing the files cannot check: it waits for a running daemon.
+	assert.match(await fails("agent", "update", "books", "--model", "mock/other"), /changing the model needs a running daemon/);
 
 	// Removing asks first, and says what goes.
 	fs.mkdirSync(file("sandbox", "old", "tmp"), { recursive: true });
@@ -126,6 +134,9 @@ test("pine agent list, add and remove: in the files when no daemon runs, through
 	assert.match(await pine("agent", "add", "scout", "--description", "Looks things up", "--instructions", "You are SCOUT."), /^Created the agent scout .* Talk to it with: pine send scout "\.\.\."$/);
 	assert.equal(await pine("send", "scout", "are you there"), "ECHO[are you there]", "it exists without a restart");
 	assert.deepEqual(JSON.parse(await pine("agents")).map((a: any) => a.id).sort(), ["aide", "books", "main", "scout"]);
+	// The daemon changes a running agent at once; it holds from its next message on.
+	assert.match(await pine("agent", "update", "scout", "--thinking", "high", "--mode", "manual"), /^Updated the agent scout; it holds from its next message on:\n  reasoning: off -> high\n  mode: auto -> manual$/);
+	assert.match(await pine("agent", "list"), /scout: Looks things up\n    model .* · reasoning high · mode manual/);
 	const out = await pine("agent", "remove", "scout", "--yes", "--keep-files");
 	assert.match(out, /Its folder is kept: moved to .*removed/);
 	assert.match(out, /Removed the agent scout\. Its folder is kept at .*removed\/scout-/);
