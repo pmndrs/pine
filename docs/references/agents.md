@@ -92,7 +92,8 @@ To show you a picture, an agent writes `![caption](path)` in its answer, with a 
 workspace. The terminal UI draws it (see [tui.md](tui.md)); pine's base prompt tells every agent
 this. A picture from the web it downloads first and then shows the file. A video file is shown
 the same way and can be played in the conversation, and so is a sound file (`![caption](hello.wav)`;
-wav, mp3, m4a, ogg or flac): the terminal UI plays it, see [tui.md](tui.md). A picture that a tool returned (a
+wav, mp3, m4a, ogg or flac): the terminal UI plays it, see [tui.md](tui.md). The agent is told
+not to play a sound with a command of its own (`afplay`), which you could neither pause nor see. A picture that a tool returned (a
 screenshot, an image an MCP server made) is drawn where the tool ran, and the agent is told not
 to show it a second time.
 
