@@ -62,6 +62,8 @@ interface Tab {
 	awaiting: string[];
 	/** The assistant message currently being streamed, per task. */
 	blocks: Map<number, { md: Answer; text: string }>;
+	/** What a task's model is thinking right now, per task. */
+	thoughts: Map<number, Thought>;
 	tools: Map<string, { line: Text; label: string }>;
 	/** Text of the message a task streamed last, so a finished task's answer is not shown twice. */
 	streamed: Map<number, string>;
@@ -334,6 +336,76 @@ class Button implements Component {
 	handleMouse(e: any) {
 		if (e.button !== "left" || (e.type !== "press" && e.type !== "click" && e.type !== "release")) return undefined;
 		if (e.type === "click") this.run();
+		return { handled: true, render: true };
+	}
+}
+
+/** How many lines of a thought are shown while it is being thought. */
+const PEEK = 4;
+
+/**
+ * What a model thought before it answered. While it thinks, its last few lines are shown. A click
+ * opens all of it, and a click anywhere on it closes it again, so there is nothing small to find
+ * after scrolling. A thought that was not opened becomes one line when the thinking ends.
+ */
+class Thought implements Component {
+	open = false;
+	done = false;
+	/** The width it was last drawn at, for working out where it lies in the conversation. */
+	width = 80;
+	private text = "";
+	private started = Date.now();
+	private ms?: number;
+	private toggled: (thought: Thought) => void;
+	private wrapped?: { width: number; lines: string[] };
+
+	constructor(toggled: (thought: Thought) => void) {
+		this.toggled = toggled;
+	}
+
+	append(text: string): void {
+		this.text += text;
+		this.wrapped = undefined;
+	}
+
+	/** The thinking is over. `ms` is how long it took; `null` when nobody knows (a thought read back from a session). */
+	finish(ms?: number | null): void {
+		if (this.done) return;
+		this.done = true;
+		this.ms = ms === null ? undefined : (ms ?? Date.now() - this.started);
+	}
+
+	invalidate(): void {
+		this.wrapped = undefined;
+	}
+
+	private lines(width: number): string[] {
+		if (this.wrapped?.width !== width) {
+			// A model's text, shown as it is: nothing in it may move the cursor or colour the screen.
+			const clean = stripTerminalSequences(this.text).replace(/\t/g, "  ").replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").replace(/\n{3,}/g, "\n\n").trim();
+			this.wrapped = { width, lines: clean ? wrapTextWithAnsi(clean, Math.max(10, width - 4)) : [] };
+		}
+		return this.wrapped.lines;
+	}
+
+	render(width: number): string[] {
+		this.width = width;
+		const all = this.lines(width);
+		const secs = Math.max(1, Math.round((this.done ? (this.ms ?? 0) : Date.now() - this.started) / 1000));
+		const took = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+		const what = this.done ? (this.ms === undefined ? "thought" : `thought for ${took}`) : `thinking ${took}`;
+		const body = (lines: string[]) => lines.map((l) => ` ${c.gray(`│ ${l}`)}`);
+		if (this.open) return [` ${c.gray(`▾ ${what} · click anywhere on it to close`)}`, ...body(all), ...(all.length > PEEK ? [` ${c.gray("▴ close")}`] : [])];
+		const head = ` ${c.gray(`▸ ${what}${all.length ? " · click to read" : ""}`)}`;
+		return this.done ? [head] : [head, ...body(all.slice(-PEEK))];
+	}
+
+	handleMouse(e: any) {
+		if (e.button !== "left" || (e.type !== "press" && e.type !== "click" && e.type !== "release")) return undefined;
+		if (e.type === "click") {
+			this.open = !this.open;
+			this.toggled(this);
+		}
 		return { handled: true, render: true };
 	}
 }
@@ -919,7 +991,7 @@ export class PineTui {
 				{ component: body, basis: 0, grow: 1, shrink: 1, minSize: 1 },
 				{ component: this.dock, basis: "auto", grow: 0, shrink: 1, minSize: 1 },
 			]),
-			roots: new Set(), running: new Set(), awaiting: [], blocks: new Map(), tools: new Map(), streamed: new Map(), approvals: new Map(), baseDepth: 0, children: new Map(),
+			roots: new Set(), running: new Set(), awaiting: [], blocks: new Map(), thoughts: new Map(), tools: new Map(), streamed: new Map(), approvals: new Map(), baseDepth: 0, children: new Map(),
 			unread: false, startedAt: 0, toolCalls: 0, tokens: { input: 0, output: 0, cached: 0 }, thinking: false, lines: [], attachments: [], pauseNoted: false,
 		};
 		this.tabs.push(tab);
@@ -996,7 +1068,11 @@ export class PineTui {
 			this.add(tab, new Answer(e.text ?? ""));
 			return this.answerPictures(tab, tab.agent, e.text, false);
 		}
-		if (e.kind === "thinking") return void this.say(tab, c.gray(`thinking: ${short(oneLine(e.text ?? ""), 400)}`));
+		if (e.kind === "thinking") {
+			const thought = this.thought(tab);
+			thought.append(e.text ?? "");
+			return thought.finish(null);
+		}
 		const mark = e.ok === undefined ? c.yellow("●") : e.ok ? c.green("✓") : c.red("✗");
 		const took = e.ms !== undefined ? c.gray(` ${e.ms < 1000 ? `${Math.round(e.ms)} ms` : `${(e.ms / 1000).toFixed(1)} s`}`) : "";
 		const result = e.result ? `\n  ${(e.ok === false ? c.red : c.gray)(short(oneLine(e.result), 240))}` : "";
@@ -1143,6 +1219,43 @@ export class PineTui {
 		const t = new Text(text, 1, 0);
 		this.add(tab, t, gap);
 		return t;
+	}
+
+	/** A place for what a model thinks. Opening and closing it keeps it in the window. */
+	private thought(tab: Tab): Thought {
+		const thought = new Thought((t) => {
+			const scroll = tab.scroll;
+			if (t.open) {
+				// It grows downwards from its first line. A window that follows the end would run after
+				// the end and take that line out of sight, so it stays where it is.
+				if (scroll.isFollowingEnd && this.rowOf(tab) - scroll.viewportHeight > this.rowOf(tab, t)) scroll.scrollTo(scroll.scrollTop, { disableFollow: true });
+			} else {
+				// Closed from far down in it: the one line that is left must not end up above the window.
+				const top = this.rowOf(tab, t);
+				if (top < scroll.scrollTop) scroll.scrollTo(top);
+			}
+			this.tui.requestRender();
+		});
+		this.add(tab, thought);
+		return thought;
+	}
+
+	/** The row of the conversation at which a component begins; without one, how many rows there are. */
+	private rowOf(tab: Tab, inner?: Thought): number {
+		let width = inner?.width;
+		if (width === undefined) for (const child of tab.doc.children) if (child instanceof Linked && child.inner instanceof Thought) width = child.inner.width;
+		let row = 0;
+		for (const child of tab.doc.children) {
+			if (inner && child instanceof Linked && child.inner === inner) return row;
+			row += child.render(width ?? 80).length;
+		}
+		return row;
+	}
+
+	/** A task's model stopped thinking: what it thought is closed, or stays open if somebody opened it. */
+	private endThought(tab: Tab, task: number, ms?: number): void {
+		tab.thoughts.get(task)?.finish(ms);
+		tab.thoughts.delete(task);
 	}
 
 	/** A line that opens something on a click. */
@@ -1851,7 +1964,7 @@ export class PineTui {
 		const cmds = this.commands.filter((x) => x.name !== "exit").map((x) => `  ${c.accent(`/${x.name}`)}${x.argumentHint ? c.gray(` ${x.argumentHint}`) : ""}${" ".repeat(Math.max(1, 24 - x.name.length - (x.argumentHint?.length ?? -1) - 2))}${x.description}`);
 		const keys = [
 			["enter", "send"], ["shift+enter", "new line"], ["esc", "stop the agent"], ["tab", "next tab (when the input is empty)"], ["shift+tab", "next mode: auto, manual, bypass (when the input is empty)"],
-			["alt+1..9", "go to tab"], ["ctrl+t", "new conversation"], ["ctrl+w", "close tab"], ["ctrl+g", "open or close the code pane (changes, files, tool output)"], ["pgup / pgdn", "scroll"], ["mouse", "click a tab, its ×, +, ▤ code, a web address, or agent / conversation / folder / model / reasoning / mode in the bottom bar; drop files to attach"], ["ctrl+c twice, ctrl+d", "quit"],
+			["alt+1..9", "go to tab"], ["ctrl+t", "new conversation"], ["ctrl+w", "close tab"], ["ctrl+g", "open or close the code pane (changes, files, tool output)"], ["pgup / pgdn", "scroll"], ["mouse", "click a tab, its ×, +, ▤ code, a web address, a thought (to open it, and anywhere on it to close it), or agent / conversation / folder / model / reasoning / mode in the bottom bar; drop files to attach"], ["ctrl+c twice, ctrl+d", "quit"],
 		].map(([k, d]) => `  ${c.accent(k.padEnd(22))} ${d}`);
 		this.say(this.active, [c.bold("Commands"), ...cmds, "", c.bold("Keys"), ...keys].join("\n"));
 	}
@@ -1981,11 +2094,22 @@ export class PineTui {
 				tab.children.set(p.task, { agent: p.agent, kind: p.kind, label: short(oneLine(String(p.label ?? p.prompt ?? "")), 60), running: true });
 				this.button(tab, `${indent}${c.magenta("↳")} ${c.bold(p.agent)} ${c.gray(`${childKind(p.kind)} #${p.task}: ${short(oneLine(String(p.label ?? p.prompt ?? "")), 80)}`)} ${open}`, () => void this.openTask(p.task));
 				break;
-			case "thinking":
+			case "thinking": {
+				if (p.phase === "end") {
+					tab.thinking = false;
+					this.endThought(tab, p.task, p.ms);
+					break;
+				}
 				tab.thinking = true;
+				if (depth > 0 || !p.text) break; // a child's thoughts stay with the child, like its prose
+				let thought = tab.thoughts.get(p.task);
+				if (!thought) tab.thoughts.set(p.task, (thought = this.thought(tab)));
+				thought.append(p.text);
 				break;
+			}
 			case "delta": {
 				tab.thinking = false;
+				this.endThought(tab, p.task);
 				if (depth > 0) break; // a child's prose stays with the child (its own tab shows it); its answer reaches the parent as a tool result
 				let block = tab.blocks.get(p.task);
 				if (!block) {
@@ -1998,6 +2122,7 @@ export class PineTui {
 				break;
 			}
 			case "message":
+				this.endThought(tab, p.task);
 				if (tab.blocks.has(p.task)) {
 					tab.streamed.set(p.task, tab.blocks.get(p.task)!.text);
 					this.answerPictures(tab, p.agent, tab.blocks.get(p.task)!.text);
@@ -2010,6 +2135,7 @@ export class PineTui {
 				break;
 			case "tool": {
 				tab.thinking = false;
+				this.endThought(tab, p.task);
 				tab.blocks.delete(p.task);
 				tab.streamed.delete(p.task);
 				const key = `${p.task}:${p.call}`;
@@ -2034,6 +2160,7 @@ export class PineTui {
 			case "failed": {
 				const block = tab.blocks.get(p.task);
 				tab.blocks.delete(p.task);
+				this.endThought(tab, p.task);
 				if (depth > 0) {
 					const child = tab.children.get(p.task);
 					if (child) child.running = false;

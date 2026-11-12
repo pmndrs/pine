@@ -1002,10 +1002,15 @@ export class AgentManager {
 			// Live activity for viewers (the TUI, `pine events -f`). None of it is stored.
 			const live_ = { persist: false, source } as const;
 			let pendingText = "";
+			let pendingThought = "";
+			let thoughtAt = 0;
 			let flushTimer: NodeJS.Timeout | undefined;
 			const flush = () => {
 				clearTimeout(flushTimer);
 				flushTimer = undefined;
+				// What the model thought comes before what it then said.
+				if (pendingThought) this.bus.publish(`agent/${agent.id}/thinking`, { ...ids, text: pendingThought }, live_);
+				pendingThought = "";
 				if (!pendingText) return;
 				this.bus.publish(`agent/${agent.id}/delta`, { ...ids, text: pendingText }, live_);
 				pendingText = "";
@@ -1016,7 +1021,15 @@ export class AgentManager {
 					pendingText += e.assistantMessageEvent.delta ?? "";
 					flushTimer ??= setTimeout(flush, 40);
 				} else if (e.type === "message_update" && e.assistantMessageEvent?.type === "thinking_start") {
-					this.bus.publish(`agent/${agent.id}/thinking`, ids, live_);
+					thoughtAt = Date.now();
+					this.bus.publish(`agent/${agent.id}/thinking`, { ...ids, phase: "start" }, live_);
+				} else if (e.type === "message_update" && e.assistantMessageEvent?.type === "thinking_delta") {
+					pendingThought += e.assistantMessageEvent.delta ?? "";
+					flushTimer ??= setTimeout(flush, 40);
+				} else if (e.type === "message_update" && e.assistantMessageEvent?.type === "thinking_end") {
+					flush();
+					this.bus.publish(`agent/${agent.id}/thinking`, { ...ids, phase: "end", ms: thoughtAt ? Date.now() - thoughtAt : undefined }, live_);
+					thoughtAt = 0;
 				} else if (e.type === "message_end" && e.message?.role === "assistant") {
 					flush();
 					if (e.message.usage) {

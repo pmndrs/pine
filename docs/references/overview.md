@@ -99,7 +99,7 @@ Topics pine itself uses:
 |---|---|
 | `agent/<id>/started`, `agent/<id>/done`, `agent/<id>/failed` | A task starts or ends |
 | `agent/<id>/tool` | A tool call starts or ends (live only, not stored) |
-| `agent/<id>/delta`, `agent/<id>/thinking`, `agent/<id>/message` | Streamed answer text, the start of a thinking phase, the end of a model message with token counts (live only) |
+| `agent/<id>/delta`, `agent/<id>/thinking`, `agent/<id>/message` | Streamed answer text; what the model thinks (`phase: "start"`, then pieces of `text`, then `phase: "end"` with `ms`); the end of a model message with token counts (live only) |
 | `state/<key>` | Shared state changes |
 | `timer/<name>` | A schedule fires (`timer/<name>@<agent>` for an agent's own; `topic` on the schedule overrides it) |
 | `source/<name>/<event>` | An event source reports something (`source/<name>@<agent>/<event>` for an agent's own source) |

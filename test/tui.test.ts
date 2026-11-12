@@ -729,3 +729,59 @@ test("tui: an answer's markdown is drawn, not shown raw: code in colour without 
 	assert.ok(t.app.tui.getScreenLines().some((l) => l.includes("\x1b[31m-old line")), "the removed line is red");
 	await t.close();
 });
+
+test("tui: what a model thinks is a few lines while it thinks and one line after; a click opens it and a click anywhere on it closes it", async () => {
+	const t = await open({ agents: { main: {} }, model: { reasoning: true } }, [110, 40]);
+	await t.sees("type a message");
+	const rows = () => t.app.screen();
+	// A line of the thought itself, not of the typed message that scripted it.
+	const thought = (n: number) => rows().some((l) => l.startsWith(` │ step-${n} `));
+	const rowOf = (what: string) => rows().findIndex((l) => l.includes(what));
+	const steps = (n: number) => Array.from({ length: n }, (_, i) => `step-${i + 1} of the plan`).join("\n");
+
+	// While it thinks: the last few lines, and how long it has been at it.
+	await t.send(mockMsg([{ reasoning: steps(8), reasoningHoldMs: 500, text: "The answer is 4." }]));
+	await t.sees(/▸ thinking \d+s · click to read/);
+	await until(() => thought(8), 2000, "the end of the thought");
+	assert.ok(thought(5) && !thought(4), `only the last four lines\n${t.text()}`);
+
+	// Nobody opened it: one line once the answer begins.
+	await t.sees("The answer is 4.");
+	await t.sees(/▸ thought for \d+s · click to read/);
+	assert.ok(!thought(8) && !/thinking \d+s/.test(t.text()), `closed to one line\n${t.text()}`);
+
+	// A click opens all of it; a click in the middle of it closes it.
+	t.term.click(6, rowOf("▸ thought for"));
+	await until(() => thought(1) && thought(8), 2000, "the whole thought");
+	assert.match(t.text(), /▾ thought for \d+s · click anywhere on it to close/);
+	t.term.click(30, rows().findIndex((l) => l.startsWith(" │ step-4 ")));
+	await until(() => !thought(4), 2000, "the thought to close");
+	assert.match(t.text(), /▸ thought for \d+s/);
+	assert.ok(t.text().includes("The answer is 4."));
+
+	// Opened while it thinks: it stays open when the thinking ends.
+	await t.send(mockMsg([{ reasoning: steps(6).replaceAll("step", "move"), reasoningHoldMs: 500, text: "Second answer." }]));
+	await t.sees(/▸ thinking \d+s/);
+	t.term.click(6, rowOf("▸ thinking"));
+	await t.sees(/▾ thinking \d+s · click anywhere on it to close/);
+	await t.sees("Second answer.");
+	await t.sees(/▾ thought for \d+s/);
+	assert.ok(rows().some((l) => l.startsWith(" │ move-1 ")), `still open\n${t.text()}`);
+	t.term.click(6, rowOf("▾ thought for"));
+	await until(() => !rows().some((l) => l.startsWith(" │ move-1 ")), 2000, "the second thought to close");
+
+	// A thought longer than the window, closed from far down in it: the line that is left is in view.
+	await t.send(mockMsg([{ reasoning: steps(90).replaceAll("step", "long"), text: "Third answer." }]));
+	await t.sees("Third answer.");
+	const closed = rows().flatMap((l, y) => (/▸ thought for/.test(l) ? [y] : [])).at(-1)!;
+	t.term.click(6, closed);
+	await until(() => rows().some((l) => l.startsWith(" │ long-1 ")), 2000, "the long thought to open");
+	assert.ok(rows().some((l) => l.includes("▾ thought for")), `its first line stays in view when it opens\n${t.text()}`);
+	t.term.type(["\x1b[6~", "\x1b[6~"]);
+	await until(() => !rows().some((l) => l.includes("▾ thought for")) && rows().some((l) => /^ │ long-\d+ /.test(l)), 2000, "the window to be inside the thought");
+	t.term.click(30, rows().findIndex((l) => /^ │ long-\d+ /.test(l)) + 3);
+	await until(() => !rows().some((l) => /^ │ long-\d+ /.test(l)), 2000, "the long thought to close");
+	const left = rows().findIndex((l) => /▸ thought for/.test(l));
+	assert.ok(left >= 0 && rowOf("Third answer.") > left, `the one line that is left is in view, with the answer under it\n${t.text()}`);
+	await t.close();
+});

@@ -126,6 +126,9 @@ export async function startMock(opts = {}) {
 
 		if (step.reasoning) {
 			for (let i = 0; i < step.reasoning.length; i += 24) res.write(chunk({ reasoning_content: step.reasoning.slice(i, i + 24) }));
+			// A model that is still thinking: nothing more comes for this long.
+			if (step.reasoningHoldMs) await sleep(step.reasoningHoldMs);
+			if (res.destroyed) return;
 		}
 		const text = step.text ?? "";
 		for (let i = 0; i < text.length; i += 24) {

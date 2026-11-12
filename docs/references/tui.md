@@ -15,6 +15,8 @@ running it attaches to it; otherwise it starts one inside the same process, logs
 ──────────────────────────────────────────────────────────────────────────
  what is on the front page of example.com?                                 ← you
 
+ ▸ thought for 6s · click to read                                          ← what the model thought; click to open
+
  ● browser_navigate https://example.com                                    ← tool call, running
  ✓ browser_navigate https://example.com 1.2 s                              ← finished
    ↳ scout delegated task #8: summarise the page ▸ open                    ← work handed on; click to look at it
@@ -53,6 +55,7 @@ Everything in the two bars reacts to a click.
 | The mode (`auto`, `manual`, `bypass`) | The three modes |
 | A button in an approval dialog | Allow once, Always here, Deny or Later |
 | Anywhere beside an open list or dialog | It closes (an approval stays open for later). The click does nothing else |
+| A `▸ thinking` or `▸ thought for` line, or the lines under it | What the model thought opens in full. A click anywhere on the open text closes it again. See [What a model thinks](#what-a-model-thinks) |
 | A web address in the conversation | It opens in your browser |
 | A picture | It is enlarged; a second click shrinks it again |
 | A video's picture | It is enlarged or shrunk; playback carries on |
@@ -314,6 +317,28 @@ player. A video at a web address waits for a click, like a picture.
 
 All of this is display. The model is never sent the drawing; it gets the actual picture if it
 can look at images, exactly as before.
+
+## What a model thinks
+
+A model that reasons before it answers (`/reasoning`, and a model that can) sends its thoughts
+ahead of the answer. The conversation shows them like this:
+
+| When | What is shown |
+|---|---|
+| While the model thinks | `▸ thinking 4s` and under it the last four lines of the thought, moving as it goes on |
+| When the thinking ends | One line, `▸ thought for 12s`. The answer or the tool call follows under it |
+| After a click on it, at either time | `▾` and the whole thought, however long. One that you opened stays open when the thinking ends |
+| After a click anywhere on the open thought | The one line again. Every line of it closes it, so you do not have to scroll back to its beginning; the line that is left is brought into view |
+
+Thoughts are shown while pine runs and are not kept in the conversation's list: after the UI is
+opened again, the earlier answers are there and the thoughts are not. A sub-agent's or a
+delegated task's thoughts are in its own tab (`▸ open`), each as a `▸ thought` line to click.
+A model that does not send what it thinks (some hosted ones send nothing, or only a summary)
+shows `thinking` in the status line and no thought.
+
+Because a click on an open thought closes it, dragging over it does not select text through
+the UI. Hold Option (Terminal, iTerm) or Shift (most others) while dragging to select it with
+the terminal instead.
 
 ## Sub-agents and delegated tasks
 

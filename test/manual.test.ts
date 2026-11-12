@@ -36,6 +36,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 	// [what is asked, a part that must be among the first three]
 	const cases: Array<[string, RegExp]> = [
 		["telegram pairing code", /^sources#telegram$/],
+		["how do I see what the model was thinking before it answered", /^tui#what-a-model-thinks/],
 		["remind me every morning at seven", /^events#(ask-the-agent|in-the-files|schedules)/],
 		["cron job", /^(events#|operations#coming-from-openclaw)/],
 		["set a reminder in 20 minutes", /^events#ask-the-agent/],
