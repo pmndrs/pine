@@ -231,7 +231,7 @@ agent, not a pine that does not start.
 | What an agent has: event sources, subscriptions, MCP servers, skills, schedules | The tools every agent has for itself, with `agent` for another agent, and with `scope: "global"` for all agents |
 | Types of event source, model servers | `add_source_type`, `remove_source_type`, `add_model_server`, `remove_model_server` |
 | pine's settings | `settings` (list), `set_setting` |
-| Routes: rules of your own in `pine.json` | `routes` (list), `add_route`, `remove_route` |
+| Routes: rules of your own in pine.json | `routes` (list), `add_route`, `remove_route` |
 
 The ones only it has:
 

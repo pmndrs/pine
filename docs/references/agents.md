@@ -222,8 +222,8 @@ is sent as your message, and from then on:
 2. pine asks a **judge** one question: is the objective met? The judge is a short model call
    without tools. It is shown your objective and the agent's last answer, and replies with one
    word and one line of reason.
-3. `continue`: the agent is called again in the same conversation, with your objective and the
-   note that it is not met yet. `met`: the goal is done. `blocked`: the agent needs something
+3. `CONTINUE`: the agent is called again in the same conversation, with your objective and the
+   note that it is not met yet. `MET`: the goal is done. `BLOCKED`: the agent needs something
    only you can give (a decision, a sign-in, an approval that was refused), and the goal stops
    until you have answered and typed `/goal resume`.
 
