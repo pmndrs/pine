@@ -75,7 +75,9 @@ src/
                     code-pane.ts (the pane beside a conversation: changes, files, tool output),
                     undo.ts (what the conversation says after /undo and /redo),
                     theme.ts (colours, markdown), highlight.ts (code colours),
-                    picture.ts (pictures, video and sound: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing, the system's player for sound)
+                    picture.ts (pictures, video and sound: conversion with sips or ffmpeg, Kitty-protocol or half-block drawing, the system's player for sound),
+                    voice.ts (dictating a message: builds and runs voice.swift, the macOS helper that listens and has the system
+                    recognise the words on the device; on another system a sentence and nothing else)
   types.ts, util.ts shared types; topics, templates, filters, durations, logger
   dev/claude-model.ts   OpenAI-compatible server backed by `claude -p` (development only)
 mcp/                bundled MCP servers (separate processes): web, browser, commands, computer; lib.ts is what they share
@@ -393,6 +395,10 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   a script that speaks the helper's protocol and runs on any system; the server's `helper`
   option names it. No test in the ordinary suite touches a real app or needs macOS. The `live:`
   tests build the real helper and drive its own demo window (`--demo`), which needs no grant.
+- Voice input is tested on a stand-in for its helper (`standIn` in `test/voice.test.ts`), a
+  script that writes the helper's lines and runs on any system; the `voice` option of the UI
+  names it. What is not macOS is tested by handing the UI `voiceTools("linux")`. Only the
+  `live:` test builds the real helper, and it reads a recording, not the microphone.
 - A model call pine makes itself, without tools (the judge of goal mode), is scripted with the
   mock's `withoutTools` option: see `judged()` in `test/goals.test.ts`.
 - pine's own question for what a call needs outside the sandbox (`security.askAccess`) is off in
@@ -420,6 +426,10 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   goes there, so sub-agents get it and a reset clears it.
 - Whatever the daemon writes on an agent's behalf goes into place through `sandboxExec`, never
   with `fs` on a path the agent chose: a path check in this process can be raced with a link.
+- What is heard through the microphone (`src/tui/voice.ts`) is text for the input and nothing
+  more: it is never sent by itself, it is cleaned of control characters like any text from
+  outside the keyboard, and it is recognised on the device or not at all. Keep all three. A
+  system without it gets a sentence (`voiceTools().unavailable`), never an attempt.
 - The UI shows what an answer points at, and answers can carry text from outside. It must never
   fetch a web address because an answer contains it (pictures load on a click), and endpoints
   that take a path from an answer serve only what they are for.

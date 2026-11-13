@@ -76,6 +76,7 @@ const SYNONYMS: string[][] = [
 	["log", "history", "audit", "record", "trace"],
 	["image", "picture", "photo", "screenshot", "video", "media"],
 	["sound", "audio", "speech", "voice", "music", "hear", "wav", "mp3"],
+	["dictate", "dictating", "dictation", "microphone", "talk", "talking", "speak", "speaking"],
 	["browser", "web", "playwright", "page", "search"],
 	["show", "visible", "headed", "headless", "window", "watch", "see"],
 	["plan", "propose", "proposal", "outline", "preview", "dry"],

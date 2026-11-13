@@ -49,6 +49,7 @@ Everything in the two bars reacts to a click.
 | A `↳ ... ▸ open` line in the conversation | A tab with that sub-agent's or delegated task's work |
 | The conversation name next to it | This agent's conversations, and "+ new conversation" |
 | The folder next to it (`no folder`, or a path) | The folder this conversation works in: none, where pine was started, one in use elsewhere, or one you pick. See [coding.md](coding.md) |
+| The `🎤` at the right end of the input (on a Mac) | Starts dictating the message, like `ctrl+r`. While it listens it is highlighted, and a click ends the listening. See [Dictating a message](#dictating-a-message) |
 | `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output and what the agent left running. In the pane: its four views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
 | The model | The models you have credentials for |
 | `reasoning <level>` | How much the model thinks before answering: off, minimal, low, medium, high, xhigh, max |
@@ -196,6 +197,7 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/goal [objective\|pause\|resume\|clear]` | Goal mode: with an objective, the agent keeps working by itself, round after round, until a judge says the objective is met. Without an argument it shows the goal and where it stands; `pause`, `resume` and `clear` do what they say. See "Goals" below |
 | `/model [provider/id]` | Switch the agent's model. Without an argument, a list to search and pick from; or type a few letters after it: `/model deepseek` |
 | `/reasoning [level]` | Set how much the model thinks before answering; without an argument, choose from a list. Saved like the model. A model that cannot reason ignores it |
+| `/voice [language]` | Dictate the message instead of typing it; `ctrl+r` does the same. On a Mac. With a language (`/voice de-DE`) it listens for that one from then on. See [Dictating a message](#dictating-a-message) |
 | `/mode [auto\|safe\|manual\|bypass\|plan]` | Set how much this agent does without asking; without an argument, choose from a list. See [Modes](#modes) |
 | `/attach <path>`, `/detach [n]` | Attach files to the next message, or remove them |
 | `/paste` | Attach the picture that is on the clipboard (a screenshot, for example) to the next message. `ctrl+v` does the same in terminals that pass that key on. Text is pasted with the terminal's own paste |
@@ -263,10 +265,63 @@ one another UI on the same daemon shows.
 | `alt+1` ... `alt+9` | Go to that tab |
 | `ctrl+t`, `ctrl+w` | New conversation; close the tab |
 | `ctrl+g` | Open or close the code pane |
+| `ctrl+r` | Dictate the message: start listening, and end it again. While it listens, `enter` ends it too and `esc` throws away what was heard |
 | `ctrl+v` | Attach the picture that is on the clipboard, like `/paste` (in terminals that pass the key on) |
 | `pgup` / `pgdn`, mouse wheel | Scroll |
 | `ctrl+c` | Clear the input; twice on an empty input quits |
 | `ctrl+d` | Quit (while the input is empty) |
+
+## Dictating a message
+
+You can say a message instead of typing it. Click the `🎤` at the right end of the input, or
+press `ctrl+r` (or type `/voice`), speak, and press `enter` when you are done:
+
+```
+ ● listening · speak · enter when you are done · esc to throw it away
+──────────────────────────────────────────────────────────────────
+ About the scans: which bill is due first                              🎤 ← appears as you speak
+```
+
+| | |
+|---|---|
+| Where the words go | Into the input, after what you had typed, word by word as they are recognised |
+| `enter` or `ctrl+r` while it listens | Ends the listening. The text stays in the input for you to read and correct |
+| `enter` again | Sends it, like any message you typed |
+| `esc` while it listens | Throws away what was heard; what you had typed is there again |
+| Language | The one your Mac is set to. `/voice de-DE` (or `fr-FR`, `es-ES`, ...) listens for another from then on, until the UI is closed |
+
+Nothing that was heard is sent by itself: it is text in the input until you press `enter`, so
+a word the Mac misheard, or something somebody else said in the room, never reaches an agent
+unread.
+
+**It works on a Mac, and on the Mac itself.** The words are recognised by the speech
+recognition macOS has on the device; nothing is sent to a server, pine's or anybody's. On
+macOS 26 and later this needs no setting. The first time you use a language that the Mac has
+no speech model for yet, the system fetches one (the status line says so), which needs the
+network once. Before macOS 26 it needs Dictation switched on in System Settings > Keyboard,
+with the language added there.
+
+The first time, macOS asks whether **pine voice** may use the microphone. That is a small
+helper pine builds on your Mac with Apple's command line developer tools (`xcode-select
+--install` if they are missing; pine says so), and it is all the dialog is about: your
+terminal app is not given the microphone. After an update of pine the helper is built anew,
+and macOS may ask once more.
+
+**On Linux, and anywhere that is not macOS, there is no voice input.** The input has no
+microphone there, `ctrl+r` and `/voice` answer with one line that says so, and everything
+else works as before. Nothing is installed,
+built or started for it.
+
+When it does not work, the line that appears says why and what to do:
+
+| It says | What to do |
+|---|---|
+| `pine may not use the microphone` | System Settings > Privacy & Security > Microphone: switch on **pine voice** |
+| `this Mac has no microphone to listen with` | Connect one, or choose one in System Settings > Sound > Input |
+| `this Mac has no speech recognition for <language>` | Use a language it lists, with `/voice <language>` |
+| `the system could not fetch its speech model` | The Mac needs the network once for a new language |
+| `speech recognition is switched off on this Mac` | Before macOS 26 only: turn on Dictation in System Settings > Keyboard > Dictation |
+| `Voice input needs Apple's command line developer tools` | `xcode-select --install`, then try again |
 
 ## Modes
 

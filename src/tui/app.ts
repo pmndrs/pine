@@ -36,6 +36,7 @@ import {
 import type { TranscriptEntry } from "../types.ts";
 import type { PineEvent, Task } from "../types.ts";
 import { errText, expandHome, openInSystem, type Speed, speedOf, speedText } from "../util.ts";
+import { Listening, type VoiceTools, voiceTools } from "./voice.ts";
 import type { AgentInfo, Client, Conversation, GoalInfo } from "./client.ts";
 import { CodePane, PANE_VIEWS, type PaneView } from "./code-pane.ts";
 import { redoText, undoText } from "./undo.ts";
@@ -405,6 +406,58 @@ export function mentionsIn(text: string): string[] {
 const STOP_GRACE = 3000;
 /** A round of a goal: pine calling the agent again (src/goals.ts). Only pine makes a task of this kind. */
 const isGoalRound = (kind: unknown, label: unknown) => kind === "notify" && typeof label === "string" && label.startsWith("goal: ");
+
+/** The microphone and the room around it, in cells. */
+const MIC = " 🎤 ";
+const MIC_WIDTH = 4;
+
+/**
+ * The input with a microphone at the right end of its first line, where this system can listen.
+ * A click on it starts dictating, and ends it. Where it cannot listen there is no microphone,
+ * and the input is as wide as it always was.
+ */
+class WithMicrophone implements Component {
+	private inner: Component;
+	private shown: () => boolean;
+	private listening: () => boolean;
+	private click: () => void;
+	/** Where the microphone begins in the line, when it is drawn. */
+	private at = 0;
+
+	constructor(inner: Component, shown: () => boolean, listening: () => boolean, click: () => void) {
+		this.inner = inner;
+		this.shown = shown;
+		this.listening = listening;
+		this.click = click;
+	}
+
+	invalidate(): void {
+		this.inner.invalidate();
+	}
+
+	render(width: number): string[] {
+		if (!this.shown() || width < 24) {
+			this.at = 0;
+			return this.inner.render(width);
+		}
+		this.at = width - MIC_WIDTH;
+		return this.inner.render(this.at).map((line, i) => {
+			// The lines above and below the text run on under the microphone.
+			if (/^─+$/.test(stripTerminalSequences(line))) return line + c.gray("─".repeat(MIC_WIDTH));
+			const padded = line + " ".repeat(Math.max(0, this.at - visibleWidth(line)));
+			return padded + (i === 1 ? (this.listening() ? c.bgAccent(MIC) : MIC) : " ".repeat(MIC_WIDTH));
+		});
+	}
+
+	handleMouse(e: any) {
+		if (this.at && e.y === 1 && e.x >= this.at) {
+			if (e.button !== "left" || (e.type !== "press" && e.type !== "click" && e.type !== "release")) return undefined;
+			if (e.type === "click") this.click();
+			return { handled: true, render: true };
+		}
+		return this.inner.handleMouse?.(e);
+	}
+}
 
 /** How many lines of a thought are shown while it is being thought. */
 const PEEK = 4;
@@ -958,6 +1011,8 @@ export interface TuiOptions {
 	openFile?: (file: string) => void;
 	/** What plays a sound in the conversation. Default: what the system has (see soundPlayer). */
 	soundPlayer?: SoundPlayer;
+	/** What listens when the owner dictates a message. Default: what the system has (see voiceTools). */
+	voice?: VoiceTools;
 	/** Opens a web address when it is clicked. Default: the system's browser. */
 	openUrl?: (url: string) => void;
 	/** Saves the picture that is on the clipboard as a file and resolves with its path, or with nothing when there is none. Default: the system's clipboard. */
@@ -993,6 +1048,11 @@ export class PineTui {
 	private connected = false;
 	private notice = "";
 	private noticeTimer?: NodeJS.Timeout;
+	/** Dictating a message: what listens, what stood in the input before, and how far it is. */
+	private voice?: { listening?: Listening; before: string; state: "starting" | "listening" | "finishing"; fetching?: boolean };
+	private voiceTools?: VoiceTools;
+	/** The language to listen for, when the owner named one (/voice de-DE). Default: the system's. */
+	private voiceLanguage?: string;
 	private spinner?: NodeJS.Timeout;
 	private frame = 0;
 	private unsubscribe?: () => void;
@@ -1045,7 +1105,7 @@ export class PineTui {
 		this.dock = new VStack([
 			{ component: this.status, shrink: 1, minSize: 0 },
 			{ component: this.attach, shrink: 1, minSize: 0 },
-			{ component: this.editor, shrink: 1, minSize: 3 },
+			{ component: new WithMicrophone(this.editor, () => this.active?.kind === "chat" && this.canListen(), () => this.voice !== undefined, () => void this.dictate()), shrink: 1, minSize: 3 },
 			{ component: this.footer, shrink: 1, minSize: 0 },
 		]);
 		this.code = new CodePane({
@@ -1135,6 +1195,7 @@ export class PineTui {
 		this.code.stop();
 		stopVideos();
 		stopSounds();
+		this.voice?.listening?.cancel();
 		if (this.mediaDir) fs.rmSync(this.mediaDir, { recursive: true, force: true });
 		this.tui.stop();
 		await this.opts.onQuit?.();
@@ -1610,9 +1671,84 @@ export class PineTui {
 
 	// ---- input -----------------------------------------------------------------------------------
 
+	/** Whether this system has voice input. Where it has none, nothing offers it. */
+	private canListen(): boolean {
+		return (this.opts.voice ?? (this.voiceTools ??= voiceTools())).unavailable === undefined;
+	}
+
+	/**
+	 * Dictate the message, or end dictating. What is heard is put into the input, after what was
+	 * typed there, as it is heard. It is text like typed text: the owner reads it, changes it, and
+	 * sends it with enter. Nothing that was heard is ever sent by itself.
+	 */
+	private async dictate(language?: string): Promise<void> {
+		if (this.voice) {
+			if (this.voice.state === "listening") {
+				this.voice.state = "finishing";
+				this.voice.listening?.stop();
+				this.tui.requestRender();
+			}
+			return;
+		}
+		const tools = this.opts.voice ?? (this.voiceTools ??= voiceTools());
+		// Not on this system: said in a sentence, and nothing is started.
+		if (tools.unavailable) return this.flash(tools.unavailable, 9000);
+		if (language) this.voiceLanguage = language;
+		const before = this.editor.getText();
+		const lead = before && !/\s$/.test(before) ? `${before} ` : before;
+		const mine: { listening?: Listening; before: string; state: "starting" | "listening" | "finishing"; fetching?: boolean } = { before, state: "starting" };
+		this.voice = mine;
+		this.tui.requestRender();
+		let command: string[];
+		try {
+			command = await tools.program();
+		} catch (e) {
+			if (this.voice === mine) this.voice = undefined;
+			return this.flash(errText(e), 15_000);
+		}
+		// Given up (esc) while the helper was being built.
+		if (this.voice !== mine) return;
+		mine.listening = new Listening(command, this.voiceLanguage, {
+			ready: () => {
+				if (mine.state === "starting") mine.state = "listening";
+				mine.fetching = false;
+				this.tui.requestRender();
+			},
+			model: (state) => {
+				mine.fetching = state === "downloading";
+				this.tui.requestRender();
+			},
+			partial: (text) => {
+				if (this.voice !== mine) return;
+				this.editor.setText(lead + text);
+				this.tui.requestRender();
+			},
+			done: (text, error) => {
+				if (this.voice !== mine) return;
+				this.voice = undefined;
+				this.editor.setText(text ? lead + text : before);
+				if (error) this.flash(error, 15_000);
+				this.tui.requestRender();
+			},
+		});
+	}
+
 	/** Keys the app handles before the editor sees them. Returns true when the key is used up. */
 	private onKey(data: string): boolean {
 		if (this.dialog) return false;
+		// While dictating: enter says "that was all" and leaves the text to be read, esc throws it away. Neither sends.
+		if (this.voice && !isKeyRelease(data)) {
+			if (matchesKey(data, "escape")) {
+				const v = this.voice;
+				this.voice = undefined;
+				v.listening?.cancel();
+				this.editor.setText(v.before);
+				this.tui.requestRender();
+				return true;
+			}
+			if (matchesKey(data, "enter") || matchesKey(data, "ctrl+r")) return void this.dictate(), true;
+		}
+		if (matchesKey(data, "ctrl+r") && this.active.kind === "chat" && !isKeyRelease(data)) return void this.dictate(), true;
 		// Terminals that report key releases send one for the key that just closed a menu, and repeats
 		// while it is held. Neither is a new key press: esc that closes a menu must not also stop the task.
 		if (isKeyRelease(data)) return false;
@@ -2134,6 +2270,13 @@ export class PineTui {
 				},
 			},
 			{
+				name: "voice", description: "Dictate the message instead of typing it (on a Mac; ctrl+r does the same)", argumentHint: "[language, for example de-DE]",
+				run: async (args) => {
+					if (!chat()) return;
+					await this.dictate(args.trim() || undefined);
+				},
+			},
+			{
 				name: "reasoning", description: "How much this agent's model thinks before it answers", argumentHint: "[off|minimal|low|medium|high|xhigh|max]",
 				getArgumentCompletions: (prefix) => REASONING_ITEMS.filter((x) => x.value.startsWith(prefix.trim())),
 				run: async (args) => {
@@ -2403,7 +2546,7 @@ export class PineTui {
 		const cmds = this.commands.filter((x) => x.name !== "exit").map((x) => `  ${c.accent(`/${x.name}`)}${x.argumentHint ? c.gray(` ${x.argumentHint}`) : ""}${" ".repeat(Math.max(1, 24 - x.name.length - (x.argumentHint?.length ?? -1) - 2))}${x.description}`);
 		const keys = [
 			["enter", "send; while the agent works, the message goes into that work at its next step"], ["alt+enter", "send, but let it wait until the agent is done with what it is doing"], ["shift+enter", "new line"], ["esc", "stop the agent"], ["tab", "next tab (when the input is empty)"], ["shift+tab", "next mode: auto, plan, manual, bypass (when the input is empty)"],
-			["alt+1..9", "go to tab"], ["ctrl+t", "new conversation"], ["ctrl+w", "close tab"], ["ctrl+g", "open or close the code pane (changes, files, tool output)"], ["pgup / pgdn", "scroll"], ["mouse", "click a tab, its ×, +, ▤ code, a web address, a thought (to open it, and anywhere on it to close it), or agent / conversation / folder / model / reasoning / mode in the bottom bar; drop files to attach"], ["ctrl+c twice, ctrl+d", "quit"],
+			["alt+1..9", "go to tab"], ["ctrl+t", "new conversation"], ["ctrl+w", "close tab"], ["ctrl+g", "open or close the code pane (changes, files, tool output)"], ["ctrl+r", "dictate the message instead of typing it (on a Mac); enter ends it"], ["pgup / pgdn", "scroll"], ["mouse", "click a tab, its ×, +, ▤ code, a web address, a thought (to open it, and anywhere on it to close it), or agent / conversation / folder / model / reasoning / mode in the bottom bar; drop files to attach"], ["ctrl+c twice, ctrl+d", "quit"],
 		].map(([k, d]) => `  ${c.accent(k.padEnd(22))} ${d}`);
 		this.say(this.active, [c.bold("Commands"), ...cmds, "", c.bold("Keys"), ...keys].join("\n"));
 	}
@@ -2832,6 +2975,16 @@ export class PineTui {
 		const t = this.active;
 		let line = "";
 		if (this.notice) line = c.yellow(this.notice);
+		else if (this.voice) {
+			const v = this.voice;
+			line = v.fetching
+				? c.yellow("● the system is fetching its speech model for this language (once) …")
+				: v.state === "starting"
+					? c.gray("● getting ready to listen …")
+					: v.state === "finishing"
+						? c.gray("● finishing what was heard …")
+						: `${c.red("●")} ${c.gray("listening · speak · enter when you are done · esc to throw it away")}`;
+		}
 		else if (t.approvals.size) line = c.yellow("waiting for your approval · enter opens the question · /approve or /deny");
 		// A question in a tab that is not in front has no dialog here. Unanswered it counts as a no, so every tab says where it waits.
 		else if (this.tabs.some((x) => x.approvals.size)) {
