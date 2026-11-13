@@ -1154,7 +1154,11 @@ export class PineTui {
 		this.unsubscribe = this.client.subscribe(
 			(e) => this.onEvent(e),
 			(up) => {
+				const back = up && !this.connected;
 				this.connected = up;
+				// What was asked while the line was down, or by a daemon that has since been restarted,
+				// is no longer open: a question nobody can answer must not stay on screen.
+				if (back) void this.dropAnswered();
 				this.tui.requestRender();
 			},
 		);
@@ -1709,6 +1713,10 @@ export class PineTui {
 				this.voice.state = "finishing";
 				this.voice.listening?.stop();
 				this.tui.requestRender();
+			} else if (this.voice.state === "starting") {
+				// Not listening yet, and asked to end: there is nothing to wait for. Without this a
+				// helper that never gets ready would take every enter from then on.
+				this.endDictating();
 			}
 			return;
 		}
@@ -1730,6 +1738,15 @@ export class PineTui {
 		}
 		// Given up (esc) while the helper was being built.
 		if (this.voice !== mine) return;
+		// A helper that never says it listens (the system waits for an answer about the microphone,
+		// say) must not hold the input for good.
+		const patience = setTimeout(() => {
+			if (this.voice !== mine || mine.state !== "starting") return;
+			if (mine.fetching) return void patience.refresh();
+			this.endDictating();
+			this.flash("voice input did not start. If the system asked whether this terminal may use the microphone or speech recognition, answer that and try again (System Settings › Privacy & Security)", 15_000);
+		}, 20_000);
+		patience.unref?.();
 		mine.listening = new Listening(command, this.voiceLanguage, {
 			ready: () => {
 				if (mine.state === "starting") mine.state = "listening";
@@ -1755,6 +1772,15 @@ export class PineTui {
 		});
 	}
 
+	/** End dictating where it stands: what is in the input stays, nothing more is put into it. */
+	private endDictating(): void {
+		const v = this.voice;
+		if (!v) return;
+		this.voice = undefined;
+		v.listening?.cancel();
+		this.tui.requestRender();
+	}
+
 	/** Keys the app handles before the editor sees them. Returns true when the key is used up. */
 	private onKey(data: string): boolean {
 		if (this.dialog) return false;
@@ -1769,6 +1795,9 @@ export class PineTui {
 				return true;
 			}
 			if (matchesKey(data, "enter") || matchesKey(data, "ctrl+r")) return void this.dictate(), true;
+			// A key that types: the owner has gone on by hand. What is heard would overwrite it with
+			// every word, and the input would seem frozen. Dictating ends, and the key is typed.
+			if ((data.length === 1 && data >= " ") || matchesKey(data, "backspace") || data.startsWith("\x1b[200~")) this.endDictating();
 		}
 		if (matchesKey(data, "ctrl+r") && this.active.kind === "chat" && !isKeyRelease(data)) return void this.dictate(), true;
 		// Terminals that report key releases send one for the key that just closed a menu, and repeats
@@ -2592,6 +2621,22 @@ export class PineTui {
 		const handle = this.tui.showOverlay(dialog, { anchor: "center", width: "76%", minWidth: 40 });
 		handle.focus();
 		this.dialog = { id: req.id, handle, dismiss: () => this.closeDialog(), waits: true };
+		this.tui.requestRender();
+	}
+
+	/** Forget the questions the daemon no longer has open: their cards say so, and a dialog for one closes. */
+	private async dropAnswered(): Promise<void> {
+		const pending = await this.client.approvals().catch(() => undefined);
+		if (!pending) return;
+		const open = new Set(pending.map((p) => p.id));
+		for (const tab of this.tabs) {
+			for (const [id, a] of tab.approvals) {
+				if (open.has(id)) continue;
+				a.card.setText(`${c.gray("– no longer open:")} ${c.bold(a.req.tool)} ${c.gray("(pine was restarted, or the question ran out of time)")}`);
+				tab.approvals.delete(id);
+				if (this.dialog?.id === id) this.closeDialog();
+			}
+		}
 		this.tui.requestRender();
 	}
 

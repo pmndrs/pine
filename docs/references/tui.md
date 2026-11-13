@@ -289,6 +289,8 @@ press `ctrl+r` (or type `/voice`), speak, and press `enter` when you are done:
 | `enter` or `ctrl+r` while it listens | Ends the listening. The text stays in the input for you to read and correct |
 | `enter` again | Sends it, like any message you typed |
 | `esc` while it listens | Throws away what was heard; what you had typed is there again |
+| A key that types, or backspace, while it listens | Ends the listening too, and the key is typed: what was heard stays, and nothing more is put into the input. Dictating never holds the input |
+| `enter` or `ctrl+r` while it is still getting ready | Ends it. If it has not begun to listen after twenty seconds it ends by itself and says why that may be (the system waiting for your answer about the microphone) |
 | Language | The one your Mac is set to. `/voice de-DE` (or `fr-FR`, `es-ES`, ...) listens for another from then on, until the UI is closed |
 
 Nothing that was heard is sent by itself: it is text in the input until you press `enter`, so

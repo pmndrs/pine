@@ -206,6 +206,48 @@ test("voice: ctrl+r dictates into the message, after what was typed; enter ends 
 	await h.close();
 });
 
+test("voice: dictating never holds the input: a typed key ends it, and so does enter before it has begun to listen", async (t) => {
+	const dir = tmp(t);
+	const h = await harness({ pine: { main: "main", http: { port: 0 } }, agents: { main: {} } } as any);
+	const open = async (voice: any) => {
+		const term = new FakeTerminal(110, 30);
+		const app = new PineTui({ client: new Client(`http://127.0.0.1:${h.pine.http!.port}`, h.pine.token), terminal: term, mode: "test", voice });
+		await app.start();
+		const text = () => app.screen().join("\n");
+		const sees = (what: string | RegExp, ms = 4000) => until(() => (typeof what === "string" ? text().includes(what) : what.test(text())), ms, `the screen to show ${what}\n--- screen ---\n${text()}`);
+		return { term, app, text, sees };
+	};
+	// It goes on hearing, word after word. What is typed meanwhile must not be overwritten by the next word.
+	const talking = [{ type: "ready" }, { type: "partial", text: "one" }, ...Array.from({ length: 40 }, (_, i) => ({ type: "partial", text: `one two ${i}` }))];
+	let ui = await open({ program: async () => standIn(dir, talking) });
+	await ui.sees("type a message");
+	ui.term.type([CTRL_R]);
+	await ui.sees("● listening");
+	await ui.sees(/one two \d+ +🎤/);
+	ui.term.type("!");
+	await until(() => !/● (listening|finishing)/.test(ui.text()), 3000, "the typed key to end the listening");
+	const typed = ui.app.screen().find((l) => l.includes("!")) ?? "";
+	assert.match(typed, /one two \d+!/, "what was heard stays, and the key is typed after it");
+	await sleep(250);
+	assert.ok((ui.app.screen().find((l) => l.includes("!")) ?? "") === typed, "and nothing that is heard later is put over it");
+	ui.term.type([KEY.enter]);
+	await ui.sees(/ECHO\[one two \d+!\]/);
+	await ui.app.stop();
+
+	// A helper that never gets to listen (the system is waiting for an answer about the microphone): enter gets out of it.
+	ui = await open({ program: async () => [process.execPath, "-e", "setInterval(() => {}, 1000)"] });
+	await ui.sees("type a message");
+	ui.term.type([CTRL_R]);
+	await ui.sees("● getting ready to listen");
+	ui.term.type([KEY.enter]);
+	await until(() => !ui.text().includes("getting ready to listen"), 3000, "enter to end what never began");
+	ui.term.type("still here");
+	ui.term.type([KEY.enter]);
+	await ui.sees("ECHO[still here]");
+	await ui.app.stop();
+	await h.close();
+});
+
 test("live: voice: the real helper recognises a spoken sentence on this Mac", { skip: process.platform !== "darwin" || !process.env.PINE_LIVE }, async (t) => {
 	const dir = tmp(t);
 	const { execFileSync } = await import("node:child_process");
