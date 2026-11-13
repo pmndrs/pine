@@ -216,12 +216,12 @@ test("pine update knows how pine was installed and which version is newer; pine 
 	assert.deepEqual([newer("0.1.1", "0.1.0"), newer("0.10.0", "0.9.9"), newer("1.0.0", "0.99.99"), newer("0.1.0", "0.1.0"), newer("0.1.0", "0.2.0")], [true, true, true, false, false]);
 
 	// What is on disk afterwards decides whether it worked. npm can name a new version and install the old one.
-	assert.deepEqual(outcome("@pmndrs/pine", "0.13.0", "0.13.0").ok, true);
-	assert.match(outcome("@pmndrs/pine", "0.13.0", "0.13.0").text, /pine is now 0\.13\.0\. A pine that is running keeps the old version until it is restarted/);
-	const missed = outcome("@pmndrs/pine", "0.13.0", "0.12.1");
+	assert.deepEqual(outcome("@pmndre/pine", "0.13.0", "0.13.0").ok, true);
+	assert.match(outcome("@pmndre/pine", "0.13.0", "0.13.0").text, /pine is now 0\.13\.0\. A pine that is running keeps the old version until it is restarted/);
+	const missed = outcome("@pmndre/pine", "0.13.0", "0.12.1");
 	assert.equal(missed.ok, false);
-	assert.match(missed.text, /Not updated: pine is still 0\.12\.1\. npm knows 0\.13\.0 but did not install it.*\n\n  npm install -g @pmndrs\/pine@0\.13\.0$/s);
-	assert.equal(outcome("@pmndrs/pine", undefined, "0.13.0").ok, true, "a checkout has no version to compare with");
+	assert.match(missed.text, /Not updated: pine is still 0\.12\.1\. npm knows 0\.13\.0 but did not install it.*\n\n  npm install -g @pmndre\/pine@0\.13\.0$/s);
+	assert.equal(outcome("@pmndre/pine", undefined, "0.13.0").ok, true, "a checkout has no version to compare with");
 
 	const version = await run(process.execPath, [CLI, "version"]);
 	assert.match(version.stdout, /^pine \d+\.\d+\.\d+ \(checkout in /);

@@ -21,7 +21,7 @@
 ## Install
 
 ```bash
-npm install -g @pmndrs/pine
+npm install -g @pmndre/pine
 ```
 
 That puts the `pine` command on your PATH. The package holds pine compiled to JavaScript,
@@ -158,7 +158,7 @@ A container needs nothing special:
 docker run -it -v pine:/root/.pine node:24 bash
 ```
 
-Inside, `npm install -g @pmndrs/pine` and `pine init` as anywhere. `-v pine:/root/.pine`
+Inside, `npm install -g @pmndre/pine` and `pine init` as anywhere. `-v pine:/root/.pine`
 keeps pine's home when the container is replaced. A container started like this cannot make
 a sandbox, and need not: the container is the wall around pine, every agent whose mode you
 did not choose works in `auto` mode inside it, and `pine check` says so. An agent you set to
@@ -193,7 +193,7 @@ how pine got onto the machine, which `pine version` tells you:
 
 | Installed | `pine update` |
 |---|---|
-| with `npm install -g` | Asks npm for the latest version. If there is one, installs it (`npm install -g @pmndrs/pine@latest`). |
+| with `npm install -g` | Asks npm for the latest version. If there is one, installs it (`npm install -g @pmndre/pine@latest`). |
 | as a checkout (`git clone`) | Fetches from the repository the checkout follows and moves it forward, then runs `npm install`. Only ever a fast-forward: if commits or changes of your own are in the way, nothing is changed and it says so. |
 | as a dependency inside a project | Tells you the command to run in that project; that project decides its version. |
 

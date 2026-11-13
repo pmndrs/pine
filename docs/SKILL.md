@@ -159,7 +159,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 ## The shortest working setup
 
 ```bash
-npm install -g @pmndrs/pine
+npm install -g @pmndre/pine
 ```
 
 ```bash
