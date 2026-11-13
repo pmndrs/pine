@@ -751,6 +751,35 @@ test("tui: the agent's own conversation is kept without a pin, and reset where t
 	await t.h.close();
 });
 
+test("tui: the tab of a pinned conversation has the mark it has in the list", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.sees("type a message");
+	await t.send("/new side");
+	await t.sees(/2 main·side ×/);
+	await t.send("hello side");
+	await t.sees("ECHO[hello side]");
+	await t.send("/pin");
+	await t.sees(/2 ★ main·side ×/);
+	assert.ok(/1 main ×/.test(t.app.screen()[0]), "the agent's own conversation is its plain name");
+	await t.send("/unpin");
+	await t.sees(/2 main·side ×/);
+	// Pinned in the list of conversations, the tab follows; and the mark is there again at the next start.
+	await t.send("/sessions");
+	await t.sees("│ Conversations of main");
+	const row = () => t.app.screen().findIndex((l) => /│\s+side /.test(l));
+	t.term.click(t.app.screen()[row()].lastIndexOf("pin") + 1, row());
+	await t.sees(/★ side\s/);
+	t.term.type([KEY.esc]);
+	await t.sees(/2 ★ main·side ×/);
+	await t.app.stop();
+	const again = new PineTui({ client: t.app.client, terminal: new FakeTerminal(110, 30) });
+	apps.push(again);
+	await again.start();
+	await until(() => /2 ★ main·side ×/.test(again.screen()[0]), 4000, `the mark after a restart\n${again.screen()[0]}`);
+	await again.stop();
+	await t.h.close();
+});
+
 test("tui: an answer's markdown is drawn, not shown raw: code in colour without its backticks, diffs red and green, tables aligned, headings without #", async () => {
 	const { Answer } = await import("../src/tui/theme.ts");
 	const { highlightCode, languageOf } = await import("../src/tui/highlight.ts");

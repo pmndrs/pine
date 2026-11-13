@@ -159,7 +159,7 @@ a tab`, `kept`, or when it goes (`goes in 5 days`, `goes in 20 h`, `goes soon`).
 | In the list | Does |
 |---|---|
 | `enter`, or a click on a name | Opens the conversation in a tab |
-| `pin` / `unpin` at the end of a row, or `ctrl+p` | Pins it, or takes the pin off. A pinned one has a `★` in front and comes first |
+| `pin` / `unpin` at the end of a row, or `ctrl+p` | Pins it, or takes the pin off. A pinned one has a `★` in front and comes first, and its tab has the `★` too |
 | `×` at the end, or `ctrl+x` | Removes it for good. It asks once more (`remove? ×`); the second click or key does it. A conversation that is working is not removed |
 | `reset` at the end of the agent's `main` conversation, or `ctrl+x` on it | Starts that conversation over, as `/reset` does. It asks once more (`reset? ×`). The agent's own conversation cannot be removed and never goes by itself, so it has a `★` and no `pin` |
 

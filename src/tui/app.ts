@@ -1010,6 +1010,8 @@ export class PineTui {
 	private sessionModes = new Map<string, string>();
 	private lastCtrlC = 0;
 	private taints = new Map<string, string>();
+	/** The pinned conversations of the agents that have a tab ("agent:session"): a tab of one shows the mark of a kept conversation. */
+	private pins = new Set<string>();
 	private bypassWhenTainted = false;
 	private opts: TuiOptions;
 	private stopped = false;
@@ -1113,6 +1115,7 @@ export class PineTui {
 		if (saved.code) this.showCode(true);
 		this.saveTabs();
 		void this.refreshTaints();
+		void this.refreshPins();
 	}
 
 	/** Remember which conversations are open, so that the next start opens the same tabs. */
@@ -1174,6 +1177,7 @@ export class PineTui {
 		const tab = this.newTab("chat", agent, session);
 		this.activate(tab);
 		this.saveTabs();
+		void this.refreshPins();
 		const info = this.agents.find((a) => a.id === agent);
 		tab.folder = (await this.client.folder(agent, session).catch(() => undefined))?.folder;
 		tab.goal = (await this.client.goal(agent, session).catch(() => undefined))?.goal;
@@ -1794,7 +1798,10 @@ export class PineTui {
 			fresh: () => (close(), void this.run("new")),
 			pin: async (conv) => {
 				try {
-					return (await this.client.pinSession(agent, conv.session, !conv.pinned)).pinned;
+					const pinned = (await this.client.pinSession(agent, conv.session, !conv.pinned)).pinned;
+					if (pinned) this.pins.add(`${agent}:${conv.session}`);
+					else this.pins.delete(`${agent}:${conv.session}`);
+					return pinned;
 				} catch (e) {
 					this.flash(errText(e));
 					return conv.pinned;
@@ -2054,6 +2061,7 @@ export class PineTui {
 					if (!t) return;
 					if (t.session === "main") return this.flash("the main conversation always stays");
 					await this.client.pinSession(t.agent, t.session, true);
+					this.pins.add(`${t.agent}:${t.session}`);
 					this.say(t, c.gray("pinned: this conversation stays until you remove it"));
 				},
 			},
@@ -2063,6 +2071,7 @@ export class PineTui {
 					const t = chat();
 					if (!t) return;
 					await this.client.pinSession(t.agent, t.session, false);
+					this.pins.delete(`${t.agent}:${t.session}`);
 					this.say(t, c.gray("not pinned any more: it is removed by itself once it is neither open nor used for some days"));
 				},
 			},
@@ -2732,6 +2741,17 @@ export class PineTui {
 		if (tab === this.active) this.tui.requestRender();
 	}
 
+	/** Ask again which conversations of the agents on screen are pinned. */
+	private async refreshPins(): Promise<void> {
+		const agents = [...new Set(this.tabs.filter((t) => t.kind === "chat").map((t) => t.agent))];
+		const lists = await Promise.all(agents.map((a) => this.client.sessions(a).then((l) => l.filter((x) => x.pinned).map((x) => `${a}:${x.session}`)).catch(() => undefined)));
+		// An agent that could not be asked keeps the marks it had.
+		const next = new Set([...this.pins].filter((k) => lists.some((l, i) => l === undefined && k.startsWith(`${agents[i]}:`))));
+		for (const l of lists) for (const k of l ?? []) next.add(k);
+		this.pins = next;
+		this.tui.requestRender();
+	}
+
 	private async refreshTaints(): Promise<void> {
 		try {
 			const s = await this.client.status();
@@ -2773,7 +2793,9 @@ export class PineTui {
 			const name = t.kind === "events" ? "events" : t.kind === "task" ? `${t.agent}↳#${t.task}` : t.session === "main" ? t.agent : `${t.agent}·${t.session}`;
 			// A question that waits comes first: its task is still running, and a spinner would hide that it waits for the owner.
 			const mark = t.approvals.size ? c.yellow("!") : t.running.size ? c.yellow(SPINNER[this.frame % SPINNER.length]) : t.unread ? c.accent("•") : " ";
-			const label = ` ${i + 1} ${short(name, 22)} `;
+			// A pinned conversation has the mark it has in the list of conversations.
+			const star = t.kind === "chat" && this.pins.has(`${t.agent}:${t.session}`) ? "★ " : "";
+			const label = ` ${i + 1} ${star}${short(name, 22)} `;
 			line.add(t === this.active ? c.bgAccent(label) : c.gray(label), () => this.activate(t));
 			line.add(t === this.active ? c.bgAccent("×") : c.gray("×"), () => this.closeTab(t));
 			line.add(`${mark} `);
