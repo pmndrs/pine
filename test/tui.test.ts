@@ -1151,6 +1151,15 @@ test("tui: the agent's list of steps is shown and kept up to date, and the agent
 	const screen = t.text();
 	assert.ok(screen.includes("steps · 1 of 3 done") && screen.includes("✓ read the code") && screen.includes("◐ change it") && screen.includes("☐ run the tests"), screen);
 	assert.equal(count(screen, "steps · "), 1, "one list, updated in place");
+	// In the code pane the steps stay at the top, in every view, however far the conversation has moved on.
+	await t.send("/code output");
+	await until(() => count(t.text(), "steps · 1 of 3 done") === 2, 4000, `the steps in the pane too\n${t.text()}`);
+	assert.equal(count(t.text(), "◐ change it"), 2);
+	await t.send("/code files");
+	await sleep(150);
+	assert.equal(count(t.text(), "steps · 1 of 3 done"), 2, "also in another view");
+	await t.send("/code off");
+	await until(() => count(t.text(), "steps · 1 of 3 done") === 1, 4000, "the pane to close");
 	assert.match(t.h.toolResults().at(-1)!, /- \[x\] read the code\n- \[~\] change it\n- \[ \] run the tests\n2 of 3 still to do\./);
 
 	// With the next message the agent is shown what is still open.

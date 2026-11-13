@@ -144,6 +144,10 @@ What happens, step by step:
 - A command that ends and leaves a program running (`npm run dev &`) is told as ended, and the
   message says that something is still running. It is then listed like anything else an agent
   left running.
+- While such a command runs and the agent's turn is over, the status line under the
+  conversation says so (`● a command runs in the background: brew install ... · 3 min`), so
+  that a long install does not look like a hang. It says the same for a server or another
+  program that was left running.
 - **Running** in the code pane lists a command in the background with its output file, and
   `■ stop` ends it. The agent is then told that you stopped it. What the agent stops itself
   with `stop_program` it is not told again.

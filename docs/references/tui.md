@@ -374,7 +374,10 @@ For work with several steps an agent can keep a list (its `todo` tool). It appea
 conversation and is updated in place: `✓` done, `◐` in work, `☐` still to do, with a count
 above it; the status line says `step 2 of 5` while the agent works. The list belongs to the
 conversation: it is still there when the UI opens again, the agent is reminded of what is open
-with your next message, and `/reset` clears it.
+with your next message, and `/reset` clears it. In the conversation the list is soon far above,
+behind the tool calls of the work itself. The code pane (`▤ code`, `ctrl+g`) keeps it in view:
+while the pane is open the steps stand at its top, in every view, up to six at a time with the
+one in work among them.
 
 ### When the agent asks you something
 

@@ -131,7 +131,10 @@ export class CodePane {
 	/** Counts loads, so that an answer that arrives late does not overwrite a newer one. */
 	private turn = 0;
 
-	constructor(opts: { client: Client; redraw: () => void; close: () => void; target: () => PaneTarget | undefined }) {
+	private steps?: () => Array<{ text: string; status: string }> | undefined;
+
+	constructor(opts: { client: Client; redraw: () => void; close: () => void; target: () => PaneTarget | undefined; steps?: () => Array<{ text: string; status: string }> | undefined }) {
+		this.steps = opts.steps;
 		this.client = opts.client;
 		this.redraw = opts.redraw;
 		this.close = opts.close;
@@ -492,7 +495,28 @@ export class CodePane {
 		const last = s?.view === "changes" && s.scope === "turn" ? s.turn : undefined;
 		// What is asked for first comes first; the folder's name is what gets cut when the pane is narrow.
 		const info = [...(last ? [last.files.length ? `${last.files.length}${last.more ? "+" : ""} changed by your last message` : "last message"] : []), ...(ch?.repo ? [`${ch.branch || "no branch"}`, ch.files.length ? `${ch.files.length}${ch.more ? "+" : ""} changed` : "clean"] : []), ...(s?.view === "output" && s.calls ? [`${s.calls.length} tool call${s.calls.length === 1 ? "" : "s"}`] : []), ...(s?.view === "running" && s.programs ? [s.programs.length ? `${s.programs.length} running` : "nothing running"] : []), where].filter(Boolean).join(" · ");
-		return [truncateToWidth(text, width), truncateToWidth(` ${c.gray(info)}`, width), c.gray("─".repeat(width))];
+		return [truncateToWidth(text, width), truncateToWidth(` ${c.gray(info)}`, width), c.gray("─".repeat(width)), ...this.stepsLines(width)];
+	}
+
+	/**
+	 * The steps the agent listed for itself, kept at the top of the pane in every view: in the
+	 * conversation they are soon far above, behind the tool calls of the work itself.
+	 */
+	private stepsLines(width: number): string[] {
+		const items = this.steps?.() ?? [];
+		if (!items.length) return [];
+		const done = items.filter((t) => t.status === "done").length;
+		// Room for six: the one in work stays in view, with what was just done above it.
+		const at = Math.max(0, items.findIndex((t) => t.status !== "done"));
+		const from = Math.max(0, Math.min(at - 1, items.length - 6));
+		const shown = items.slice(from, from + 6);
+		const line = (t: { text: string; status: string }) => (t.status === "done" ? `${c.green("✓")} ${c.gray(plain(t.text))}` : t.status === "in_progress" ? `${c.yellow("◐")} ${c.bold(plain(t.text))}` : `${c.gray("☐")} ${plain(t.text)}`);
+		const more = items.length - shown.length;
+		return [
+			truncateToWidth(` ${c.gray(`steps · ${done} of ${items.length} done${more > 0 ? ` · ${more} more not shown` : ""}`)}`, width),
+			...shown.map((t) => truncateToWidth(` ${line(t)}`, width)),
+			c.gray("─".repeat(width)),
+		];
 	}
 }
 

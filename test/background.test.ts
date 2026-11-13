@@ -294,11 +294,14 @@ test("tui: the code pane shows a command in the background with where its output
 	await sees("● sleep 33");
 	await sees(/in the background · running for \d+ s/);
 	await sees("output in ");
+	// The agent's turn is over. That a command of its still runs is said under the conversation, not only in the pane.
+	await sees(/● a command runs in the background: sleep 33 · \d+ s · main is told when it ends/);
 	const [job] = h.pine.agents.programs.running("main:main");
 	const lines = app.screen();
 	const y = lines.findIndex((l) => l.includes("■ stop"));
 	term.click(lines[y].lastIndexOf("■ stop") + 1, y);
 	await sees("Nothing is running.");
+	await until(() => !/a command runs in the background/.test(text()), 6000, "the line to go when nothing runs any more");
 	await until(() => gone(job.id), 5000, "the command to be gone");
 	await h.close();
 });

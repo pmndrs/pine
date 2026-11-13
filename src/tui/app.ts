@@ -97,6 +97,8 @@ interface Tab {
 	lastAnswer?: string;
 	/** The agent's list of steps as it is shown: the block, the task that wrote it, and the steps. */
 	todo?: { block: Text; task: number; items: Array<{ text: string; status: string }> };
+	/** What the conversation's commands left running, as the daemon last said, and when it said so. */
+	left?: { at: number; list: Array<{ command: string; seconds: number; background?: boolean }> };
 	/** Files of the conversation's folder that the "@" list offered here: what a mention in a message is checked against. */
 	files: Set<string>;
 	/** When esc last stopped something here, how many typed messages were waiting then, and the tasks they became. */
@@ -596,6 +598,8 @@ class Picker implements Component {
 	}
 }
 
+/** How long something has been going on, from seconds: "40 s", "3 min", "2 h 5 min". */
+const elapsed = (secs: number) => (secs < 60 ? `${secs} s` : secs < 3600 ? `${Math.floor(secs / 60)} min` : `${Math.floor(secs / 3600)} h ${Math.floor((secs % 3600) / 60)} min`);
 const since = (ms: number) => {
 	const min = Math.max(0, Math.round((Date.now() - ms) / 60_000));
 	return min < 1 ? "just now" : min < 60 ? `${min} min ago` : min < 48 * 60 ? `${Math.round(min / 60)} h ago` : `${Math.round(min / 1440)} days ago`;
@@ -1054,6 +1058,7 @@ export class PineTui {
 	/** The language to listen for, when the owner named one (/voice de-DE). Default: the system's. */
 	private voiceLanguage?: string;
 	private spinner?: NodeJS.Timeout;
+	private watching?: NodeJS.Timeout;
 	private frame = 0;
 	private unsubscribe?: () => void;
 	/** `waits`: a question to the owner that is still open on the daemon's side. A click beside it does not close it. */
@@ -1113,6 +1118,7 @@ export class PineTui {
 			redraw: () => this.tui.requestRender(),
 			close: () => this.showCode(false),
 			target: () => (this.active?.kind === "chat" ? { agent: this.active.agent, session: this.active.session } : undefined),
+			steps: () => (this.active?.kind === "chat" ? this.active.todo?.items : undefined),
 		});
 		this.defineCommands();
 		this.editor.setAutocompleteProvider(
@@ -1159,6 +1165,10 @@ export class PineTui {
 			this.tui.requestRender();
 		}, 120);
 		this.spinner.unref?.();
+		// What a conversation's commands left running is not an event: it is asked for now and then,
+		// so that the status line can say that something is still going on after the agent's turn.
+		this.watching = setInterval(() => void this.pollPrograms(), 3000);
+		this.watching.unref?.();
 		// The same tabs as last time, in the same order.
 		const saved = await this.client.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0, code: false, notify: true }));
 		this.notify = saved.notify !== false;
@@ -1189,6 +1199,7 @@ export class PineTui {
 		if (this.stopped) return;
 		this.stopped = true;
 		clearInterval(this.spinner);
+		clearInterval(this.watching);
 		clearTimeout(this.noticeTimer);
 		// Leaving keeps every conversation as it is: the same tabs open again next time.
 		this.unsubscribe?.();
@@ -1497,6 +1508,17 @@ export class PineTui {
 		block.finish(ms);
 		tab.thought = { task, block };
 		tab.thoughts.delete(task);
+	}
+
+	/** Ask what the commands of the conversation in front left running. Quietly: a daemon that does not answer changes nothing. */
+	private async pollPrograms(): Promise<void> {
+		const t = this.active;
+		if (this.stopped || !t || t.kind !== "chat") return;
+		const list = await this.client.programs(t.agent, t.session).catch(() => undefined);
+		if (!list) return;
+		const had = t.left?.list.length ?? 0;
+		t.left = { at: Date.now(), list };
+		if (list.length || had) this.tui.requestRender();
 	}
 
 	/** The agent's list of steps (its `todo` tool), drawn: done, in work, still to do. */
@@ -2852,6 +2874,8 @@ export class PineTui {
 				tab.running.delete(p.task);
 				tab.thinking = false;
 				this.takeStats(tab, p.stats);
+				// What the turn left running is said at once, not at the next look.
+				if (tab === this.active) void this.pollPrograms();
 				if (p.status !== "cancelled" && !tab.running.size) this.attention(`pine: ${tab.agent} ${p.status === "done" ? "is done" : "stopped with an error"}`);
 				if (p.status === "done") {
 					// Streaming normally showed the answer already; this covers a missed stream.
@@ -3000,6 +3024,16 @@ export class PineTui {
 			if (t.goal?.status === "active") parts.unshift(`goal · round ${t.goal.round} of ${t.goal.until}`);
 			line = `${c.yellow(SPINNER[this.frame % SPINNER.length])} ${c.gray(parts.join(" · "))}`;
 		} else if (t.goal?.status === "active") line = c.gray(`◎ goal · round ${t.goal.round} of ${t.goal.until} · checking whether it is met · esc to pause`);
+		// The agent's turn is over, and a command of its goes on: without a word that looks like a hang.
+		else if (t.left?.list.length) {
+			const background = t.left.list.filter((p) => p.background);
+			const one = background[0] ?? t.left.list[0];
+			const secs = one.seconds + Math.round((Date.now() - t.left.at) / 1000);
+			const what = short(oneLine(one.command), 46);
+			line = background.length
+				? `${c.yellow("●")} ${c.gray(`${background.length === 1 ? "a command runs" : `${background.length} commands run`} in the background: ${what} · ${elapsed(secs)} · ${t.agent} is told when it ends`)}`
+				: `${c.yellow("●")} ${c.gray(`${t.left.list.length === 1 ? "a program is" : `${t.left.list.length} programs are`} still running: ${what} · ${elapsed(secs)} · /code running lists ${t.left.list.length === 1 ? "it" : "them"}`)}`;
+		}
 		return [truncateToWidth(` ${line}`, width)];
 	}
 
