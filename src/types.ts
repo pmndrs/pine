@@ -1,3 +1,4 @@
+import type { CallTiming } from "./util.ts";
 /** Where a handler's answer should go: an event on `topic` whose payload is `payload` plus `text`. */
 export interface ReplyTarget {
 	topic: string;
@@ -74,7 +75,7 @@ export interface TaskMeta {
 	/** The folder the owner opened for the conversation this task was handed on from. A one-off delegated run works there too. */
 	folder?: string;
 	/** `input` is what the model server had to read anew; `cached` is what it took from its prompt cache. */
-	stats?: { input: number; output: number; cached?: number; turns: number; tools: string[]; ms: number; context?: ContextUse };
+	stats?: { input: number; output: number; cached?: number; turns: number; tools: string[]; ms: number; context?: ContextUse; timing?: CallTiming };
 }
 
 /** How full a session's context window is. `percent` is missing right after a compaction. */

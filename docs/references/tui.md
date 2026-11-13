@@ -24,12 +24,12 @@ running it attaches to it; otherwise it starts one inside the same process, logs
 
  The page is IANA's placeholder for documentation examples ...             ← answer, streamed
 
- ⠹ working · 12s · 2 tool calls · 1 sub-task running · 2140↑ (92% cached) 96↓ · esc to stop
+ ⠹ working · 12s · 2 tool calls · 1 sub-task running · 2140↑ (92% cached) 96↓ · ↑ 1.4k t/s ↓ 42 t/s · esc to stop
 ──────────────────────────────────────────────────────────────────────────
  /mo                                                                       ← input
 ──────────────────────────────────────────────────────────────────────────
  → model       [provider/id] — Show or switch this agent's model          ← command suggestions
- main · main · no folder · dev/claude-haiku · reasoning off · auto · context 12%      /help
+ main · main · no folder · dev/claude-haiku · reasoning off · auto · context 12% · ↑ 1.4k t/s ↓ 42 t/s      /help
 ```
 
 `pine .` or `pine <folder>` opens the same UI with one more tab: a conversation that works in
@@ -438,6 +438,7 @@ ahead of the answer. The conversation shows them like this:
 |---|---|
 | While the model thinks | `▸ thinking 4s` and under it the last four lines of the thought, moving as it goes on |
 | When the thinking ends | One line, `▸ thought for 12s`. The answer or the tool call follows under it |
+| When that call of the model has ended | The line also says how fast the model was: `▸ thought for 12s · ↑ 1.4k t/s ↓ 42 t/s`. See [How fast the model is](#how-fast-the-model-is) |
 | After a click on it, at either time | `▾` and the whole thought, however long. One that you opened stays open when the thinking ends |
 | After a click anywhere on the open thought | The one line again. Every line of it closes it, so you do not have to scroll back to its beginning; the line that is left is brought into view |
 
@@ -446,6 +447,33 @@ opened again, the earlier answers are there and the thoughts are not. A sub-agen
 delegated task's thoughts are in its own tab (`▸ open`), each as a `▸ thought` line to click.
 A model that does not send what it thinks (some hosted ones send nothing, or only a summary)
 shows `thinking` in the status line and no thought.
+
+### How fast the model is
+
+pine measures every call of the model and shows two figures, in tokens a second (`t/s`):
+
+| Figure | What it is |
+|---|---|
+| `↑ 1.4k t/s` | Prompt processing: how fast the model read the part of the conversation it had not seen before. Measured from the moment the call went out to the first token that came back. What the server took from its cache is not counted |
+| `↓ 42 t/s` | Generation: how fast it wrote, thinking included. Measured from the first token to the end of the call |
+
+The arrows are the ones of the token counts beside them: up is what went to the model, down is
+what came back. Where they are shown:
+
+| Where | Which call |
+|---|---|
+| On the `▸ thought for` line | The call of the model that this thought was part of |
+| In the status line, while the agent works | The call that ended last |
+| In the bottom bar, after `context` and `cache` | The last task as a whole, over all its calls (tokens over time, not the mean of the rates). It stays there when the work is done, also for a model that shows no thoughts |
+| In a sub-task's own tab (`▸ open`), in its last line `── done · 12.3 s · 2 tool calls · 30205↑ 180↓ · ↑ 1.4k t/s ↓ 42 t/s ──` | That task as a whole |
+
+pine's log has them with every task as well.
+
+A figure is left out where it would say nothing: `↑` when fewer than 200 new tokens were read
+(after a cache hit the wait is the round trip, not the model), `↓` when the answer was a few
+tokens or arrived in one piece. pine times the calls itself, so this works with any model
+server; a server's own figures can differ a little, because pine's include the way there and
+back.
 
 Because a click on an open thought closes it, dragging over it does not select text through
 the UI. Hold Option (Terminal, iTerm) or Shift (most others) while dragging to select it with

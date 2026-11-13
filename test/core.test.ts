@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { ConfigError, effectiveMcp, loadConfig } from "../src/config.ts";
 import { Limiter } from "../src/limiter.ts";
 import { parseCron } from "../src/timers.ts";
-import { matchWhen, parseDuration, render, renderDeep, topicMatches } from "../src/util.ts";
+import { callTiming, matchWhen, parseDuration, render, renderDeep, speedOf, speedText, topicMatches } from "../src/util.ts";
 import { harness, sleep } from "./support/harness.ts";
 
 test("topic patterns follow MQTT rules", () => {
@@ -148,4 +148,25 @@ test("the claude -p stand-in: conversation rendering and reply parsing", async (
 	assert.deepEqual(parseReply('```json\n{"text":"done","tool_calls":[]}\n```'), { text: "done", tool_calls: [] });
 	assert.deepEqual(parseReply("plain words, no JSON"), { text: "plain words, no JSON", tool_calls: [] });
 	assert.deepEqual(parseReply('{"unrelated": 1}'), { text: '{"unrelated": 1}', tool_calls: [] });
+});
+
+test("a model call is split at its first token into reading the prompt and writing, and a half that says nothing is left out", () => {
+	// 18000 new tokens read in 12 s, then 420 written in 10 s.
+	const call = callTiming(18_000, 420, 1000, 13_000, 23_000);
+	assert.deepEqual(call, { readTokens: 18_000, readMs: 12_000, writeTokens: 420, writeMs: 10_000 });
+	assert.deepEqual(speedOf(call), { read: 1500, write: 42 });
+	assert.equal(speedText(speedOf(call)), "↑ 1.5k t/s ↓ 42 t/s");
+	// After a cache hit the few new tokens measure the round trip, not the model: only the writing counts.
+	assert.deepEqual(speedOf(callTiming(17, 420, 1000, 1300, 11_300)), { write: 42 });
+	assert.equal(speedText({ write: 8.44 }), "↓ 8.4 t/s");
+	// An answer that arrived in one piece, or was a few tokens, has no speed.
+	assert.deepEqual(speedOf(callTiming(18_000, 420, 1000, 0, 13_000)), { read: 1500 }, "no token was seen before the end: all of it was waiting");
+	assert.deepEqual(speedOf(callTiming(18_000, 3, 1000, 13_000, 13_900)), { read: 1500 });
+	assert.deepEqual(speedOf(callTiming(120, 4, 1000, 1010, 1020)), {});
+	assert.equal(speedText({}), "");
+	assert.equal(speedText(undefined), "");
+	assert.equal(speedText({ read: 23_456, write: 150.4 }), "↑ 23k t/s ↓ 150 t/s");
+	// Several calls of a task: tokens over time, not the mean of the rates.
+	const sum = { readTokens: 18_000 + 2000, readMs: 12_000 + 8000, writeTokens: 420 + 80, writeMs: 10_000 + 10_000 };
+	assert.deepEqual(speedOf(sum), { read: 1000, write: 25 });
 });

@@ -145,3 +145,50 @@ export function since(seconds: number): string {
 	const m = Math.floor((seconds % 3600) / 60);
 	return m ? `${h} h ${m} min` : `${h} h`;
 }
+
+/**
+ * How fast a model went, in tokens a second. `read` is how fast it took in the part of the
+ * prompt it had not seen before (what a local server calls prompt processing), `write` how fast
+ * it produced its answer, thinking included.
+ */
+export interface Speed {
+	read?: number;
+	write?: number;
+}
+
+/** What one model call took: tokens and milliseconds for each half, as far as they can be told apart. */
+export interface CallTiming {
+	readTokens: number;
+	readMs: number;
+	writeTokens: number;
+	writeMs: number;
+}
+
+/**
+ * Split a model call at its first token. Up to there the server read the prompt (`input` new
+ * tokens: what it took from its cache costs next to nothing and is not counted); from there
+ * to the end it wrote `output` tokens. A half that is too small to say anything is left out:
+ * a handful of new tokens after a cache hit measures the round trip, not the model, and an
+ * answer that arrived in one piece has no duration.
+ */
+export function callTiming(input: number, output: number, startedAt: number, firstTokenAt: number, endedAt: number): CallTiming {
+	const first = firstTokenAt || endedAt;
+	const readMs = startedAt ? Math.max(0, first - startedAt) : 0;
+	const writeMs = Math.max(0, endedAt - first);
+	const reads = input >= 200 && readMs >= 50;
+	const writes = output >= 8 && writeMs >= 200;
+	return { readTokens: reads ? input : 0, readMs: reads ? readMs : 0, writeTokens: writes ? output : 0, writeMs: writes ? writeMs : 0 };
+}
+
+export function speedOf(t: CallTiming | undefined): Speed {
+	if (!t) return {};
+	return { ...(t.readMs ? { read: (t.readTokens * 1000) / t.readMs } : {}), ...(t.writeMs ? { write: (t.writeTokens * 1000) / t.writeMs } : {}) };
+}
+
+const rate = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n >= 20 ? String(Math.round(n)) : n.toFixed(1));
+
+/** "↑ 1.4k t/s ↓ 42 t/s": up is what the model read, down is what it wrote, as with the token counts. Empty when neither is known. */
+export function speedText(s: Speed | undefined): string {
+	if (!s) return "";
+	return [s.read ? `↑ ${rate(s.read)} t/s` : "", s.write ? `↓ ${rate(s.write)} t/s` : ""].filter(Boolean).join(" ");
+}

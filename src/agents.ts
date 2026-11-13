@@ -41,7 +41,7 @@ import { onBranch, redoMessage, Turns, type TurnView, type UndoHost, undoMessage
 import { type Action, actionKey, type Blocked, classify, LOOK_TOOLS, parseVerdict, pineOwn, pineOwnRefusal, PLAN_REFUSAL, reviewPrompt, rulesFrom, SETUP_TOOLS, type Verdict } from "./actions.ts";
 import { Type } from "typebox";
 import type { ContextUse, ImageRef, PineEvent, ReplyTarget, Task, TaskKind, TaskResult, TaskStatus, Todo, TranscriptEntry, Trust } from "./types.ts";
-import { errText, expandHome, type Logger, programName, safeName, since, sleep, truncate } from "./util.ts";
+import { callTiming, errText, expandHome, type Logger, programName, safeName, since, sleep, speedOf, speedText, truncate } from "./util.ts";
 
 const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
@@ -1349,6 +1349,9 @@ export class AgentManager {
 			let pendingText = "";
 			let pendingThought = "";
 			let thoughtAt = 0;
+			// A model call, split at its first token: before it the server reads the prompt, after it it writes.
+			let callAt = 0;
+			let firstAt = 0;
 			let flushTimer: NodeJS.Timeout | undefined;
 			const flush = () => {
 				clearTimeout(flushTimer);
@@ -1361,6 +1364,10 @@ export class AgentManager {
 				pendingText = "";
 			};
 			const unsubscribe = live.session.subscribe((e: any) => {
+				if (e.type === "turn_start") {
+					callAt = Date.now();
+					firstAt = 0;
+				} else if (!firstAt && e.type === "message_update" && String(e.assistantMessageEvent?.type).endsWith("_delta")) firstAt = Date.now();
 				if (e.type === "turn_end") stats.turns++;
 				else if (e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta") {
 					pendingText += e.assistantMessageEvent.delta ?? "";
@@ -1389,8 +1396,13 @@ export class AgentManager {
 						stats.output += e.message.usage.output ?? 0;
 						stats.cached = (stats.cached ?? 0) + (e.message.usage.cacheRead ?? 0);
 					}
+					// How fast this call went, and with it the task as a whole.
+					const took = callTiming(e.message.usage?.input ?? 0, e.message.usage?.output ?? 0, callAt, firstAt, Date.now());
+					callAt = 0;
+					const sum = (stats.timing ??= { readTokens: 0, readMs: 0, writeTokens: 0, writeMs: 0 });
+					for (const k of ["readTokens", "readMs", "writeTokens", "writeMs"] as const) sum[k] += took[k];
 					stats.context = contextOf(live!.session);
-					this.bus.publish(`agent/${agent.id}/message`, { ...ids, input: stats.input, output: stats.output, cached: stats.cached, context: stats.context }, live_);
+					this.bus.publish(`agent/${agent.id}/message`, { ...ids, input: stats.input, output: stats.output, cached: stats.cached, context: stats.context, speed: speedOf(took) }, live_);
 				} else if (e.type === "tool_execution_start") {
 					flush();
 					stats.tools.push(e.toolName);
@@ -1482,7 +1494,7 @@ export class AgentManager {
 		const done: Task = { ...task, status, result: text, error, meta };
 		const source = `agent:${task.agent}`;
 		const cause = this.causeOf(task);
-		this.log.info(`task #${task.id} ${task.agent}/${task.session} ${status}${error ? `: ${error}` : ""}${stats ? ` (${stats.ms} ms, ${stats.turns} turns, ${stats.tools.length} tool calls, ${stats.input} tokens read${stats.cached ? ` + ${stats.cached} from cache` : ""})` : ""}`);
+		this.log.info(`task #${task.id} ${task.agent}/${task.session} ${status}${error ? `: ${error}` : ""}${stats ? ` (${stats.ms} ms, ${stats.turns} turns, ${stats.tools.length} tool calls, ${stats.input} tokens read${stats.cached ? ` + ${stats.cached} from cache` : ""}${speedText(speedOf(stats.timing)) ? `, ${speedText(speedOf(stats.timing))}` : ""})` : ""}`);
 		this.bus.publish(`agent/${task.agent}/${status === "done" ? "done" : "failed"}`, { task: task.id, agent: task.agent, session: task.session, root: task.meta.root ?? task.id, parent: task.parent, depth: task.depth, kind: task.kind, status, text: truncate(text, 4000), error, stats }, { source, cause, hop: true });
 		if (task.reply && status !== "cancelled" && !(status === "done" && SILENT.test(text))) {
 			const body = status === "done" ? text || "(no answer)" : `${task.agent} could not finish: ${error ?? status}`;

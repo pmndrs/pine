@@ -35,7 +35,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { TranscriptEntry } from "../types.ts";
 import type { PineEvent, Task } from "../types.ts";
-import { errText, expandHome, openInSystem } from "../util.ts";
+import { errText, expandHome, openInSystem, type Speed, speedOf, speedText } from "../util.ts";
 import type { AgentInfo, Client, Conversation, GoalInfo } from "./client.ts";
 import { CodePane, PANE_VIEWS, type PaneView } from "./code-pane.ts";
 import { redoText, undoText } from "./undo.ts";
@@ -69,6 +69,10 @@ interface Tab {
 	blocks: Map<number, { md: Answer; text: string }>;
 	/** What a task's model is thinking right now, per task. */
 	thoughts: Map<number, Thought>;
+	/** The thought that has just ended, by task: the model call it is part of says how fast it went when the call ends. */
+	thought?: { task: number; block: Thought };
+	/** How fast the last model call of this conversation went. */
+	speed?: Speed;
 	tools: Map<string, { line: Text; label: string }>;
 	/** Text of the message a task streamed last, so a finished task's answer is not shown twice. */
 	streamed: Map<number, string>;
@@ -418,6 +422,8 @@ class Thought implements Component {
 	private text = "";
 	private started = Date.now();
 	private ms?: number;
+	/** How fast the model call it belongs to went, once that call has ended ("↑ 1.4k t/s ↓ 42 t/s"). */
+	speed = "";
 	private toggled: (thought: Thought) => void;
 	private wrapped?: { width: number; lines: string[] };
 
@@ -455,7 +461,7 @@ class Thought implements Component {
 		const all = this.lines(width);
 		const secs = Math.max(1, Math.round((this.done ? (this.ms ?? 0) : Date.now() - this.started) / 1000));
 		const took = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
-		const what = this.done ? (this.ms === undefined ? "thought" : `thought for ${took}`) : `thinking ${took}`;
+		const what = `${this.done ? (this.ms === undefined ? "thought" : `thought for ${took}`) : `thinking ${took}`}${this.speed ? ` · ${this.speed}` : ""}`;
 		const body = (lines: string[]) => lines.map((l) => ` ${c.gray(`│ ${l}`)}`);
 		if (this.open) return [` ${c.gray(`▾ ${what} · click anywhere on it to close`)}`, ...body(all), ...(all.length > PEEK ? [` ${c.gray("▴ close")}`] : [])];
 		const head = ` ${c.gray(`▸ ${what}${all.length ? " · click to read" : ""}`)}`;
@@ -1214,7 +1220,7 @@ export class PineTui {
 	}
 
 	private taskSummary(status: string, stats: Task["meta"]["stats"], error?: string): string {
-		const parts = [status, ...(stats ? [`${Math.round(stats.ms / 100) / 10} s`, `${stats.tools.length} tool call${stats.tools.length === 1 ? "" : "s"}`, `${stats.input + (stats.cached ?? 0)}↑ ${stats.output}↓`] : []), ...(error ? [error] : [])];
+		const parts = [status, ...(stats ? [`${Math.round(stats.ms / 100) / 10} s`, `${stats.tools.length} tool call${stats.tools.length === 1 ? "" : "s"}`, `${stats.input + (stats.cached ?? 0)}↑ ${stats.output}↓`, ...(speedText(speedOf(stats.timing)) ? [speedText(speedOf(stats.timing))] : [])] : []), ...(error ? [error] : [])];
 		return `── ${parts.join(" · ")} ──`;
 	}
 
@@ -1410,7 +1416,10 @@ export class PineTui {
 
 	/** A task's model stopped thinking: what it thought is closed, or stays open if somebody opened it. */
 	private endThought(tab: Tab, task: number, ms?: number): void {
-		tab.thoughts.get(task)?.finish(ms);
+		const block = tab.thoughts.get(task);
+		if (!block) return;
+		block.finish(ms);
+		tab.thought = { task, block };
 		tab.thoughts.delete(task);
 	}
 
@@ -1527,6 +1536,9 @@ export class PineTui {
 		// Shown once the server has reported cached input at least once; many servers report nothing,
 		// and a permanent "0%" would say something that is not known.
 		if (total > 0 && (stats.cached || tab.cacheShare !== undefined)) tab.cacheShare = Math.round((100 * (stats.cached ?? 0)) / total);
+		// The task as a whole, over all its calls. A task that was too short to time leaves the last figures.
+		const speed = speedOf(stats.timing);
+		if (speed.read || speed.write) tab.speed = speed;
 	}
 
 	/**
@@ -2607,6 +2619,13 @@ export class PineTui {
 				if (depth === 0) {
 					tab.tokens = { input: p.input ?? 0, output: p.output ?? 0, cached: p.cached ?? 0 };
 					if (p.context?.percent !== undefined) tab.context = p.context.percent;
+					// How fast this call went: beside what the model thought in it, and in the line at the bottom.
+					if (p.speed && (p.speed.read || p.speed.write)) tab.speed = p.speed;
+				}
+				const ended = tab.thought;
+				if (ended && ended.task === p.task) {
+					if (depth === 0) ended.block.speed = speedText(p.speed);
+					tab.thought = undefined;
 				}
 				break;
 			case "tool": {
@@ -2762,7 +2781,7 @@ export class PineTui {
 			const secs = Math.max(0, Math.round((Date.now() - t.startedAt) / 1000));
 			const helpers = [...t.children.values()].filter((x) => x.running).length;
 			const steps = t.todo?.items.length ? [`step ${Math.min(t.todo.items.length, t.todo.items.filter((x) => x.status === "done").length + 1)} of ${t.todo.items.length}`] : [];
-			const parts = [t.thinking ? "thinking" : "working", `${secs}s`, ...steps, ...(t.toolCalls ? [`${t.toolCalls} tool call${t.toolCalls === 1 ? "" : "s"}`] : []), ...(helpers ? [`${helpers} sub-task${helpers === 1 ? "" : "s"} running`] : []), ...(t.tokens.output ? [`${t.tokens.input + t.tokens.cached}↑${t.tokens.cached ? ` (${Math.round((100 * t.tokens.cached) / (t.tokens.input + t.tokens.cached))}% cached)` : ""} ${t.tokens.output}↓`] : []), "esc to stop"];
+			const parts = [t.thinking ? "thinking" : "working", `${secs}s`, ...steps, ...(t.toolCalls ? [`${t.toolCalls} tool call${t.toolCalls === 1 ? "" : "s"}`] : []), ...(helpers ? [`${helpers} sub-task${helpers === 1 ? "" : "s"} running`] : []), ...(t.tokens.output ? [`${t.tokens.input + t.tokens.cached}↑${t.tokens.cached ? ` (${Math.round((100 * t.tokens.cached) / (t.tokens.input + t.tokens.cached))}% cached)` : ""} ${t.tokens.output}↓`] : []), ...(speedText(t.speed) ? [speedText(t.speed)] : []), "esc to stop"];
 			// A goal: which round this is, so that work that goes on by itself is seen to.
 			if (t.goal?.status === "active") parts.unshift(`goal · round ${t.goal.round} of ${t.goal.until}`);
 			line = `${c.yellow(SPINNER[this.frame % SPINNER.length])} ${c.gray(parts.join(" · "))}`;
@@ -2795,6 +2814,8 @@ export class PineTui {
 		if (t.context !== undefined) line.add(c.gray(" · ")).add((t.context >= 85 ? c.red : t.context >= 65 ? c.yellow : c.gray)(`context ${t.context}%`));
 		// How much of the last request the model server took from its cache. Low figures on a local model mean slow turns.
 		if (t.cacheShare !== undefined) line.add(c.gray(" · ")).add((t.cacheShare < 50 ? c.yellow : c.gray)(`cache ${t.cacheShare}%`));
+		// How fast the model read and wrote in the last task: what stays to be seen when the work is done.
+		if (speedText(t.speed)) line.add(c.gray(" · ")).add(c.gray(speedText(t.speed)));
 		if (taint) line.add(c.yellow(" · outside content"));
 		this.footerHits = line.hits;
 		const right = c.gray("/help ");

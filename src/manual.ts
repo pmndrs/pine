@@ -66,6 +66,7 @@ const SYNONYMS: string[][] = [
 	["config", "configuration", "setting", "option", "json", "setup", "configure"],
 	["install", "setup", "init", "start", "launch", "run", "boot", "service", "daemon"],
 	["remove", "delete", "uninstall", "drop", "clear"],
+	["speed", "fast", "slow", "tps", "throughput", "performance"],
 	["add", "create", "new", "register", "make", "define"],
 	["list", "show", "status", "overview", "inspect"],
 	["mode", "auto", "safe", "manual", "bypass", "autonomy"],

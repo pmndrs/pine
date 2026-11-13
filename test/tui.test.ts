@@ -759,6 +759,28 @@ test("tui: an answer's markdown is drawn, not shown raw: code in colour without 
 	await t.close();
 });
 
+test("tui: how fast the model read and wrote is shown beside its thought, in the status line while it works, and in the bottom bar after", async () => {
+	const t = await open({ agents: { main: {} }, model: { reasoning: true } }, [120, 40]);
+	await t.sees("type a message");
+	const rate = String.raw`[\d.]+k? t\/s`;
+	// A server that takes a while over the prompt and then writes for a while.
+	await t.send(mockMsg([{ delayMs: 160, reasoning: "weigh it up\nthen decide", reasoningHoldMs: 320, tools: [{ name: "bash", args: { command: "sleep 0.5; echo measured" } }] }, { delayMs: 120, chunkDelayMs: 30, text: "The answer, at some length, so that there is something to time: forty-two." }]));
+	await t.sees(new RegExp(`▸ thought for \\d+s · ↑ ${rate} ↓ ${rate} · click to read`));
+	// While it goes on working: the last call's figures, after the token counts.
+	await t.sees(new RegExp(`working · \\d+s · 1 tool call · \\d+↑[^·]* \\d+↓ · ↑ ${rate} ↓ ${rate} · esc to stop`));
+	await t.sees("forty-two.");
+	// When the work is done the bottom bar keeps them: the task as a whole.
+	const bar = new RegExp(`reasoning \\w+ · \\w+ · context \\d+%[^/]* · ↑ ${rate} ↓ ${rate} `);
+	await until(() => !/working ·/.test(t.text()), 5000, "the work to be done");
+	await t.sees(bar);
+	// An answer that comes at once says nothing about speed: nothing new is shown, and the last figures stay.
+	const before = bar.exec(t.text())![0];
+	await t.send(mockMsg([{ text: "ok" }]));
+	await t.sees(/^ ok$/m);
+	assert.ok(t.text().includes(before), t.text());
+	await t.close();
+});
+
 test("tui: what a model thinks is a few lines while it thinks and one line after; a click opens it and a click anywhere on it closes it", async () => {
 	const t = await open({ agents: { main: {} }, model: { reasoning: true } }, [110, 40]);
 	await t.sees("type a message");
@@ -776,13 +798,13 @@ test("tui: what a model thinks is a few lines while it thinks and one line after
 
 	// Nobody opened it: one line once the answer begins.
 	await t.sees("The answer is 4.");
-	await t.sees(/▸ thought for \d+s · click to read/);
+	await t.sees(/▸ thought for \d+s(?: · [^·]+t\/s)? · click to read/);
 	assert.ok(!thought(8) && !/thinking \d+s/.test(t.text()), `closed to one line\n${t.text()}`);
 
 	// A click opens all of it; a click in the middle of it closes it.
 	t.term.click(6, rowOf("▸ thought for"));
 	await until(() => thought(1) && thought(8), 2000, "the whole thought");
-	assert.match(t.text(), /▾ thought for \d+s · click anywhere on it to close/);
+	assert.match(t.text(), /▾ thought for \d+s(?: · [^·]+t\/s)? · click anywhere on it to close/);
 	t.term.click(30, rows().findIndex((l) => l.startsWith(" │ step-4 ")));
 	await until(() => !thought(4), 2000, "the thought to close");
 	assert.match(t.text(), /▸ thought for \d+s/);
