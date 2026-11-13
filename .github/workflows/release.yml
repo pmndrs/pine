@@ -36,6 +36,24 @@ jobs:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
+      # @pmndrs/pine is the old name of the package. What is published under it now forwards to
+      # @pmndre/pine (see forward/). It is published when forward/package.json has a version npm
+      # does not know yet, through the trusted publisher that is set up for @pmndrs/pine.
+      - name: Publish the forward under the old name (@pmndrs/pine)
+        run: |
+          version=$(node -p "require('./forward/package.json').version")
+          if [ -n "$(npm view "@pmndrs/pine@$version" version 2>/dev/null)" ]; then
+            echo "@pmndrs/pine@$version is already published"
+            exit 0
+          fi
+          # The forward depends on @pmndre/pine: it goes out only once that can be installed.
+          for i in $(seq 1 30); do
+            [ -n "$(npm view "@pmndre/pine@>=0.22.0" version 2>/dev/null)" ] && break
+            echo "waiting for @pmndre/pine to be available ..."
+            sleep 10
+          done
+          [ -n "$(npm view "@pmndre/pine@>=0.22.0" version 2>/dev/null)" ]
+          npm publish ./forward --access public
       - run: npm ci
       - run: npm run check
       - run: node scripts/release.mjs

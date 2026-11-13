@@ -1,0 +1,30 @@
+{
+  "name": "@pmndrs/pine",
+  "version": "0.22.0",
+  "description": "pine has moved to @pmndre/pine. This package forwards to it.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmndrs/pine.git"
+  },
+  "homepage": "https://github.com/pmndrs/pine#readme",
+  "bugs": {
+    "url": "https://github.com/pmndrs/pine/issues"
+  },
+  "bin": {
+    "pine": "bin/pine.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@pmndre/pine": ">=0.22.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
