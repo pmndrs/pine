@@ -54,7 +54,8 @@ Everything in the two bars reacts to a click.
 | `reasoning <level>` | How much the model thinks before answering: off, minimal, low, medium, high, xhigh, max |
 | The mode (`auto`, `safe`, `manual`, `bypass`, `plan`) | The five modes |
 | A button in an approval dialog | Allow once, Always here, Deny or Later |
-| Anywhere beside an open list or dialog | It closes (an approval stays open for later). The click does nothing else |
+| Anywhere beside an open list | It closes. The click does nothing else |
+| Anywhere beside an approval dialog or a question | Nothing: it stays open until you answer it or put it off with `esc` |
 | A `▸ thinking` or `▸ thought for` line, or the lines under it | What the model thought opens in full. A click anywhere on the open text closes it again. See [What a model thinks](#what-a-model-thinks) |
 | A web address in the conversation | It opens in your browser |
 | A picture | It is enlarged; a second click shrinks it again |
@@ -160,6 +161,7 @@ a tab`, `kept`, or when it goes (`goes in 5 days`, `goes in 20 h`, `goes soon`).
 | `enter`, or a click on a name | Opens the conversation in a tab |
 | `pin` / `unpin` at the end of a row, or `ctrl+p` | Pins it, or takes the pin off. A pinned one has a `★` in front and comes first |
 | `×` at the end, or `ctrl+x` | Removes it for good. It asks once more (`remove? ×`); the second click or key does it. A conversation that is working is not removed |
+| `reset` at the end of the agent's `main` conversation, or `ctrl+x` on it | Starts that conversation over, as `/reset` does. It asks once more (`reset? ×`). The agent's own conversation cannot be removed and never goes by itself, so it has a `★` and no `pin` |
 
 Removing cannot be undone: the history, what the conversation may do without asking, what it
 listens to and whatever was set up for it alone (event sources, schedules, MCP servers, skills,
@@ -296,7 +298,7 @@ dialog opens over the conversation with the agent, the tool and its arguments, a
 | `a` or `y` | Allow once. Where a yes already holds for the whole conversation (access to a folder or the network, a local address in the browser, an app) the button reads "Allow", and the dialog says what the yes holds for |
 | `s` | Always here: allow, and do not ask again in this conversation about this MCP server (or this tool, such as `bash`). For a critical action it covers that kind of critical action, not the whole shell. Not offered for actions you configured to ask every time |
 | `d` or `n` | Deny |
-| `esc` | Later: the request stays open until `security.approvalTimeout` (5 minutes) has passed and then counts as denied. Until then the status line keeps reminding you, and `/approve` or `/deny` answer it |
+| `esc` | Later: the request stays open until `security.approvalTimeout` (5 minutes) has passed and then counts as denied. Until then the status line keeps reminding you, `enter` on an empty line opens the dialog again, and `/approve` or `/deny` answer it A question in a tab that is not in front opens no dialog there: that tab gets a `!` in the tab bar, and the status line of the tab you are in says which tab waits (`alt+<n>` goes there) |
 
 When the action needs something only you have (a bot's token, a device's password), the dialog
 has a field for it. Type or paste it: a secret is shown as dots, goes into pine's `.env` and is

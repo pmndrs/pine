@@ -559,6 +559,8 @@ interface ConversationActions {
 	pin(conv: Conversation): Promise<boolean>;
 	/** Remove for good; resolves with whether it is gone. */
 	remove(conv: Conversation): Promise<boolean>;
+	/** Start the agent's own conversation over: it cannot be removed, so this is what "remove" is for it. */
+	reset(conv: Conversation): Promise<boolean>;
 	close(): void;
 	redraw(): void;
 }
@@ -606,13 +608,15 @@ class ConversationList implements Component {
 	}
 
 	private async remove(conv: Conversation): Promise<void> {
-		if (conv.session === "main") return;
 		if (this.asked !== conv.session) {
 			this.asked = conv.session;
 			return this.act.redraw();
 		}
 		this.asked = undefined;
-		if (await this.act.remove(conv)) {
+		// The agent's own conversation stays: what can be taken away is what was said in it.
+		if (conv.session === "main") {
+			if (await this.act.reset(conv)) conv.tasks = 0;
+		} else if (await this.act.remove(conv)) {
 			this.items = this.items.filter((x) => x !== conv);
 			this.selected = Math.min(this.selected, this.shown().length);
 		}
@@ -673,26 +677,27 @@ class ConversationList implements Component {
 			const conv = shown[i - 1];
 			const main = conv.session === "main";
 			const state = main ? "the agent's own, always kept" : conv.pinned ? "pinned" : conv.open ? "open in a tab" : conv.expires ? until(conv.expires) : "kept";
-			const mark = conv.pinned ? c.accent("★") : " ";
+			// The agent's own conversation is kept without a pin: it has the mark of one.
+			const mark = conv.pinned || main ? c.accent("★") : " ";
 			const label = short(conv.session, name - 1).padEnd(name);
 			const left = `${mark} ${on ? c.accent(label) : label} ${c.gray(`${conv.tasks} message${conv.tasks === 1 ? "" : "s"} · ${since(conv.last)} · ${state}`)}`;
 			// At the end of the row, the two things that can be done to it, as words to click.
 			const pin = main ? "" : conv.pinned ? "unpin" : "pin";
-			const x = main ? "" : this.asked === conv.session ? "remove? ×" : "×";
-			const right = main ? "" : `${c.accent(pin)}   ${this.asked === conv.session ? c.red(x) : c.gray(x)}`;
+			const x = main ? (this.asked === conv.session ? "reset? ×" : "reset") : this.asked === conv.session ? "remove? ×" : "×";
+			const right = main ? (this.asked === conv.session ? c.red(x) : c.gray(x)) : `${c.accent(pin)}   ${this.asked === conv.session ? c.red(x) : c.gray(x)}`;
 			const room = inner - visibleWidth(right) - 2;
 			const cut = truncateToWidth(left, room);
 			lines.push(pad(`${cut}${" ".repeat(Math.max(0, room - visibleWidth(cut)))}  ${right}`));
 			// Columns as a click reports them: the border and a space come first. A click just beside a word counts too.
 			const end = 2 + inner - 1;
-			if (!main) this.hits.set(i, { x: [end - x.length, end], pin: [end - x.length - 3 - pin.length, end - x.length - 2] });
+			this.hits.set(i, { x: [end - x.length, end], pin: main ? [-1, -1] : [end - x.length - 3 - pin.length, end - x.length - 2] });
 		}
 		return [
 			c.gray(`╭${"─".repeat(inner + 2)}╮`),
 			pad(c.bold(this.title)),
 			pad(`${c.accent(">")} ${this.filter}${c.gray(this.filter ? "" : "type to search · enter opens · ctrl+p pins · ctrl+x removes · esc closes")}`),
 			...lines,
-			pad(c.gray(`pin keeps a conversation for good · × removes it now${shown.length + 1 > rows ? ` · ${shown.length} in all` : ""}`)),
+			pad(c.gray(`pin keeps a conversation for good · × removes it now · reset empties the agent's own${shown.length + 1 > rows ? ` · ${shown.length} in all` : ""}`)),
 			c.gray(`╰${"─".repeat(inner + 2)}╯`),
 		];
 	}
@@ -991,7 +996,8 @@ export class PineTui {
 	private spinner?: NodeJS.Timeout;
 	private frame = 0;
 	private unsubscribe?: () => void;
-	private dialog?: { id: string; handle: OverlayHandle; dismiss(): void };
+	/** `waits`: a question to the owner that is still open on the daemon's side. A click beside it does not close it. */
+	private dialog?: { id: string; handle: OverlayHandle; dismiss(): void; waits?: boolean };
 	/** When a menu or question last closed. A key that closed it is not also a key for what lies under it. */
 	private dialogClosedAt = 0;
 	/** Videos fetched from the daemon, as files for ffmpeg and the player. Removed when the UI closes. */
@@ -1057,12 +1063,14 @@ export class PineTui {
 			}),
 		);
 		this.tui.addInputListener((data) => (this.onKey(data) ? { consume: true } : undefined));
-		// A menu or question is modal: a click beside it closes it (a question stays open for later,
-		// as with esc) and does not reach the tabs and the bar underneath. The wheel still scrolls.
+		// A menu or question is modal: a click beside it does not reach the tabs and the bar
+		// underneath. It closes a menu. It does not close a question that waits for the owner's
+		// answer: a click into the window must not make it vanish, and an unanswered question
+		// counts as a no when its time is up. The wheel still scrolls.
 		this.tui.onFocus = (focused) => void (this.focused = focused);
 		this.tui.onOutside = (e) => {
 			if (!this.dialog || e.type === "wheel") return false;
-			if (e.type === "click" && e.button === "left") this.dialog.dismiss();
+			if (e.type === "click" && e.button === "left" && !this.dialog.waits) this.dialog.dismiss();
 			return true;
 		};
 		// Addresses are always printed in full, so what is clicked is what is opened; a link whose text
@@ -1615,6 +1623,12 @@ export class PineTui {
 			if (files) return files.forEach((f) => this.attachFile(f)), true;
 		}
 		const empty = this.editor.getText().length === 0;
+		// A question that was put off ("Later") is still waiting, and counts as a no when its time
+		// is up: enter on an empty line opens it again.
+		if (matchesKey(data, "enter") && empty && !isKeyRepeat(data)) {
+			const waiting = [...this.active.approvals.values()][0];
+			if (waiting) return void this.ask(this.active, waiting.req), true;
+		}
 		// A terminal pastes text only. Where it passes ctrl+v on, a picture on the clipboard is attached; text is pasted as ever.
 		if (matchesKey(data, "ctrl+v") && this.active.kind === "chat") void this.clipboardImage().then((file) => file && this.attachFile(file));
 		// Enter gives a message to the work that is running; alt+enter makes it wait until that work is done.
@@ -1757,6 +1771,16 @@ export class PineTui {
 		else if (id) await this.openTab(id, "main");
 	}
 
+	/** What a tab shows after its conversation was reset: nothing of what was said. */
+	private freshen(t: Tab): void {
+		t.doc.clear();
+		t.roots.clear();
+		t.context = undefined;
+		t.cacheShare = undefined;
+		this.taints.delete(`${t.agent}:${t.session}`);
+		this.say(t, c.gray("fresh conversation"));
+	}
+
 	private async pickSession(): Promise<void> {
 		const t = this.active;
 		if (t.kind !== "chat") return;
@@ -1796,6 +1820,17 @@ export class PineTui {
 				// What was set up for it alone went with it; say so, since it is gone for good.
 				const with_ = [...(gone.sources.length ? [`its event source${gone.sources.length === 1 ? "" : "s"} ${gone.sources.join(", ")}`] : gone.unsubscribed.length ? [`its subscription${gone.unsubscribed.length === 1 ? "" : "s"} to ${gone.unsubscribed.join(", ")}`] : []), ...(gone.servers.length ? [`its MCP server${gone.servers.length === 1 ? "" : "s"} ${gone.servers.join(", ")}`] : [])];
 				this.flash(`removed the conversation ${conv.session} of ${agent}${with_.length ? `, with ${with_.join(" and ")}` : ""}`, with_.length ? 7000 : 4000);
+				return true;
+			},
+			reset: async (conv) => {
+				try {
+					await this.client.reset(agent, conv.session);
+				} catch (e) {
+					this.flash(errText(e), 6000);
+					return false;
+				}
+				for (const tab of this.tabs) if (tab.kind === "chat" && tab.agent === agent && tab.session === conv.session) this.freshen(tab);
+				this.flash(`the ${conv.session} conversation of ${agent} starts fresh`);
 				return true;
 			},
 			close,
@@ -2037,12 +2072,7 @@ export class PineTui {
 					const t = chat();
 					if (!t) return;
 					await this.client.reset(t.agent, t.session);
-					t.doc.clear();
-					t.roots.clear();
-					t.context = undefined;
-					t.cacheShare = undefined;
-					this.taints.delete(`${t.agent}:${t.session}`);
-					this.say(t, c.gray("fresh conversation"));
+					this.freshen(t);
 				},
 			},
 			{ name: "undo", description: "Take back your last message: its files are restored, the conversation forgets it, its text returns to the input", run: () => this.undo(false) },
@@ -2387,7 +2417,7 @@ export class PineTui {
 					});
 		const handle = this.tui.showOverlay(dialog, { anchor: "center", width: "76%", minWidth: 40 });
 		handle.focus();
-		this.dialog = { id: req.id, handle, dismiss: () => this.closeDialog() };
+		this.dialog = { id: req.id, handle, dismiss: () => this.closeDialog(), waits: true };
 		this.tui.requestRender();
 	}
 
@@ -2741,7 +2771,8 @@ export class PineTui {
 		const line = new Line().add(c.bold(c.accent(" pine ")));
 		this.tabs.forEach((t, i) => {
 			const name = t.kind === "events" ? "events" : t.kind === "task" ? `${t.agent}↳#${t.task}` : t.session === "main" ? t.agent : `${t.agent}·${t.session}`;
-			const mark = t.running.size ? c.yellow(SPINNER[this.frame % SPINNER.length]) : t.approvals.size ? c.yellow("!") : t.unread ? c.accent("•") : " ";
+			// A question that waits comes first: its task is still running, and a spinner would hide that it waits for the owner.
+			const mark = t.approvals.size ? c.yellow("!") : t.running.size ? c.yellow(SPINNER[this.frame % SPINNER.length]) : t.unread ? c.accent("•") : " ";
 			const label = ` ${i + 1} ${short(name, 22)} `;
 			line.add(t === this.active ? c.bgAccent(label) : c.gray(label), () => this.activate(t));
 			line.add(t === this.active ? c.bgAccent("×") : c.gray("×"), () => this.closeTab(t));
@@ -2779,7 +2810,12 @@ export class PineTui {
 		const t = this.active;
 		let line = "";
 		if (this.notice) line = c.yellow(this.notice);
-		else if (t.approvals.size) line = c.yellow("waiting for your approval · /approve or /deny");
+		else if (t.approvals.size) line = c.yellow("waiting for your approval · enter opens the question · /approve or /deny");
+		// A question in a tab that is not in front has no dialog here. Unanswered it counts as a no, so every tab says where it waits.
+		else if (this.tabs.some((x) => x.approvals.size)) {
+			const n = this.tabs.findIndex((x) => x.approvals.size);
+			line = c.yellow(`tab ${n + 1} (${this.tabs[n].agent}${this.tabs[n].kind === "chat" && this.tabs[n].session !== "main" ? `·${this.tabs[n].session}` : ""}) is waiting for your approval · alt+${n + 1} goes there`);
+		}
 		else if (t.running.size) {
 			const secs = Math.max(0, Math.round((Date.now() - t.startedAt) / 1000));
 			const helpers = [...t.children.values()].filter((x) => x.running).length;

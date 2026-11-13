@@ -235,8 +235,26 @@ test("tui: esc stops a running task; an approval is asked in a dialog and answer
 
 	await t.send(risky);
 	await t.sees("│ Approval needed");
+	// A click beside the question does not make it vanish: unanswered, it would count as a no when its time is up.
+	t.term.click(2, 2);
+	await sleep(80);
+	assert.ok(t.text().includes("│ Approval needed"), "still open after a click beside it");
+	// Put off with esc, it is still waiting, and enter on an empty line opens it again.
+	t.term.type([KEY.esc]);
+	await t.sees("waiting for your approval · enter opens the question");
+	assert.ok(!t.text().includes("│ Approval needed"));
+	t.term.type([KEY.enter]);
+	await t.sees("│ Approval needed");
 	t.term.type([KEY.esc]);
 	await t.sees("waiting for your approval");
+	// From another tab the question is not out of sight: its tab is marked, and the status line says where it waits.
+	t.term.type([KEY.ctrlT]);
+	await t.sees(/1 main ×!/);
+	await t.sees(/tab 1 \(main\) is waiting for your approval · alt\+1 goes there/);
+	t.term.type([KEY.alt(1)]);
+	await t.sees("│ Approval needed");
+	t.term.type([KEY.esc]);
+	await t.sees("waiting for your approval · enter opens the question");
 	await t.send("/approve");
 	await t.sees("✓ allowed bash");
 	await t.sees("FINAL:: gone");
@@ -699,6 +717,7 @@ test("tui: the same tabs open again next time; the list of conversations pins, r
 	await t.sees("removed the conversation notes of main");
 	assert.ok(!/│\s+notes /.test(t.text()));
 	assert.equal(t.h.pine.tasks.list({ agent: "main", session: "notes" }).length, 0);
+
 	t.term.type([KEY.esc]);
 
 	// Leave and come back: the same two tabs, the same one in front.
@@ -708,6 +727,27 @@ test("tui: the same tabs open again next time; the list of conversations pins, r
 	await again.start();
 	await until(() => /1 main ×\s+2 main·side ×/.test(again.screen()[0]) && again.screen().join("\n").includes("ECHO[hello side"), 4000, `both tabs again, with the second in front\n${again.screen().join("\n")}`);
 	await again.stop();
+	await t.h.close();
+});
+
+test("tui: the agent's own conversation is kept without a pin, and reset where the others are removed", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.sees("type a message");
+	await t.send("remember this");
+	await t.sees("ECHO[remember this]");
+	await t.send("/sessions");
+	await t.sees("│ Conversations of main");
+	// It cannot be removed and never goes: its row has the mark of a kept one, and "reset" where the others have "×".
+	await t.sees(/★ main\s+1 message · just now · the agent's own, always kept\s+reset │/);
+	const row = () => t.app.screen().findIndex((l) => /★ main /.test(l));
+	t.term.click(t.app.screen()[row()].lastIndexOf("reset") + 1, row());
+	await t.sees("reset? ×");
+	assert.equal(t.h.pine.tasks.list({ agent: "main", session: "main" }).length, 1, "asked first, as with a removal");
+	t.term.click(t.app.screen()[row()].lastIndexOf("reset? ×") + 1, row());
+	await t.sees("the main conversation of main starts fresh");
+	t.term.type([KEY.esc]);
+	await t.sees("fresh conversation");
+	assert.ok(!t.text().includes("ECHO[remember this]"), "what was said is gone from the tab");
 	await t.h.close();
 });
 
