@@ -265,7 +265,7 @@ export interface PineConfig {
 	logLevel: LogLevel;
 	main?: string;
 	/** `mode`: for every agent that names none. Not set: auto for the main agent, safe for the others. */
-	defaults: { model?: string; thinking: string; mode?: Mode; bashTimeoutSec: number; taskTimeoutSec: number; idleMs: number; settings: Record<string, unknown> };
+	defaults: { model?: string; /** The model that judges whether a goal is met, as "provider/id". Not set: the agent's own. */ judge?: string; thinking: string; mode?: Mode; bashTimeoutSec: number; taskTimeoutSec: number; idleMs: number; settings: Record<string, unknown> };
 	limits: {
 		maxConcurrentRuns: number;
 		maxDelegationDepth: number;
@@ -288,6 +288,8 @@ export interface PineConfig {
 		goalRounds: number;
 		/** Goal mode: after this many rounds in a row that ended "not met" without a tool call, the goal is paused. 0: never. */
 		goalIdleRounds: number;
+		/** How long the judge of a goal may take before its silence counts as no verdict. */
+		goalJudgeMs: number;
 	};
 	security: {
 		approvalTimeoutMs: number;
@@ -303,20 +305,6 @@ export interface PineConfig {
 		 * asks, with request_access.
 		 */
 		askAccess: boolean;
-		/**
-		 * What happens in auto mode once a conversation has read outside content.
-		 * "model": it keeps its rights, and each action that reaches out, sends or changes the
-		 *          agent's memory is checked by a reviewer first (src/actions.ts).
-		 * "ask":   it loses its rights until the owner says, once, that it keeps them.
-		 * "off":   it keeps its rights and nothing is checked.
-		 */
-		review: "model" | "ask" | "off";
-		/** The model that reviews, as "provider/id". Not set: the agent's own. */
-		reviewer?: string;
-		/** How long a review may take before it counts as no verdict. */
-		reviewTimeoutMs: number;
-		/** The reviewer's rules, in plain language (`rulesFrom` in src/actions.ts). */
-		rules?: unknown;
 	};
 	/** Values that must never leave the daemon in events or messages. */
 	secrets: string[];
@@ -549,6 +537,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		main: raw.main,
 		defaults: {
 			model: d.model,
+			judge: typeof d.judge === "string" && d.judge ? d.judge : undefined,
 			thinking: d.thinking ?? "off",
 			mode: d.mode,
 			bashTimeoutSec: d.bashTimeoutSec ?? 900,
@@ -569,6 +558,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			maxEventChars: l.maxEventChars ?? 20_000,
 			goalRounds: Math.max(1, Math.floor(Number(l.goalRounds ?? 20)) || 20),
 			goalIdleRounds: Math.max(0, Math.floor(Number(l.goalIdleRounds ?? 3)) || 0),
+			goalJudgeMs: parseDuration(l.goalJudgeTimeout ?? "90s"),
 		},
 		security: {
 			approvalTimeoutMs: parseDuration(raw.security?.approvalTimeout ?? "5m"),
@@ -576,10 +566,6 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			taintTools: strings(raw.security?.taintTools, []),
 			bypassWhenTainted: raw.security?.bypassWhenTainted === true,
 			askAccess: raw.security?.askAccess !== false,
-			review: raw.security?.review === "ask" || raw.security?.review === "off" ? raw.security.review : "model",
-			reviewer: typeof raw.security?.reviewer === "string" && raw.security.reviewer ? raw.security.reviewer : undefined,
-			reviewTimeoutMs: parseDuration(raw.security?.reviewTimeout ?? "90s"),
-			rules: raw.security?.rules,
 		},
 		secrets: Object.values(fileEnv).filter((v) => v.length >= 8),
 		mcp: raw.mcp ?? {},
@@ -593,8 +579,11 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		http: raw.http === false ? undefined : { host: raw.http?.host ?? "127.0.0.1", port: raw.http?.port ?? 7463, token: raw.http?.token, hooks: {} },
 		agents: {},
 	};
-	if (raw.security?.review !== undefined && !["model", "ask", "off"].includes(raw.security.review)) problems.push(`pine.json: security.review is "model" (actions are checked by a reviewer), "ask" (you are asked once per conversation) or "off"`);
-	if (raw.security?.reviewer !== undefined && !/^[^/\s]+\/\S+$/.test(String(raw.security.reviewer))) problems.push(`pine.json: security.reviewer names a model as provider/model-id`);
+	// The reviewer is gone: no model judges an action any more. What configured it says so.
+	for (const key of ["review", "reviewer", "reviewTimeout", "rules"]) {
+		if (raw.security?.[key] !== undefined) problems.push(`pine.json: security.${key} is gone: pine has no reviewer any more. In auto and safe mode you are asked about critical actions, and after outside content about what is sent out. Take the entry out${key === "reviewer" ? ' (the model that judges goals is "defaults.judge" now)' : ""}`);
+	}
+	if (d.judge !== undefined && !/^[^/\s]+\/\S+$/.test(String(d.judge))) problems.push("pine.json: defaults.judge names a model as provider/model-id");
 	if (cfg.http) {
 		for (const [name, h] of Object.entries<any>(raw.http?.hooks ?? {})) {
 			if (!/^[A-Za-z0-9_-]+$/.test(name)) problems.push(`pine.json: invalid hook name "${name}"`);

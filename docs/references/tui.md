@@ -49,7 +49,7 @@ Everything in the two bars reacts to a click.
 | A `↳ ... ▸ open` line in the conversation | A tab with that sub-agent's or delegated task's work |
 | The conversation name next to it | This agent's conversations, and "+ new conversation" |
 | The folder next to it (`no folder`, or a path) | The folder this conversation works in: none, where pine was started, one in use elsewhere, or one you pick. See [coding.md](coding.md) |
-| `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output, what the agent left running, and what the reviewer blocked. In the pane: its five views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
+| `▤ code` at the right end of the tab bar | Opens or closes the code pane: changes (git), files, tool output and what the agent left running. In the pane: its four views, `↻` to read again, `×` to close, any file, folder or tool call to open it, `‹ back` to return |
 | The model | The models you have credentials for |
 | `reasoning <level>` | How much the model thinks before answering: off, minimal, low, medium, high, xhigh, max |
 | The mode (`auto`, `safe`, `manual`, `bypass`, `plan`) | The five modes |
@@ -189,7 +189,7 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/copy` | Copy the agent's last answer to the clipboard, as it wrote it (Markdown) |
 | `/export [copy] [full]` | Save this conversation as a Markdown file in the folder pine was started in (`pine-<agent>-<conversation>-<date>.md`). `copy` puts it on the clipboard instead; `full` adds what the agent thought and which tools it called |
 | `/folder [path\|none]` | Open a folder of yours for this conversation: the agent's tools start there and may read and change it. `none` closes it again; without an argument, a list. See [coding.md](coding.md) |
-| `/code [changes\|turn\|files\|output\|running\|blocked\|off]` | Open the code pane beside the conversation, on that view; without an argument it opens and closes. `turn` shows what your last message changed |
+| `/code [changes\|turn\|files\|output\|running\|off]` | Open the code pane beside the conversation, on that view; without an argument it opens and closes. `turn` shows what your last message changed |
 | `/stop` | Stop what the agent is doing |
 | `/goal [objective\|pause\|resume\|clear]` | Goal mode: with an objective, the agent keeps working by itself, round after round, until a judge says the objective is met. Without an argument it shows the goal and where it stands; `pause`, `resume` and `clear` do what they say. See "Goals" below |
 | `/model [provider/id]` | Switch the agent's model. Without an argument, a list to search and pick from; or type a few letters after it: `/model deepseek` |
@@ -272,15 +272,15 @@ The bottom bar shows the agent's mode; click it, press `shift+tab`, or use `/mod
 
 | Mode | What you will notice |
 |---|---|
-| `auto` | The agent works without asking and without a sandbox: it has your whole account and the network, and keeps them after reading the web. A reviewer checks what is critical, and after outside content what reaches out, sends something or changes the agent's memory; what it blocks is listed under Blocked in the code pane, and you are asked only when it keeps blocking. What the main agent starts in |
-| `safe` | The agent works without asking inside its sandbox: its own folders, no network. It asks when it wants something outside ("read access to ~/dev/gonzo, reason: ..."), and after outside content before it sends something out. What every other agent starts in. Shown in green |
+| `auto` | The agent works without asking and without a sandbox: it has your whole account and the network, and keeps them after reading the web. It asks before a critical action, and after outside content before it sends something out. What the main agent starts in |
+| `safe` | The agent works without asking inside its sandbox: its own folders, no network. It asks when it wants something outside ("read access to ~/dev/gonzo, reason: ..."), before a critical action, and after outside content before it sends something out. What every other agent starts in. Shown in green |
 | `plan` | The agent looks, reads, searches the web and asks, and changes nothing: no file is written, no command that changes something runs, nothing is sent, and you are not asked about any of it. Its answer is a plan. Read it, say what should be different, then switch to another mode (`/mode auto`, or a click on the mode in the bottom bar; `shift+tab` goes on to `safe`): the agent is told that planning is over and carries it out. While it plans, the agent reaches what the mode it had before reaches. Good with a small model: you see what it is about to do before it does it. Shown in magenta |
 | `manual` | Inside its sandbox, and a dialog before every command, edit or message, until you answer "Always here" for that tool or server |
 | `bypass` | No sandbox and no dialogs. The agent can read and change files anywhere in your account and use the network, and nothing is checked. Shown in red |
 
 Bypass and outside content do not mix by default. If a conversation in bypass reads a web page
 or another outside source, a yellow note appears, the bar shows `bypass (paused)`, and the agent
-works as in `auto` mode: what reaches out, sends something or changes its memory is checked. Choosing bypass in such a conversation asks you which you want: a
+works as in `auto` mode: it asks before a critical action and before it sends something out. Choosing bypass in such a conversation asks you which you want: a
 new, clean conversation in bypass (recommended), or bypass here anyway. The agent is told its
 mode every turn, so it knows when something it refused earlier has become possible.
 
@@ -293,10 +293,10 @@ dialog opens over the conversation with the agent, the tool and its arguments, a
 
 | Key | Answer |
 |---|---|
-| `a` or `y` | Allow this once |
-| `s` | Always here: allow, and do not ask again in this conversation about this MCP server (or this tool, such as `bash`). Not offered for actions you configured to ask every time |
+| `a` or `y` | Allow once. Where a yes already holds for the whole conversation (access to a folder or the network, a local address in the browser, an app) the button reads "Allow", and the dialog says what the yes holds for |
+| `s` | Always here: allow, and do not ask again in this conversation about this MCP server (or this tool, such as `bash`). For a critical action it covers that kind of critical action, not the whole shell. Not offered for actions you configured to ask every time |
 | `d` or `n` | Deny |
-| `esc` | Decide later: the request stays open until `security.approvalTimeout` (5 minutes) has passed and then counts as denied. Until then the status line keeps reminding you, and `/approve` or `/deny` answer it |
+| `esc` | Later: the request stays open until `security.approvalTimeout` (5 minutes) has passed and then counts as denied. Until then the status line keeps reminding you, and `/approve` or `/deny` answer it |
 
 When the action needs something only you have (a bot's token, a device's password), the dialog
 has a field for it. Type or paste it: a secret is shown as dots, goes into pine's `.env` and is

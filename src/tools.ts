@@ -245,16 +245,15 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					path: Type.Optional(Type.String({ description: "Absolute path of the file or folder" })),
 					write: Type.Optional(Type.Boolean({ description: "true to also change files there. Default: read only" })),
 					network: Type.Optional(Type.Boolean({ description: "true to ask for network access from the shell instead of a path" })),
-					account: Type.Optional(Type.Boolean({ description: "true to ask your owner to give this conversation its full rights back, after they limited it because it has read outside content" })),
 					reason: Type.String({ description: "Why you need it, in one sentence" }),
 				}),
 				execute: async (_id, p, signal) => {
 					const r = run();
-					if (!p.network && !p.path && !p.account) throw new Error("give a path, or set network to true");
-					const kind = p.account ? "account" : p.network ? "network" : p.write ? "write" : "read";
-					const what = p.account ? "its full rights in this conversation again (your account and the network if it has them, its own memory and instructions)" : p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
-					if (live.mode() === "bypass" || (live.wide() && live.keeps())) return ok(live.mode() === "bypass" ? "You already have that access in bypass mode." : "You already have that access: your shell and file tools reach your owner's whole account and the network.");
-					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", summary: `${what}\nreason: ${p.reason}`, why: `the agent asks for access beyond its sandbox, for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
+					if (!p.network && !p.path) throw new Error("give a path, or set network to true");
+					const kind = p.network ? "network" : p.write ? "write" : "read";
+					const what = p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
+					if (live.mode() === "bypass" || live.wide()) return ok(live.mode() === "bypass" ? "You already have that access in bypass mode." : "You already have that access: your shell and file tools reach your owner's whole account and the network.");
+					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", holds: "this conversation", summary: `${what}\nreason: ${p.reason}`, why: `the agent asks for access beyond its sandbox, for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
 					if (!decision.allow) throw new Error(`not granted (${decision.by}). Do not retry; work without it or tell your owner what is missing.`);
 					const refused = live.grant(kind, p.path);
 					if (refused) throw new Error(`cannot be granted: ${refused}`);
@@ -838,7 +837,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					// Its own thing needs no question; what reaches beyond this conversation does. And a
 					// skill is part of what the agent is told: from a conversation that has read outside
 					// content it is always put to the owner, with its instructions, like a schedule is.
-					if (!live.keeps() || scope === "global" || (scope === "agent" && !inMain) || live.mode() === "manual") {
+					if (live.tainted || scope === "global" || (scope === "agent" && !inMain) || live.mode() === "manual") {
 						const summary = `${replaces ? "replace" : "add"} the skill "${skill.name}" for ${whoIs(scope)}
 ${skill.description}${skill.copy.length ? `
 With ${skill.copy.length} file${skill.copy.length === 1 ? "" : "s"} from ${p.files}` : ""}
@@ -948,7 +947,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 				defineTool({
 					name: "remove_model_server",
 					label: "Remove model server",
-					description: `Take a model server of your owner's own out of pine again, with the key pine keeps for it. Not possible while an agent, the default or the reviewer uses one of its models. Your owner confirms it. Right now: ${listModelServers(cfg.home).map((s) => s.name).join(", ") || "none"}.`,
+					description: `Take a model server of your owner's own out of pine again, with the key pine keeps for it. Not possible while an agent, the default or the judge of goals uses one of its models. Your owner confirms it. Right now: ${listModelServers(cfg.home).map((s) => s.name).join(", ") || "none"}.`,
 					parameters: Type.Object({ name: Type.String({ description: "Name of the server, as in <name>/<model>" }) }),
 					execute: async (_id, p, signal) => {
 						run();

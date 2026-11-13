@@ -139,7 +139,7 @@ test("goal: no verdict, or a judge that cannot be asked, pauses the goal and nev
 	await h.close();
 
 	// The judge's model does not exist: the call fails.
-	const broken = await judged(() => "CONTINUE: never asked", { security: { reviewer: "mock/missing" } });
+	const broken = await judged(() => "CONTINUE: never asked", { defaults: { judge: "mock/missing" } });
 	broken.h.pine.agents.goals.set("main", "main", mockMsg(works(), "tidy the notes "));
 	await settled(broken.h);
 	assert.equal(goalOf(broken.h)!.status, "paused");

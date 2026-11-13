@@ -481,7 +481,7 @@ class Thought implements Component {
 const SCOPES = ["local", "agent", "global"];
 const SCOPE_HELP: Record<string, string> = { local: "only this conversation, until it is closed", agent: "the agent, in its main conversation", global: "every agent" };
 
-const PANE_HELP: Record<string, string> = { changes: "what git says changed in the folder, with the diff of each file", files: "the files of the folder", output: "what the agent's tool calls printed", running: "servers and other programs the agent left running, each with a way to stop it", blocked: "what pine's reviewer did not let the agent do, each with a way to allow it", turn: "what your last message changed in the folder (what /undo would restore)", off: "close the pane" };
+const PANE_HELP: Record<string, string> = { changes: "what git says changed in the folder, with the diff of each file", files: "the files of the folder", output: "what the agent's tool calls printed", running: "servers and other programs the agent left running, each with a way to stop it", turn: "what your last message changed in the folder (what /undo would restore)", off: "close the pane" };
 
 const childKind = (kind: string) => (kind === "subagent" ? "sub-agent" : kind === "delegate" ? "delegated task" : kind);
 
@@ -750,7 +750,8 @@ class ApprovalDialog implements Component {
 					{ answer: "later", label: "Later (esc)" },
 				]
 			: [
-					{ answer: "allow", label: "Allow once (a)" },
+					// A yes that already holds for more than this call is not called "once".
+					{ answer: "allow", label: req.holds ? "Allow (a)" : "Allow once (a)" },
 					// Only where the daemon offers it: not for actions that are configured to ask every time.
 					...(req.remember ? [{ answer: "always" as const, label: "Always here (s)" }] : []),
 					{ answer: "deny", label: "Deny (d)" },
@@ -815,7 +816,9 @@ class ApprovalDialog implements Component {
 			...String(this.req.summary ?? "").split("\n").slice(0, 8).flatMap((l) => wrapTextWithAnsi(`  ${l}`, inner)).slice(0, 12),
 			"",
 			...wrapTextWithAnsi(c.gray(`Why you are asked: ${this.req.why}`), inner),
+			...(this.req.holds ? wrapTextWithAnsi(c.gray(`"Allow" holds for ${this.req.holds}: you are not asked about it again there.`), inner) : []),
 			...(this.req.remember ? wrapTextWithAnsi(c.gray(`"Always here" stops asking about ${this.req.remember} in this conversation.`), inner) : []),
+			...(!this.req.remember && !this.req.holds && !this.fields.length ? wrapTextWithAnsi(c.gray("This one is asked every time: there is no \"always\" for it."), inner) : []),
 			...(inputs.length ? ["", ...inputs, ...wrapTextWithAnsi(c.gray(this.fields.some((f) => f.secret) ? "Type or paste it here. It is not shown, goes into pine's .env file, and never reaches the agent or its model." : "Type it here and press enter. Without it, this cannot be allowed."), inner)] : []),
 			"",
 		];
@@ -2055,11 +2058,11 @@ export class PineTui {
 				},
 			},
 			{
-				name: "code", description: "The pane beside the conversation: changes (git), files, tool output", argumentHint: "[changes|files|output|running|blocked|turn|off]",
+				name: "code", description: "The pane beside the conversation: changes (git), files, tool output", argumentHint: "[changes|files|output|running|turn|off]",
 				getArgumentCompletions: (prefix) => [...PANE_VIEWS, "turn", "off"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v, description: PANE_HELP[v] })),
 				run: (args) => {
 					const word = args.trim().toLowerCase();
-					if (word && word !== "off" && word !== "turn" && !PANE_VIEWS.includes(word as PaneView)) return this.flash("usage: /code [changes|turn|files|output|running|blocked|off]");
+					if (word && word !== "off" && word !== "turn" && !PANE_VIEWS.includes(word as PaneView)) return this.flash("usage: /code [changes|turn|files|output|running|off]");
 					if (this.active.kind !== "chat") return this.flash("switch to a conversation tab first");
 					// What the last message changed: the changes view, counted from before that message.
 					if (word === "turn") return this.showCode(true), this.code.showTurn();

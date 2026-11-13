@@ -59,11 +59,8 @@ agent's next message on. Only these names (and a `CLAUDE.md`), at the top of the
 read; anything else the agent keeps there is its own notes, which it reads when it needs them.
 
 Other agents get `USER.md` in their prompt but cannot open or change the file; they tell you
-when something belongs there. A conversation that has read outside content changes these files
-only with your yes ([security.md](security.md)): what is read into every future prompt is
-exactly what an injected instruction would try to rewrite. In such a conversation each write
-to its memory or instructions is checked by the reviewer first, which blocks what reads like
-an order you did not give and lets notes about the task through.
+when something belongs there. A conversation that has read outside content writes these files
+as before, without a question ([security.md](security.md)).
 
 An existing home from before this layout keeps working: `agents/<id>/AGENTS.md` is still read.
 To hand the instructions over to the agent, move that file to `agents/<id>/workspace/AGENTS.md`;
@@ -258,15 +255,15 @@ rounds, or a different objective. If your owner asks you, as an agent, to "keep 
 is done", tell them to type `/goal` with what they want reached. Other programs use
 `POST /agents/<id>/goal` of the control API ([operations.md](operations.md)).
 
-The judge uses the model in `security.reviewer` if one is set, else the agent's own, and the
-time limit `security.reviewTimeout`. It is not the reviewer of risky actions: it only decides
+The judge uses the model in `defaults.judge` if one is set, else the agent's own, and the
+time limit `limits.goalJudgeTimeout`. It only decides
 whether the agent is called again. What the agent may do in a round is decided as in any other
-task, by its mode, the approvals and the reviewer ([security.md](security.md), "A goal goes on
+task, by its mode and the approvals ([security.md](security.md), "A goal goes on
 in your name").
 
 On a local model each round costs a full turn, and the judge's call pushes the agent's
 conversation out of a model server's cache unless the judge has a model of its own
-(`security.reviewer`). Say in the objective how to tell that it is reached ("the tests pass",
+(`defaults.judge`). Say in the objective how to tell that it is reached ("the tests pass",
 "the file exists and has all twelve entries"): the judge sees only the agent's answer, not the
 files.
 
@@ -412,8 +409,8 @@ ever has two skills of one name.
 
 A skill is part of what an agent is told, like its `AGENTS.md`. It is therefore written by
 pine, in pine's home where the agent reads but does not write. From a conversation that has
-read outside content it is not written unseen: the reviewer checks it like a write to the
-agent's memory. What is a fact and not a way of
+read outside content it is not written unseen: it is put to you first, with its
+instructions. What is a fact and not a way of
 doing something belongs into the agent's `MEMORY.md`.
 
 ### Put it there yourself

@@ -570,6 +570,8 @@ export interface ApprovalRequest {
 	expires: number;
 	/** What "always" would cover for the rest of the conversation, e.g. "all home-link tools". Absent: the question is asked every time. */
 	remember?: string;
+	/** What a plain yes already covers, when that is more than this one call ("this conversation"): the dialog then says so, and not "once". */
+	holds?: string;
 	/**
 	 * Values only the owner has and that must not pass through a model: a password, a token. The
 	 * owner types them where the question is shown. A yes without them is not a yes.

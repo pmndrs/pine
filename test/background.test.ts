@@ -106,7 +106,7 @@ test("background: the call returns at once, the output can be read meanwhile, an
 	const [first] = told(h);
 	assert.ok(first.prompt.startsWith("[pine: a command that you started in the background has ended. This message is from pine, not from your owner."), first.prompt);
 	assert.ok(first.prompt.includes(`\n\nCommand ${job.id}: ${command}\nHow it ended: it failed after `) && first.prompt.includes(`(exit code 3).\nAll it printed is in the file ${job.output}\nIts last lines:\n| first\n| last`), first.prompt);
-	// In the same conversation, and not as something the owner wrote: the reviewer reads only "prompt" tasks.
+	// In the same conversation, and not as something the owner wrote.
 	assert.deepEqual([first.session, first.kind, first.meta.trust, first.meta.tainted], ["main", "notify", "owner", undefined]);
 	const heard = h.mock.state.requests.at(-1).body.messages.map((m: any) => `${m.role}: ${rawTextOf(m.content)}`).join("\n");
 	assert.ok(heard.includes("assistant: started") && heard.includes(`Command ${job.id}: `), "the model reads it after what was said before");

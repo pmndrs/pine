@@ -172,21 +172,6 @@ test("access: a shell command that names a path outside is asked about before it
 	await h.close();
 });
 
-test("access: an agent whose scope is the account is not asked path by path once its owner has taken the account away", sandbox, async () => {
-	const file = put("plans/a.txt", "PLAN\n");
-	const feed = { command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: "feed" }, taints: true };
-	const h = await harness({ pine: { main: "main", security: { askAccess: true, review: "ask" } }, agents: { main: { agent: { mode: "auto", sandbox: { sharedTmp: false }, mcp: { feed } } } } } as any);
-	const asked = answering(h, () => false);
-	await h.pine.agents.run({ agent: "main", session: "work", prompt: mockMsg([{ tools: [call("read", { path: file })] }, { tools: [call("mcp__feed__echo", { text: "from outside" })] }, { tools: [call("read", { path: file }), call("bash", { command: `cat ${file}` })] }]), ...owner });
-	const out = h.toolResults();
-	assert.ok(out[0].includes("PLAN"), "before outside content: the account, and no question");
-	assert.equal(asked.length, 1, "one question: whether the conversation keeps its rights");
-	assert.match(asked[0].summary, /keep full rights in this conversation/);
-	assert.match(out[2], /outside the paths this agent may read .* call request_access/, "after the no: said, and how to ask, but not asked again by pine");
-	assert.ok(!out[3].includes("PLAN"));
-	await h.close();
-});
-
 // A stand-in for the system's log: the test says what "the system reports" for the next command.
 const READER = `const fs=require("fs");const f=process.argv[1];let at=0;setInterval(()=>{let s;try{s=fs.readFileSync(f)}catch{return}if(s.length>at){process.stdout.write(s.subarray(at));at=s.length}},15);`;
 const MARKER = `const fs=require("fs");const [f,pending,tag,about]=process.argv.slice(1);let out="";if(about){let p="";try{p=fs.readFileSync(pending,"utf8");fs.writeFileSync(pending,"")}catch{}for(const l of p.split("\\n").filter(Boolean))out+=JSON.stringify({eventMessage:"Sandbox: prog(7) deny(1) "+l+"\\n"+about})+"\\n"}out+=JSON.stringify({eventMessage:"Sandbox: cat(8) deny(1) file-read-data /private/etc/hosts\\n"+tag})+"\\n";fs.appendFileSync(f,out);`;

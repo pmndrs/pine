@@ -170,14 +170,14 @@ test("computer: the helper is built once, and a Mac without the compiler is told
 	assert.deepEqual(fs.readdirSync(out), [path.basename(next)]);
 });
 
-test("computer: looking at an app is a look, acting in an allowed one is not put to the reviewer", async () => {
+test("computer: looking at an app is a look, acting in an allowed one is not asked about again", async () => {
 	const h = await harness({ agents: { main: {} }, start: false });
 	const cfg = loadConfig(h.home);
 	const roots = rootsFor(cfg, cfg.agents.main);
 	const base = { roots, cwd: roots.workspace, shellReaches: true, sends: false, canSendOut: () => true, reachable: () => false };
 	const cls = (app: { look: boolean }, mcp = { readOnly: false, watched: false }) => classify("mcp__computer__x", {}, { ...base, app, mcp } as any).cls;
 	assert.equal(cls({ look: true }), "look");
-	assert.equal(cls({ look: false }), "local", "local is never reviewed, whatever the conversation has read");
+	assert.equal(cls({ look: false }), "local", "local is never asked about, whatever the conversation has read");
 	assert.equal(cls({ look: false }, { readOnly: false, watched: true }), "send", 'an owner who sets "approve" on the server gets every action looked at');
 	assert.equal(cls({ look: true }, { readOnly: false, watched: true }), "look");
 	await h.close();
@@ -596,8 +596,8 @@ async function withApps(t: { after(fn: () => void): void }, pine: Record<string,
 	fs.writeFileSync(log, "");
 	const reviews: string[] = [];
 	const h = await harness({
-		// The main agent as pine ships it: the owner's account, a reviewer after outside content.
-		pine: { defaults: { mode: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options: { helper: [process.execPath, script, log, ...flags] } } }, ...pine },
+		// The main agent as pine ships it: auto mode, the owner's account.
+		pine: { defaults: { mode: undefined }, mcp: { computer: { pine: "computer", options: { helper: [process.execPath, script, log, ...flags] } } }, ...pine },
 		agents: { main: { agent: { untrusted: { tools: ["read"], mcp: ["computer"] }, ...main } }, clerk: { agent: {} } },
 		mockOptions: {
 			withoutTools: ({ user }: { user: string }) => {
@@ -641,7 +641,7 @@ test("computer: only the owner's own conversations of an agent that reaches the 
 	await h.close();
 });
 
-test("computer: the owner is asked once per app in a conversation, and after the yes nothing is asked or reviewed click by click", { timeout: 60_000 }, async (t) => {
+test("computer: the owner is asked once per app in a conversation, and after the yes nothing is asked click by click", { timeout: 60_000 }, async (t) => {
 	const { h, asked, answer, use, did, reviews } = await withApps(t);
 
 	// Listing what runs is not asked about. The first call that names an app is, whether it looks or acts.
@@ -655,7 +655,7 @@ test("computer: the owner is asked once per app in a conversation, and after the
 	assert.match(h.toolResults().at(-1)!, /not approved \(test\)\. You may not operate TextEdit in this conversation\. Do not retry/);
 	assert.deepEqual(did(), [], "a no means nothing happens in the app");
 
-	// A yes: this call runs, and so does everything after it in that app, without a question and without the reviewer.
+	// A yes: this call runs, and so does everything after it in that app, without a question.
 	answer.allow = true;
 	await use([["app_snapshot", { app: "TextEdit" }]]);
 	assert.equal(asked.length, 2);
@@ -666,7 +666,7 @@ test("computer: the owner is asked once per app in a conversation, and after the
 	assert.deepEqual(did(), ['set e2 "Dear Ada"', "press e3", 'type "!" to=100 front=100', "key cmd+s to=100 front=100", "press m11", "click 420.3,250.3 left x1"]);
 	const marks = h.pine.agents.status().sessions.map((s) => `${s.session}: ${s.tainted}`);
 	assert.ok(marks.some((m) => /^main: mcp__computer__\w+ returned outside content/.test(m)), `what a window shows is outside content (${marks.join("; ")})`);
-	assert.deepEqual(reviews, [], "by now the conversation has read outside content, and still no action in the app went to the reviewer");
+	assert.deepEqual(reviews, [], "by now the conversation has read outside content, and no model was asked about an action in the app");
 
 	// Another app: asked. The whole screen: asked, once. The careful note is there now.
 	await use([["app_press", { app: "Notes", ref: "e20" }]]);
@@ -694,7 +694,7 @@ test("computer: the owner is asked once per app in a conversation, and after the
 	await h.close();
 });
 
-test("computer: bypass asks nothing; an agent in its sandbox has no app control; a conversation that lost its rights cannot operate apps", { timeout: 60_000 }, async (t) => {
+test("computer: bypass asks nothing; an agent in its sandbox has no app control", { timeout: 60_000 }, async (t) => {
 	const bypass = await withApps(t, {}, { mode: "bypass" });
 	await bypass.use([["app_press", { app: "TextEdit", ref: "e3" }]]);
 	assert.equal(bypass.asked.length, 0);
@@ -713,20 +713,6 @@ test("computer: bypass asks nothing; an agent in its sandbox has no app control;
 		assert.equal(boxed.h.toolsOffered(boxed.h.requestsFor("PERSONA-MAIN").at(-1)).filter((n: string) => n.startsWith("mcp__computer__")).length, TOOLS.length, mode);
 		await boxed.h.close();
 	}
-
-	// security.review "ask": after outside content the conversation keeps its full rights only on the owner's yes.
-	const ask = await withApps(t, { security: { review: "ask" } });
-	await ask.use([["app_snapshot", { app: "TextEdit" }]]);
-	assert.equal(ask.asked.length, 1);
-	ask.answer.allow = false;
-	await ask.use([["app_press", { app: "TextEdit", ref: "e3" }]]);
-	if ((ask.asked.length as number) === 2) {
-		// With a sandbox on this machine the one question about its rights is asked, and a no closes app control.
-		assert.match(ask.asked[1].summary, /keep full rights in this conversation/);
-		assert.match(ask.h.toolResults().at(-1)!, /Operating apps uses your owner's whole account, which this conversation does not have/);
-		assert.deepEqual(ask.did(), []);
-	}
-	await ask.h.close();
 });
 
 // ---- the real helper, on a Mac --------------------------------------------------------------------
@@ -774,7 +760,7 @@ test("live: through the daemon, the real helper operates a real window and the r
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pine-computer-live-"));
 	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const program = await buildHelper(path.join(dir, "bin"));
-	const h = await harness({ pine: { defaults: { mode: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options: { helper: [program, "--demo"] } } } }, agents: { main: {} } });
+	const h = await harness({ pine: { defaults: { mode: undefined }, mcp: { computer: { pine: "computer", options: { helper: [program, "--demo"] } } } }, agents: { main: {} } });
 	const asked: string[] = [];
 	h.pine.bus.subscribe("approval/requested", (e) => {
 		asked.push(String((e.payload as any).summary).split("\n")[0]);
@@ -847,7 +833,7 @@ async function liveAgent(t: { after(fn: () => unknown): void }, mock: any, optio
 	const h = await harness({
 		mock,
 		model: { contextWindow: 120000, maxTokens: 4096, input: ["text", "image"] },
-		pine: { defaults: { mode: undefined }, security: { review: "model" }, mcp: { computer: { pine: "computer", options } } },
+		pine: { defaults: { mode: undefined }, mcp: { computer: { pine: "computer", options } } },
 		agents: { main: { agent: { tools: ["read"], taskTimeoutSec: 600 }, persona: "You operate apps on your owner's Mac for them, with the tools whose names start with mcp__computer__. Do what is asked, step by step, and report what you found.\n" } },
 	});
 	const asked: string[] = [];

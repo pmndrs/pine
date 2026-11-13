@@ -202,3 +202,19 @@ Beyond the proposal:
   command from instruction files or git hooks. The file tools still refuse them.
 - `command` sources still run only in a sandbox, so they do not run in a plain container.
 - App control goes to agents in `auto` and `bypass` mode only; `manual` no longer has it.
+
+## After that: no reviewer
+
+The reviewer was removed altogether on 2026-11-13. On a local model it cost a second model
+call for every shell command after outside content, and it blocked ordinary work (saving a
+file into the agent's own workspace, a note in its memory). What `auto` and `safe` do now:
+
+- A critical action asks the owner, in every conversation; "always" covers that kind of action.
+- After outside content, sending something out asks the owner.
+- Everything else runs, the shell and the agent's own memory included.
+
+Gone with it: `security.review`, `security.reviewer`, `security.reviewTimeout`,
+`security.rules`, the one question about keeping the account (`"ask"`), the Blocked list in
+the code pane and its two endpoints. The judge of goals has its own settings now:
+`defaults.judge` and `limits.goalJudgeTimeout`. Of the "smaller changes" above, 1 and 2 no
+longer apply.

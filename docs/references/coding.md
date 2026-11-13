@@ -28,9 +28,8 @@ decides what it asks before doing.
 
 The main agent works in `auto` mode and reaches your whole account anyway (see "Modes" in
 [security.md](security.md)), so it can work on a project without a folder being opened.
-Opening one still does three things for it: its tools start there, the folder's instruction
-files apply, and the folder stays open to the conversation after it has read outside content,
-when the rest of your account is closed until you say otherwise.
+Opening one still does two things for it: its tools start there, and the folder's instruction
+files apply.
 
 The folder belongs to that one conversation. Another conversation of the same agent does not
 have it. Sub-agents it starts do, and so does another agent for the length of one task that
@@ -70,7 +69,7 @@ when no folder is open. In a terminal of 100 columns or more it takes half the w
 ```
  pine  1 main ×  2 main·shop ×   +                                                  ▤ code
 ───────────────────────────────────────────────────────────────────────────────────────────
- make the total include shipping          │  Changes  Files  Output  Running  Blocked ↻  ×
+ make the total include shipping          │  Changes  Files  Output  Running           ↻  ×
                                           │ main · 2 changed · ~/dev/shop
  ✓ edit src/cart.ts 12 ms                 │─────────────────────────────────────────────────
  ✓ bash npm test 2.1 s                    │ M src/cart.ts  +4 −1
@@ -83,14 +82,13 @@ when no folder is open. In a terminal of 100 columns or more it takes half the w
 | **Changes** | What differs from the last commit: changed (`M`), added (`A`), new (`+`), deleted (`D`) and renamed (`R`) files with the lines added and removed, and the branch. Its first line switches to **by your last message**: the same list and diffs, counted from before your last message instead of from the last commit | on a file shows its diff, added lines green and removed ones red; `‹ back` returns to the list; `▸ by your last message` and `▸ since the last commit` switch between the two |
 | **Files** | The folder as a tree | on a folder opens or closes it; on a file shows its text with line numbers and colours, or a picture as a picture |
 | **Output** | Every tool call of the conversation's last 8 messages, newest first: the tool, what it was called with, how long it took | on a call shows everything it printed, not only the first lines the conversation shows |
-| **Blocked** | What pine's reviewer did not let the agent do in this conversation, newest first, each with the rule and the reason | on `✓ allow once` lets that exact call through; the agent is told and makes it again |
 | **Running** | What the conversation's commands started and left running: a development server, a watcher. Each with its command, the ports it listens on and how long it has run. A command the agent put into the background is listed too, with the file its output goes to | on `■ stop` ends it |
 
 The pane follows the agent: when a tool call finishes, what is shown is read again, so a diff
 grows while the agent edits. `↻` reads it again by hand, `×` closes the pane. The wheel scrolls
 whichever side the pointer is over. Whether the pane was open is remembered for the next start.
 
-`/code changes`, `/code files`, `/code output`, `/code running` and `/code blocked` open it on that view;
+`/code changes`, `/code files`, `/code output` and `/code running` open it on that view;
 `/code turn` opens the changes of your last message; `/code off` closes it.
 
 ### What an agent left running
@@ -167,7 +165,7 @@ a conversation that has read outside content cannot either ([security.md](securi
 Linux"). A command that was waited for and reached the time limit is not moved into the
 background: it is stopped, and has to be started again with `background: true`.
 
-Apart from that stop and from allowing a blocked action, the pane only shows. It changes no file, runs no command of the project and sends nothing to a
+Apart from that stop, the pane only shows. It changes no file, runs no command of the project and sends nothing to a
 model. Long lines wrap. A file is shown up to 256 KB, a diff up to 200 000 characters, a tool's
 output up to 200 000 characters and 4000 lines; binary files are named, not shown. Changes
 lists the first 300 files, and Files shows up to 500 entries of a folder.
@@ -278,11 +276,13 @@ unused and not shown to the model, until the conversation is reset or removed.
   two limits below. See [security.md](security.md).
 - **Instruction files.** `AGENTS.md` and `CLAUDE.md` of an opened folder are instructions to
   the agent, like those of its workspace. Open folders you trust as much as you trust their
-  authors with your agent. Once a conversation has read outside content, it can no longer
-  change these files.
+  authors with your agent. Once a conversation has read outside content, its file tools no
+  longer change these files, and in `safe` and `manual` mode the sandbox refuses a shell
+  command that writes them as well. In `auto` mode nothing checks a shell command for them.
 - **Git hooks and configuration.** What lies in `.git/hooks` and `.git/config` runs with your
   rights the next time you use git in that folder. A conversation that has read outside content
-  can still commit and branch there but cannot change those. One that has read none can, like
+  can still commit and branch there, but its file tools do not change those, and in `safe` and
+  `manual` mode the sandbox refuses a shell command that writes them as well. One that has read none can, like
   the rest of the folder: it acts on what you told it.
 
 ## From a script
@@ -301,7 +301,6 @@ The control API ([operations.md](operations.md)) has the same things:
 | `GET /agents/<id>/view/find?session=&q=` | The files of the conversation's folder whose name fits a few letters: what `@` offers |
 | `GET /tasks/<id>/transcript?full=1` | A task's steps with the whole output of each tool call |
 | `GET /agents/<id>/programs?session=`, `POST /agents/<id>/programs/stop` `{ session, id }` | What the conversation's commands left running, background commands among them, and stopping one |
-| `GET /agents/<id>/blocked?session=`, `POST /agents/<id>/blocked/allow` `{ session, id }` | What the reviewer blocked in the conversation, and allowing one of those calls once |
 | `POST /agents/<id>/undo` `{ session }` | Take back your last message in a conversation. The answer has the message's text (`prompt`), what was restored (`restored`: `root`, the counts `changed`, `removed` and `back`, the first `files`, and `left` for files too large to record), a `note` when no file was restored, `stopped`, how many messages a redo can bring back (`redo`), and whether there is another message to take back (`more`) |
 | `POST /agents/<id>/redo` `{ session }` | Bring back what the last undo took. The same answer |
 | `GET /agents/<id>/view/turn?session=` | What your last message changed in the conversation's folder: `files` with their line counts, or a `note` saying why there is nothing |

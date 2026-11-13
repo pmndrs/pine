@@ -14,8 +14,8 @@ import { errText, type Logger } from "./util.ts";
  * - What calls the agent again is the owner's objective and pine's fixed text, nothing else. The
  *   judge reads the agent's answer, which may repeat what a web page said; so the judge's reason
  *   is shown to the owner and never put in front of the agent.
- * - The judge decides only whether to go on. Which actions may run is the gate's and the
- *   reviewer's business (src/actions.ts), in a round of a goal as in any other task.
+ * - The judge decides only whether to go on. Which actions may run is the gate's business
+ *   (src/agents.ts), in a round of a goal as in any other task.
  */
 
 export type GoalStatus = "active" | "paused" | "met" | "blocked" | "limit";
@@ -242,10 +242,8 @@ export class Goals {
 	 * is in it, so nothing from outside gains the owner's voice by being repeated here.
 	 *
 	 * Kind "notify": it is pine speaking in the same conversation, like the "[pine: ...]" notices
-	 * after add_mcp_server or after the owner allowed a blocked action. It is not "prompt": the
-	 * owner did not type it now. So the reviewer's list of what the owner wrote (`askedIn`) holds
-	 * the objective once, from the first message, not once per round; and it does not count as the
-	 * owner interrupting their own goal.
+	 * after add_mcp_server. It is not "prompt": the owner did not type it now, so it does not
+	 * count as the owner interrupting their own goal.
 	 */
 	private next(goal: Goal): Task {
 		return this.m.submit({ agent: goal.agent, session: goal.session, kind: "notify", trust: "owner", priority: 10, label: `goal: round ${goal.round} of ${goal.until}`, prompt: continuePrompt(goal.objective) });
@@ -333,9 +331,9 @@ export class Goals {
 		const slot = await this.m.limiter.acquire(10);
 		try {
 			if (stop.signal.aborted) return undefined;
-			// The reviewer's model where one is set: a second, small model keeps the judge from pushing the agent's conversation out of a model server's cache.
-			const model = cfg.security.reviewer ? this.m.resolveModel(cfg.security.reviewer) : this.m.modelFor(agent);
-			const msg: any = await this.m.models.completeSimple(model, { systemPrompt: system, messages: [{ role: "user", content: [{ type: "text", text: user }], timestamp: Date.now() }] } as any, { signal: AbortSignal.any([stop.signal, AbortSignal.timeout(cfg.security.reviewTimeoutMs)]), sessionId: "pine-goal" } as any);
+			// A model of its own where one is set: a second, small model keeps the judge from pushing the agent's conversation out of a model server's cache.
+			const model = cfg.defaults.judge ? this.m.resolveModel(cfg.defaults.judge) : this.m.modelFor(agent);
+			const msg: any = await this.m.models.completeSimple(model, { systemPrompt: system, messages: [{ role: "user", content: [{ type: "text", text: user }], timestamp: Date.now() }] } as any, { signal: AbortSignal.any([stop.signal, AbortSignal.timeout(cfg.limits.goalJudgeMs)]), sessionId: "pine-goal" } as any);
 			if (msg.stopReason === "error" || msg.stopReason === "aborted") throw new Error(msg.errorMessage ?? `model call ${msg.stopReason}`);
 			const text = (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
 			const said = parseJudgement(text);

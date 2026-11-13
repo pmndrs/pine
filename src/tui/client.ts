@@ -93,8 +93,6 @@ export class Client {
 	pinSession = (agent: string, session: string, pinned: boolean) => this.post<{ pinned: boolean }>(`/agents/${agent}/pin`, { session, pinned });
 	folder = (agent: string, session: string) => this.get<{ folder?: string; workspace: string }>(`/agents/${agent}/folder?session=${encodeURIComponent(session)}`);
 	programs = (agent: string, session: string) => this.get<Array<{ id: number; command: string; processes: number; ports: number[]; seconds: number; background?: boolean; output?: string }>>(`/agents/${agent}/programs?session=${encodeURIComponent(session)}`);
-	blocked = (agent: string, session: string) => this.get<Array<{ id: string; time: number; tool: string; subject: string; cls: string; rule?: string; reason?: string }>>(`/agents/${agent}/blocked?session=${encodeURIComponent(session)}`);
-	allowBlocked = (agent: string, session: string, id: string) => this.post<{ allowed: boolean }>(`/agents/${agent}/blocked/allow`, { session, id });
 	goal = (agent: string, session: string) => this.get<{ goal?: GoalInfo }>(`/agents/${agent}/goal?session=${encodeURIComponent(session)}`);
 	/** Set a goal (`objective`), or pause, resume or clear the one there is (`action`). */
 	setGoal = (agent: string, session: string, what: { objective: string } | { action: "pause" | "resume" | "clear" }) => this.post<{ goal?: GoalInfo; cleared?: boolean }>(`/agents/${agent}/goal`, { session, ...what });

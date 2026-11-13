@@ -60,7 +60,7 @@ src/
   programs.ts       what a conversation's commands left running: found by process group, listed, stopped;
                     commands in the background: started, found again after a restart, seen to end
   background.ts     what an agent reads about commands in the background: the shell tool's words, the message when one has ended
-  actions.ts        what a tool call is (`classify`), the protected paths, what a shell without a sandbox is refused (`pineOwn`), and the reviewer: its rules, its prompt, its verdict
+  actions.ts        what a tool call is (`classify`), the protected paths, and what a shell without a sandbox is refused (`pineOwn`)
   computer.ts       app control: who gets the server (`computerSession`) and which app a call is about (`appTarget`); shared by the gate, classify() and the server
   workspace-view.ts what the code pane reads: git changes and diffs (git contained in a sandbox), folder listings, file text
   snapshots.ts      the state of a folder as a git tree in a git directory of pine's own: recorded, compared, restored
@@ -147,17 +147,15 @@ These are invariants. A change that breaks one needs a test that shows why it is
    wording (`scopeOf`, `forWhom`, `whoIs` in `src/tools.ts`), not rules of its own.
    What an agent writes and pine reads back is text for its own prompt, never code or
    configuration: `AGENTS.md`, `SOUL.md` and `MEMORY.md` at the top of its workspace, and for
-   the main agent `USER.md` in pine's home, the one file there an agent may write. A run that
-   has handled outside content writes them only past the reviewer (class `own`), or, with
-   `security.review: "ask"`, after the owner said that the conversation keeps its full rights
+   the main agent `USER.md` in pine's home, the one file there an agent may write. A
+   conversation of the owner's writes them also after it has handled outside content, and
+   nothing checks what it writes there: the manual says so under "What is not solved"
    (`ownFiles` and `roots.ownOpen` in `src/security.ts` open exactly these files in the
    sandbox, and nothing else that is read as instructions). A run started from outside never does.
    Skills are instructions too, and need no configuration entry: where the folder lies says
    whom it is for (`src/skills.ts`). They are written by `add_skill` into pine's home, which
-   the agent reads and cannot write. In a tainted conversation `add_skill` goes past the
-   reviewer like a write to the agent's memory; with `security.review: "ask"`, in a
-   conversation the owner has not let keep its rights, it is put to the owner with its
-   instructions, as `add_schedule` does with a task.
+   the agent reads and cannot write. In a tainted conversation `add_skill` is put to the
+   owner with its instructions, as `add_schedule` does with a task.
 2. **The mode says whether there is a sandbox, and where there is one the OS enforces file
    access, not a path check.** One setting says how much an agent asks and how far it reaches
    (`Level` in `src/config.ts`): `safe` and `manual` work in the sandbox, `auto` and `bypass`
@@ -178,17 +176,14 @@ These are invariants. A change that breaks one needs a test that shows why it is
    Without a sandbox (`live.variant()` is `open` or `open-restricted`, and the session's
    `jail` is an empty prefix) the same tools run as they are. pine's home and pine's code stay
    closed all the same, by `checkPath` and `pineOwn` (rule 1); after outside content the file
-   tools refuse what is read as instructions, and the shell is the reviewer's (rule 5).
+   tools refuse what is read as instructions, and nothing looks at the shell (rule 5).
    App control (`mcp/computer.ts`) is the same reach by another road: it acts in the owner's
    apps, outside any sandbox. So it follows the modes without a sandbox and adds nothing to
    them: `computerSession()` gives the server only to an agent in `auto` or `bypass` mode, in
    the owner's own conversations, and the gate refuses it where `live.wide()` is false.
-   What a conversation that has read outside content keeps is `security.review`'s to say, and
-   `live.keeps()` is the one thing other code asks. With `"model"` (the default) and `"off"`
-   it keeps everything. With `"ask"` an agent in `auto` mode loses its full rights, and works
-   in the sandbox, until the owner says, once, that it keeps them (`keepWide`; a yes is stored
-   with the conversation's outside-content mark and goes with it on a reset). A run started
-   from outside never has any of it.
+   A conversation that has read outside content keeps what its mode gives it: outside
+   content takes no reach away. What changes is what is asked (rule 5). A run started from
+   outside never has any of it.
    On a machine without a sandbox `safe` cannot be had. `levelOf()` in `src/security.ts`
    gives an agent whose mode nobody chose `auto` there, and `audit()` names it; an agent that
    was set to `safe` gets no shell (the gate), and a run started from outside gets none
@@ -224,18 +219,20 @@ These are invariants. A change that breaks one needs a test that shows why it is
    key gets `~u` so history is never shared with the owner's session. The app control server
    is never registered for such a run, whatever the profile lists (`profileFor`).
 5. **Every tool call passes `tool_call` in `coreExtension()`, and has a class.** That is where
-   deny patterns, the bash time limit, path checks, taint marking, review and approvals happen.
+   deny patterns, the bash time limit, path checks, taint marking and approvals happen.
    `classify()` in `src/actions.ts` is the one place that says what a call is (look, local,
    reach, send, own, critical, setup); the gate decides by class and mode. A new tool gets its
    class there, not a check of its own somewhere else: one that sends information out is
    added to the default `approveWhenTainted` list in `config.ts` (class `send`), one that only
-   reads to `LOOK_TOOLS`. The reviewer (`reviewAction`) is given the owner's messages from the
-   task list and the call, and never a tool result: do not hand it conversation history. A
-   block is returned to the model as a reason; no verdict, or three blocks in a row, goes to
-   the owner. It never becomes "run it anyway". A tool of the app control server has its class
-   from `ctx.app`: looking is `look`, acting is `local`, so that a click is not put to a
-   reviewer who could say nothing about a position. What stands in for the review is the
-   owner's yes per app (rule 13); do not take one away without the other.
+   reads to `LOOK_TOOLS`. No model judges a call: pine has no reviewer, and
+   none is to be added. What asks is the owner, and the list is short on purpose: a `critical`
+   call in every conversation, a `send` call (and `subscribe`) after outside content, the
+   owner's own `approve` list, and everything in manual mode. "Always here" is offered wherever
+   the same question would come again; for a critical call it is kept by the kind of action
+   (`action.note`), not for the whole tool. Do not make `reach`, `local` or `own` ask outside
+   manual mode. A tool of the app control server has its class from `ctx.app`: looking is
+   `look`, acting is `local`, so that a click is not asked about. What stands in for that is
+   the owner's yes per app (rule 13); do not take one away without the other.
 6. **Secrets stay in `.env`.** They are interpolated into the configuration and never exported to
    `process.env`; `shellEnv()` builds the environment for child processes from an allow-list.
    With the whole account it is the owner's own environment instead, without the daemon's
@@ -318,8 +315,8 @@ These are invariants. A change that breaks one needs a test that shows why it is
    counts as running, and it is known by its command line, which names the record pine keeps
    in its home. Its output is the agent's file: the daemon reads the end of it through the
    agent's sandbox (`tailOf` in `src/background.ts`) and hands it to the conversation as
-   quoted output inside a message of pine's own (`endedNotice`), in a `notify` task, which the
-   reviewer never takes for the owner's words. A run started from outside has no `background`
+   quoted output inside a message of pine's own (`endedNotice`), in a `notify` task, which is
+   never taken for the owner's words. A run started from outside has no `background`
    (the gate refuses it), and on Linux neither has a conversation that read outside content:
    what `Guard` takes away after a command protects nothing while a command runs on.
 
@@ -396,9 +393,8 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   a script that speaks the helper's protocol and runs on any system; the server's `helper`
   option names it. No test in the ordinary suite touches a real app or needs macOS. The `live:`
   tests build the real helper and drive its own demo window (`--demo`), which needs no grant.
-- A model call pine makes itself, without tools (the reviewer, the judge of goal mode), is
-  scripted with the mock's `withoutTools` option: see `reviewed()` in `test/review.test.ts` and
-  `judged()` in `test/goals.test.ts`.
+- A model call pine makes itself, without tools (the judge of goal mode), is scripted with the
+  mock's `withoutTools` option: see `judged()` in `test/goals.test.ts`.
 - pine's own question for what a call needs outside the sandbox (`security.askAccess`) is off in
   `harness()`, so that a test about the sandbox meets the sandbox and not a question. The tests
   about it (`test/access.test.ts`) turn it on, set `HOME` to a folder of their own for "the
@@ -434,10 +430,9 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
 - The approval gate lives in one place, the `tool_call` handler in `coreExtension`
   (`src/agents.ts`). Plan mode comes before all of it: a call that is not class `look` is
   refused there and never asked about. Before that, for a shell without a sandbox, what is pine's own
-  (`pineOwn`) is refused in every mode, bypass included. Then the order: bypass, then what is configured to always ask, then what is
-  reviewed (critical always; reach, send and own after outside content), then what never asks
-  (read-only tools, a remembered "always"), then manual mode, then the taint rules of
-  `security.review: "ask"`.
+  (`pineOwn`) is refused in every mode, bypass included. Then the order: bypass, then what is configured to always ask, then
+  what is critical, then what never asks (read-only tools, a remembered "always"), then manual
+  mode, then what sends something out after outside content.
 - Keep the documentation in `docs/references/` in step with behaviour changes, and add new
   files to the tables in `docs/SKILL.md` and `README.md`. Agents read these files to answer
   their owners' questions about pine, so a wrong sentence there becomes a wrong answer.

@@ -501,15 +501,7 @@ export const SETTINGS: Record<string, Setting> = {
 	"limits.maxConcurrentRuns": { about: "How many agents work at the same time. On one local model, more than it can serve side by side only makes each slower.", kind: { from: 1, to: 64 }, now: (c) => String(c.limits.maxConcurrentRuns), live: false },
 	"limits.maxDelegationDepth": { about: "How many times a task can be handed on from agent to agent.", kind: { from: 0, to: 10 }, now: (c) => String(c.limits.maxDelegationDepth), live: true },
 	"limits.maxDownloadMb": { about: "The largest file the download tool fetches, in megabytes.", kind: { from: 1, to: 100_000 }, now: (c) => String(c.limits.maxDownloadMb), live: true },
-	"security.review": {
-		about: 'What happens once a conversation has read outside content. model: a reviewer checks each action that reaches out, sends or changes memory. ask: the conversation loses its rights until your owner says it keeps them. off: nothing is checked.',
-		kind: { one: ["model", "ask", "off"] },
-		now: (c) => c.security.review,
-		live: true,
-		wider: (v) => (v === "off" ? "with off, a conversation that has read outside content keeps all its rights and nothing it does is checked" : undefined),
-	},
-	"security.reviewer": { about: "The model that reviews, as provider/model. Not set: the agent's own.", kind: "model", now: (c) => c.security.reviewer ?? "not set (the agent's own model)", live: true },
-	"security.reviewTimeout": { about: "How long a review may take before it counts as no verdict, for example 90s.", kind: "duration", now: (c) => ms(c.security.reviewTimeoutMs), live: true },
+	"defaults.judge": { about: "The model that judges whether a goal is met, as provider/model. Not set: the agent's own.", kind: "model", now: (c) => c.defaults.judge ?? "not set (the agent's own model)", live: true },
 	"security.askAccess": { about: "Whether pine asks your owner itself when a call of an agent needs a file or folder outside its sandbox, or the network.", kind: "boolean", now: (c) => String(c.security.askAccess), live: true },
 	"security.approvalTimeout": { about: "How long a question to your owner waits before it counts as not answered, for example 5m.", kind: "duration", now: (c) => ms(c.security.approvalTimeoutMs), live: false },
 	"security.taint": {

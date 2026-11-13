@@ -574,7 +574,7 @@ async function main(): Promise<void> {
 			// What that means for this agent, so that nobody has to read code to know.
 			const open = unsandboxed(levelOf(a));
 			const reach = open ? "your whole account and the network" : `its own folder${a.sandbox.network ? " and the network" : ""}`;
-			const after = cfg.security.taint === "off" ? "nothing changes" : cfg.security.review === "model" ? "it keeps that; what reaches out, sends or changes its memory is checked by the reviewer" : cfg.security.review === "ask" ? "it loses that until you say, once, that the conversation keeps it" : "it keeps that, and nothing is checked";
+			const after = cfg.security.taint === "off" ? "nothing changes" : "it keeps that; you are asked before it sends something out";
 			out(`  reaches    ${reach}`);
 			out(`  after outside content: ${a.mode === "bypass" && cfg.security.bypassWhenTainted ? "nothing changes (bypass)" : after}`);
 			out(`  sandbox    ${open ? `off in ${levelOf(a)} mode; on for runs that events from outside start` : `on, network ${a.sandbox.network ? "allowed" : "blocked"}`}; untrusted events: ${a.untrusted === false ? "refused" : a.untrusted.tools.join(", ") || "no tools"}`);

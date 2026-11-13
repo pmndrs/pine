@@ -71,11 +71,9 @@ export async function harness(spec: { pine?: Record<string, unknown>; agents: Re
 	// Tests script the model, and a scripted command must not reach the account of whoever runs
 	// them: every agent works in safe mode, in its sandbox, unless a test asks for another by name.
 	const defaults = { model: "mock/m", mode: "safe", ...((spec.pine?.defaults as Record<string, unknown> | undefined) ?? {}) };
-	// The same goes for what happens after outside content: the tests that are about the one
-	// question say so here, and the tests about the reviewer ask for it and script its answers.
-	// And for the question pine asks itself when a call needs something outside the sandbox: a
+	// For the question pine asks itself when a call needs something outside the sandbox: a
 	// test that is not about it gets the plain refusal, which is what it is about (test/access.test.ts asks for it).
-	const security = { review: "ask", askAccess: false, ...((spec.pine?.security as Record<string, unknown> | undefined) ?? {}) };
+	const security = { askAccess: false, ...((spec.pine?.security as Record<string, unknown> | undefined) ?? {}) };
 	write(path.join(home, "pine.json"), JSON.stringify({ http: false, logLevel: "debug", ...(spec.pine ?? {}), defaults, security }, null, 2));
 	for (const [rel, content] of Object.entries(spec.files ?? {})) write(path.join(home, rel), content);
 	for (const [id, a] of Object.entries(spec.agents)) {

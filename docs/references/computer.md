@@ -109,8 +109,7 @@ App control acts as the owner, so the owner says where.
 - **Once per app, per conversation.** The first call that names an app, whether it looks or
   acts, is put to the owner: "operate the app TextEdit". A yes holds for that app in that
   conversation and its sub-agents until the conversation is reset or the daemon restarts. After
-  it, nothing the agent does in that app is asked about again, and nothing is put to the
-  reviewer click by click.
+  it, nothing the agent does in that app is asked about again.
 - **"Always here"** in the dialog stops the question for every app in that conversation.
 - **The whole screen** (`app_screenshot` without `app`) is asked about once per conversation
   in the same way: such a picture shows every app that is open.
@@ -126,9 +125,7 @@ App control acts as the owner, so the owner says where.
 
 What a window shows was written by whoever wrote the mail, the page or the document in it: it
 is outside content. A conversation that has used app control is marked like one that has used
-the browser ([security.md](security.md), "Taint and approvals"). With `security.review: "ask"` such a
-conversation is asked once whether it keeps its full rights; app control is part of them, and
-after a no the tools refuse.
+the browser ([security.md](security.md), "Taint and approvals").
 
 The action lands in the app that was named, or not at all: a reference has to belong to that
 app, a position has to lie in one of its windows (otherwise the answer says which app is
@@ -206,7 +203,7 @@ Under `options` of the server's entry.
 | "... could not be brought to the front" | Something holds the screen: a system dialog, an app in full screen |
 | "not approved" | The owner said no to that app in this conversation |
 | "Not done: you are in plan mode" | The agent's mode is `plan`: it may look at apps and acts in none. The owner switches the mode when the plan is to be carried out |
-| "Operating apps uses your owner's whole account, which this conversation does not have" | `security.review` is `"ask"`, the conversation has read outside content, and the owner has not said that it keeps its full rights |
+| "Operating apps uses your owner's whole account, which this conversation does not have" | The agent works in its sandbox in this conversation: its mode is `safe` or `manual`. The owner can switch it to `auto` mode |
 | The tools are not in the agent's list | The agent is in `safe` or `manual` mode (it works in its sandbox), the run was started from outside, the system is not macOS, or the server is not configured |
 
 An app that draws its window itself (some games, some cross-platform apps) describes little

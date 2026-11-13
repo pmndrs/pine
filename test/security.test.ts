@@ -279,24 +279,46 @@ test("after a session has seen outside content, actions that send things out nee
 	await h.close();
 });
 
-test("a tainted session cannot rewrite its own instructions, with file tools or the shell", { skip: !sandboxAvailable() }, async () => {
-	const h = await harness({ agents: { main: { agent: { mcp: { feed } }, files: { "AGENTS.md": "RULES\n" } } } });
-	// The owner is asked about the agent's own file and says no. For the rest there is no question.
-	h.pine.bus.subscribe("approval/requested", (e) => void h.pine.approvals.decide((e.payload as any).id, false, "test"));
-	const attempt = [{ name: "write", args: { path: "AGENTS.md", content: "EVIL" } }, { name: "write", args: { path: ".pi/extensions/x.ts", content: "EVIL" } }, { name: "bash", args: { command: "echo EVIL | tee -a AGENTS.md; echo fine | tee notes.md" } }];
-	const clean = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "write", args: { path: "AGENTS.md", content: "RULES v2\n" } }] }]), ...owner });
-	assert.equal(clean.status, "done");
-	assert.equal(fs.readFileSync(path.join(h.workspace("main"), "AGENTS.md"), "utf8"), "RULES v2\n", "an untainted owner session may edit its instructions");
-	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "mcp__feed__echo", args: { text: "x" } }] }, { tools: attempt }]), ...owner });
-	const out = h.toolResults().slice(-3);
-	assert.ok(/holds agent instructions/.test(out[0]) && /holds agent instructions/.test(out[1]), out.join(" | "));
-	assert.ok(refused.test(out[2]) && out[2].includes("fine"), out[2]);
-	assert.equal(fs.readFileSync(path.join(h.workspace("main"), "AGENTS.md"), "utf8"), "RULES v2\n");
+test("after outside content an agent keeps its own memory and instructions, and nothing else that is read as instructions can be written; a run from outside writes neither", { skip: !sandboxAvailable() }, async () => {
+	const h = await harness({ agents: { main: { agent: { mcp: { feed }, untrusted: { tools: ["read", "write"] } }, files: { "AGENTS.md": "RULES\n" } } } });
+	const asked: any[] = [];
+	h.pine.bus.subscribe("approval/requested", (e) => void asked.push(e.payload));
+	const ws = h.workspace("main");
+	await h.pine.agents.run({
+		agent: "main",
+		prompt: mockMsg([
+			{ tools: [{ name: "mcp__feed__echo", args: { text: "x" } }] },
+			{
+				tools: [
+					{ name: "write", args: { path: "AGENTS.md", content: "RULES v2\n" } },
+					{ name: "write", args: { path: "MEMORY.md", content: "LEARNED\n" } },
+					{ name: "write", args: { path: ".pi/extensions/x.ts", content: "EVIL" } },
+					{ name: "write", args: { path: "sub/CLAUDE.md", content: "EVIL" } },
+					{ name: "bash", args: { command: "echo MORE | tee -a MEMORY.md; echo EVIL | tee CLAUDE.md; echo fine | tee notes.md" } },
+				],
+			},
+		]),
+		...owner,
+	});
+	const out = h.toolResults().slice(-5);
+	// Its own files are its own, by tool and by command, and nobody is asked.
+	assert.deepEqual([fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8"), fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8")], ["RULES v2\n", "LEARNED\nMORE\n"]);
+	assert.equal(asked.length, 0);
+	// What somebody else would read as instructions is not written: the file tools refuse it, and the sandbox refuses the command.
+	assert.ok(/holds agent instructions/.test(out[2]) && /holds agent instructions/.test(out[3]), out.join(" | "));
+	assert.ok(refused.test(out[4]) && out[4].includes("fine"), out[4]);
+	assert.ok(!fs.existsSync(path.join(ws, "CLAUDE.md")) && !fs.existsSync(path.join(ws, ".pi")) && !fs.existsSync(path.join(ws, "sub", "CLAUDE.md")));
+	// A run that an event from outside started writes none of them, although its profile has the tool.
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [{ name: "write", args: { path: "MEMORY.md", content: "EVIL" } }, { name: "write", args: { path: "AGENTS.md", content: "EVIL" } }] }]), trust: "untrusted" } as any);
+	for (const r of h.toolResults().slice(-2)) assert.match(r, /holds agent instructions and cannot be changed in a run that has handled outside content/);
+	assert.equal(fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8"), "RULES v2\n");
 	await h.close();
 });
 
 test("a tainted session can use git in a repository but not change what makes git run programs", { skip: !sandboxAvailable() }, async () => {
 	const h = await harness({ agents: { main: { agent: { mcp: { feed } }, files: { "a.txt": "one\n" } } } });
+	// A command that names a hook or a repository's configuration is critical, and the owner is asked. A yes changes nothing here: the sandbox refuses it all the same.
+	h.pine.bus.subscribe("approval/requested", (e) => void h.pine.approvals.decide((e.payload as any).id, true, "test"));
 	const ws = h.workspace("main");
 	const bash = (command: string) => ({ name: "bash", args: { command } });
 	const id = "-c user.name=t -c user.email=t@example.com -c commit.gpgsign=false";

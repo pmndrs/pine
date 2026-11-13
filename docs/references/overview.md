@@ -103,7 +103,6 @@ Topics pine itself uses:
 | `agent/<id>/todos` | The agent changed its list of steps (`items`, each with `text` and `status`; live only) |
 | `agent/<id>/steered` | A message was given to a task that was already working (`task`), instead of becoming work of its own (live only) |
 | `agent/<id>/goal` | The goal of a conversation was set, judged, paused, resumed or cleared (the goal with its `objective`, `status`, `round`, `note` and the judge's `reason`, and `event`: what just happened) |
-| `agent/<id>/blocked` | The reviewer did not let the agent make a tool call (`session`, `tool`, `subject`, `rule`, `reason`) |
 | `agent/<id>/undone`, `agent/<id>/redone` | The owner took back their last message in a conversation, or brought it back (`session`, `message`, how many `tasks` and `files`) |
 | `agent/<id>/delta`, `agent/<id>/thinking`, `agent/<id>/message` | Streamed answer text; what the model thinks (`phase: "start"`, then pieces of `text`, then `phase: "end"` with `ms`); the end of a model message with token counts (live only) |
 | `state/<key>` | Shared state changes |
@@ -193,4 +192,4 @@ How content entered decides what it can do. See [security.md](security.md) for a
 | Your message in the terminal UI or from your paired Telegram account, `pine send`, a schedule (yours, or one an agent made at your wish) | `owner` | The agent's full tool set, in the named session |
 | A webhook, an MQTT message, a new file, handled by a route | `untrusted` | The agent's `untrusted` profile (read-only tools by default), in a separate session |
 | An event of a source a conversation is subscribed to | framed as data; taints that conversation unless the source is marked as yours | The conversation's own tool set, but sending information out needs your approval. With `"separate": true` on the subscription: as the row above |
-| A web page, or the result of an MCP server marked `taints`, read during your own request | taints the session | Full tool set and full rights; from then on a reviewer checks what reaches out, sends something or changes the agent's memory |
+| A web page, or the result of an MCP server marked `taints`, read during your own request | taints the session | Full tool set; from then on sending information out needs your approval |

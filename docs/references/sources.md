@@ -362,9 +362,8 @@ tool says which can and what each takes:
 Where things may go is the source's to decide, not the agent's: Telegram sends to your chat and
 nowhere else, MQTT only to the topics you listed. An answer to a message that came in through
 Telegram is sent back by itself; `send` is for what the agent says unasked. In a conversation
-that has read outside content, `send` is checked first, like every action that reaches out: by
-the reviewer, or by you with `security.review: "ask"` and in manual mode
-([security.md](security.md), "After outside content: the reviewer").
+that has read outside content, `send` asks you first
+([security.md](security.md), "What asks you").
 
 A [route](events.md) can send the same way: `"reply": { "topic": "out/source/telegram@main" }`
 puts an agent's answer on Telegram, and an event published on `out/source/<name>` goes out
@@ -592,8 +591,7 @@ text that reads like an instruction.
 An event is therefore handed to the agent framed as data (see above), and the conversation it
 arrives in is marked as having read outside content, exactly as after the agent read a web
 page there. From then on the usual rules of [security.md](security.md) apply in that
-conversation: actions that send information out, reach out or change the agent's memory are
-checked by the reviewer before they run (with `security.review: "ask"` they ask you instead),
+conversation: actions that send information out ask you before they run,
 and bypass mode is paused.
 
 `"trust": "owner"` on a source says: this is my own device, and nobody else can make it say

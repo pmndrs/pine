@@ -131,14 +131,9 @@ export class HttpServer {
 					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 					return send(200, this.manager.programsOf(parts[1], q.get("session") ?? "main"));
 				}
-				// What the reviewer blocked in a conversation, for a UI to show and the owner to allow.
 				if (parts[0] === "agents" && parts[2] === "todos" && parts.length === 3) {
 					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
 					return send(200, this.manager.todosOf(parts[1], q.get("session") ?? "main"));
-				}
-				if (parts[0] === "agents" && parts[2] === "blocked" && parts.length === 3) {
-					if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
-					return send(200, this.manager.blockedOf(parts[1], q.get("session") ?? "main"));
 				}
 				// The goal the owner set for a conversation, and where it stands.
 				if (parts[0] === "agents" && parts[2] === "goal" && parts.length === 3) {
@@ -327,10 +322,6 @@ export class HttpServer {
 				} catch (e) {
 					throw new HttpError(400, errText(e));
 				}
-			}
-			if (parts[0] === "agents" && parts[2] === "blocked" && parts[3] === "allow" && parts.length === 4) {
-				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");
-				return send(200, { allowed: this.manager.allowBlocked(parts[1], String(body.session ?? "main"), String(body.id ?? "")) });
 			}
 			if (parts[0] === "agents" && parts[2] === "programs" && parts[3] === "stop" && parts.length === 4) {
 				if (!this.cfg.agents[parts[1]]) throw new HttpError(404, "no such agent");

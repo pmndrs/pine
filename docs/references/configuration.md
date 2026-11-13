@@ -84,6 +84,7 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `logLevel` | `info` | `debug`, `info`, `warn`, `error`, `silent`. Logs go to stderr; a daemon started inside the terminal UI logs to `data/pine.log`. |
 | `dataDir` | `data` | Where the database, media and control token live. |
 | `defaults.model` | none | `provider/model-id` from `models.json`: the model of every agent whose `agent.json` names none. There is no built-in fallback: an agent with neither is a configuration error, which `pine check` and the start of pine report. |
+| `defaults.judge` | not set | The model of the judge of goal mode (`/goal`), as `provider/model-id`. Not set: the agent's own model. A second, small model keeps the judge's call from pushing the agent's conversation out of a model server's cache. See "Goal mode" in [agents.md](agents.md). |
 | `defaults.thinking` | `off` | Reasoning level for models that can reason: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
 | `defaults.mode` | not set | The mode of every agent that names none: `auto`, `safe`, `manual`, `bypass` or `plan` (see `mode` below). Not set: `auto` for the main agent, `safe` for all others. Set it to `safe` to keep every agent, the main one too, in its sandbox. See "Modes" in [security.md](security.md). |
 | `defaults.bashTimeoutSec` | `900` | Longest a shell command may run (15 minutes: a build, an install). The model cannot raise it. A server or another program that should keep running, and whatever needs longer, is started in the background, which is not held to it ([coding.md](coding.md)). |
@@ -102,14 +103,11 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `limits.conversationDays` | `7` | A conversation in which nothing was said for this long is removed with its history, unless it is an agent's main conversation, pinned, open in a tab, subscribed to an event source, or has a schedule of its own. `0`: never. |
 | `limits.goalRounds` | `20` | Goal mode (`/goal`): how many rounds a goal gets before it stops and waits for `/goal resume`, which gives it as many again. A round is a whole turn of the agent with all its tool calls, so twenty are hours on a local model. See "Goal mode" in [agents.md](agents.md). |
 | `limits.goalIdleRounds` | `3` | Goal mode: after this many rounds in a row that the judge called "not met" and in which the agent made no tool call, the goal is paused: the agent is going in circles. `0`: never. |
+| `limits.goalJudgeTimeout` | `90s` | Goal mode: how long the judge may take to answer. When it takes longer, that counts as no verdict, and the goal is paused. |
 | `security.approvalTimeout` | `5m` | An unanswered approval request counts as "no" after this. |
 | `security.taint` | `session` | How long a session stays tainted: until reset (`session`), until the task ends (`run`), or never (`off`). See [security.md](security.md). |
 | `security.taintTools` | `[]` | Tool name globs whose results count as outside content, besides MCP servers marked `taints`. |
-| `security.review` | `model` | What happens in `auto` mode once a conversation has read outside content. `model`: it keeps its rights, and what reaches out, sends something or changes the agent's memory is checked by a reviewer, one action at a time. `ask`: it loses its rights until you say, once, that it keeps them. `off`: it keeps its rights and nothing is checked. See [security.md](security.md), "After outside content: the reviewer". |
-| `security.reviewer` | the agent's own model | The model that reviews, as `provider/model-id`. A second, small model keeps the review from pushing the agent's conversation out of a model server's cache. The judge of goal mode (`/goal`) uses the same model. |
-| `security.reviewTimeout` | `90s` | A review that takes longer counts as no verdict, and the action is put to you instead. The judge of goal mode has the same time; when it takes longer, the goal is paused. |
-| `security.rules` | built in | The reviewer's rules in plain language: `{ "hard": [...], "soft": [...], "allow": [...] }`. `hard`: never. `soft`: only if you asked for exactly this. `allow`: ordinary work. `"$defaults"` in a list keeps the built-in entries at that place; a list without it replaces them. |
-| `security.bypassWhenTainted` | `false` | Keep bypass mode in force in a session that has read outside content. Off, such a session asks again. |
+| `security.bypassWhenTainted` | `false` | Keep bypass mode in force in a session that has read outside content. Off, bypass is paused in such a session, and the agent works as in `auto` mode. |
 | `security.askAccess` | `true` | pine asks you itself when a call of an agent in the sandbox (`safe` or `manual` mode) needs a file or folder outside it, or the network: before a file tool or a shell command that names it, and on macOS after a command the sandbox refused something. `false`: you are only asked when the agent calls `request_access`. See "When a call needs something outside" in [security.md](security.md). |
 | `http` | on, loopback, port 7463 | Control API and webhooks. `false` turns it off (the CLI's client commands then do not work). |
 | `http.host`, `http.port` | `127.0.0.1`, `7463` | Where the control API listens. Anything but loopback is reported by `pine check`. |
@@ -124,9 +122,11 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `routes` | `[]` | See [events.md](events.md). |
 | `schedules` | `[]` | What happens at a time. One with a `task` wakes every agent with it; one without only publishes an event. The main agent adds entries with `add_schedule`. See [events.md](events.md). |
 
-Two things that older setups had are configuration errors now, each reported with what to
-write instead: a `plugins` list that is not empty, and an event source of `"type": "timer"`
-(that is a schedule).
+Three things that older setups had are configuration errors now, each reported with what to
+write instead: a `plugins` list that is not empty, an event source of `"type": "timer"`
+(that is a schedule), and one of `security.review`, `security.reviewer`,
+`security.reviewTimeout` or `security.rules` (pine has no reviewer any more: take the entry
+out).
 
 Durations are a number of milliseconds or a string such as `"90s"`, `"15m"`, `"2h"`, `"1d"`.
 
@@ -188,14 +188,14 @@ Every key is optional; `{}` is a valid agent.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | `auto` for the main agent, `safe` for others (or `defaults.mode`) | How much the agent does without asking, and whether its shell and file tools run in a sandbox. `auto`: no sandbox; your whole user account and the network, like you at your terminal, with your home folder and environment; what is critical is checked, and after outside content what reaches out, sends or changes its memory. `safe`: in the sandbox; its own folders and what you grant, and the same checks. `manual`: in the sandbox, and every action waits for approval. `bypass`: no sandbox, and never asks. `plan`: looks, reads and asks, changes nothing, and answers with a plan. pine's home stays closed in every mode. See "Modes" and "The whole account" in [security.md](security.md). |
+| `mode` | `auto` for the main agent, `safe` for others (or `defaults.mode`) | How much the agent does without asking, and whether its shell and file tools run in a sandbox. `auto`: no sandbox; your whole user account and the network, like you at your terminal, with your home folder and environment; a critical action asks you, and after outside content so does sending something out. `safe`: in the sandbox; its own folders and what you grant, and the same questions. `manual`: in the sandbox, and every action waits for approval. `bypass`: no sandbox, and never asks. `plan`: looks, reads and asks, changes nothing, and answers with a plan. pine's home stays closed in every mode. See "Modes" and "The whole account" in [security.md](security.md). |
 | `sandbox.network` | `false` | Shell commands may use the network: the internet and your local network, ports of this machine included. See [security.md](security.md), "On Linux", for what that means for socket files. |
 | `sandbox.read`, `sandbox.write` | `[]` | Further folders the agent may read / write, besides its workspace. |
 | `sandbox.sharedTmp` | `true` | Allow `/tmp` and the user's temp folder. |
 | `sandbox.env` | `{}` | Extra environment variables for the agent's shell. Do not put secrets here; the agent can read them. |
 | `trustWorkspace` | `false` | `true` lets pi load `.pi/extensions`, `.pi/settings.json` and skills from the workspace. That is code execution inside the daemon for whoever can write there, the agent included. |
 | `approve` | `[]` | Tool calls that always need your approval: `"tool"` or `"tool:argument-glob"`, for example `"bash:*git push*"`. |
-| `approveWhenTainted` | `["publish_event", "send"]` | Tool calls that count as sending something out. Once the session has seen outside content they are checked by the reviewer (with `security.review: "ask"` they need your approval). |
+| `approveWhenTainted` | `["publish_event", "send"]` | Tool calls that count as sending something out. Once the session has seen outside content they need your approval. |
 | `untrusted` | read-only profile | What a run started by an untrusted event may use: `{ "tools": ["read","grep","find","ls"], "mcp": [], "delegates": [], "publish": [], "stateWrite": false, "subagents": false }`. `false` refuses such runs. |
 
 ## models.json

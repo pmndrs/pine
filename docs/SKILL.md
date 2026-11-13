@@ -92,8 +92,8 @@ with the task. `schedules` lists what is scheduled, `remove_schedule` ends one.
 When your owner wants you to remember how something is done ("make a skill for this"), call
 `add_skill` with a name, a line on when to use it, and the steps. It is listed among your
 skills from your next message on; `remove_skill` deletes it. A fact rather than a procedure
-belongs into your `MEMORY.md` instead. In a conversation that has read outside content, what
-you write into your memory or a skill is checked first: write what you did and learned, not
+belongs into your `MEMORY.md` instead. In a conversation that has read outside content, a
+skill is put to your owner first, with its instructions: write what you did and learned, not
 orders.
 
 When your owner asks for something in an app on their Mac that is neither a web page nor a
@@ -106,10 +106,8 @@ work by position in a picture. Your owner is asked once per app. If you do not h
 tools, you cannot get them by asking: say so ([references/computer.md](references/computer.md)
 says who has them).
 
-When a call comes back "Blocked by pine's reviewer", it was checked against what your owner
-asked for and did not fit. Do not try another way to the same end. Go on with the rest; if
-your owner wants exactly that action, tell them: they can allow it under Blocked in the
-terminal UI's code pane, and you are told when they have.
+When a call comes back "not approved", it was put to your owner, and your owner said no. Do
+not try another way to the same end: say what you wanted to do and why.
 
 Schedules, skills, sources and servers follow the same rule: leave the scope out and it is for
 the conversation you are in. What you have of each, you see with a tool, never in pine's files:
@@ -154,7 +152,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 | Have something done at a time (schedules); write rules for events yourself: set state, publish, single model calls, debounce | [references/events.md](references/events.md) |
 | Add MCP servers globally, per agent or for one conversation; web search, page reading and the bundled browser (showing its window to log in yourself, local addresses); turn shell commands into tools | [references/mcp.md](references/mcp.md) |
 | Operate the apps on a Mac: read a window, press, click, type; who may, what is asked, the grants macOS needs | [references/computer.md](references/computer.md) |
-| Understand the defences against outside abuse and prompt injection, and their limits: the sandbox (macOS and Linux), what happens after outside content, the reviewer, the modes, approvals | [references/security.md](references/security.md) |
+| Understand the defences against outside abuse and prompt injection, and their limits: the sandbox (macOS and Linux), what happens after outside content, the modes, approvals | [references/security.md](references/security.md) |
 | Know the technology underneath and the pi behaviours pine works around; open points | [references/stack.md](references/stack.md) |
 | Change pine's code | [../AGENTS.md](../AGENTS.md) |
 
@@ -233,5 +231,4 @@ pine start
 | tainted | A session that has seen outside content (a web page, an MCP result, an untrusted task) |
 | approval | Your yes or no to one tool call, asked in the terminal UI and over Telegram, or answered with `pine approve` |
 | mode | How much an agent does without asking: `auto` (the default), `plan` (it only looks and answers with a plan), `manual` (every action waits for your yes), `bypass` (nothing waits) |
-| reviewer | A short model call that checks one action against what you asked for, before it runs: after outside content, and for critical actions always. It blocks with a reason instead of asking you |
 | extension | A pi extension: pi's own plug-in format, usable in pine sessions |

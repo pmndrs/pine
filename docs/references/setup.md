@@ -95,9 +95,8 @@ there without a question, and the agent says what it would set up. The tools tha
 (`sources`, `schedules`, `mcp_servers`, `skills`) work in every mode and are never asked about.
 
 In a conversation that has read outside content two things are stricter, because what they
-write is read back as instructions or runs as a program. `add_skill` is checked by the
-reviewer like a write to the agent's memory ([security.md](security.md), "After outside
-content: the reviewer"; with `security.review: "ask"` it shows you the skill instead).
+write is read back as instructions or runs as a program. `add_skill` is put to you first,
+with its instructions ([security.md](security.md), "Skills are instructions").
 `add_source_type` and `add_model_server` are refused: start a new conversation for it.
 
 Runs with the reduced tool set, which outside events start through a route or a subscription
@@ -153,9 +152,9 @@ Which model the agent runs on is told to it with your message, so it needs no to
 | `create_agent` `id` `description` `instructions` [`model`] [`tools`] | Main agent only. See below. Changing and removing one, and pine's settings: "The main agent administers pine". |
 | **Model servers** | |
 | `add_model_server` `name` `url` [`context`] | Main agent only. Adds a model server of your own by its address; pine asks the server for its models. See "Adding a model server". |
-| `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default or the reviewer uses one of its models. You are asked. |
+| `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default or the judge of goals (`defaults.judge`) uses one of its models. You are asked. |
 | **Not setup: the other tools pine gives an agent** | |
-| `request_access` [`path`] [`write`] [`network`] [`account`] `reason` | Asks you for access the conversation does not have: a file or folder outside the workspace (`path`; with `write: true` also to change it), the network from the shell (`network: true`), or its full rights back after you limited the conversation (`account: true`). You decide; a yes holds for the conversation until it is reset or pine restarts. pine's home is never granted. An agent does not have to call it: when a file tool or a shell command needs something outside, pine asks you the same question itself. See "When a call needs something outside" and "Modes" in [security.md](security.md). |
+| `request_access` [`path`] [`write`] [`network`] `reason` | Asks you for access the conversation does not have: a file or folder outside the workspace (`path`; with `write: true` also to change it), or the network from the shell (`network: true`). You decide; a yes holds for the conversation until it is reset or pine restarts. pine's home is never granted. An agent does not have to call it: when a file tool or a shell command needs something outside, pine asks you the same question itself. See "When a call needs something outside" and "Modes" in [security.md](security.md). |
 | `delegate` `agent` `task` [`wait`] [`thread`] | Hands a task to another agent and gets its answer. Only there when the agent's `delegates` list is not empty. See [agents.md](agents.md). |
 | `subagent` `tasks` | Runs several copies of the agent side by side, one task each, and returns their answers. See [agents.md](agents.md). |
 | `download` `url` `path` | Fetches a file from a web address into the workspace, byte for byte. It is how an agent gets a file that a remote MCP server made: by the link in the tool's answer, never by a file path from it. See "Downloads" in [security.md](security.md) and "Files and pictures from a remote server" in [mcp.md](mcp.md). |
@@ -256,7 +255,7 @@ asks you every time, and the question says that the main agent asks.
 
 **Not from a conversation that has read outside content.** `update_agent`, `remove_agent`,
 `set_setting`, `add_route` and `remove_route` are refused there without a question to you: a web page that says "remove the
-agent" or "switch the reviewer off" must not get as far as your approval dialog. A new
+agent" must not get as far as your approval dialog. A new
 conversation, or `/reset`, does it.
 
 ## Changing and removing an agent
@@ -331,7 +330,7 @@ a conversation that has read outside content.
 | `defaults.bashTimeoutSec`, `defaults.taskTimeoutSec` | Seconds a shell call and a task may run. From the next start |
 | `limits.maxConcurrentRuns` | How many agents work at the same time. From the next start |
 | `limits.maxDelegationDepth`, `limits.maxDownloadMb` | How often a task is handed on, and the largest download |
-| `security.review`, `security.reviewer`, `security.reviewTimeout` | What happens after outside content, and who reviews |
+| `defaults.judge` | The model of the judge of goal mode. Not set: the agent's own |
 | `security.askAccess` | Whether pine asks you itself when a call needs something outside the sandbox |
 | `security.taint`, `security.bypassWhenTainted`, `security.approvalTimeout` | How long outside content counts, whether bypass survives it, and how long a question to you waits (from the next start) |
 
