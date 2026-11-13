@@ -112,6 +112,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["the agent wants to send a telegram message after a web search and I am asked", /^(security#(what-asks-you|4-taint-and-approvals)|sources#|operations#problems)/],
 		["which model decides whether a goal is met", /^(configuration#.*defaults-judge$|agents#goal-mode)/],
 		["defaults.mode", /^configuration#.*defaults-mode$/],
+		["change another agent's personality and how it sounds", /^(setup#changing-and-removing-an-agent|agents#the-files-an-agent-keeps-itself)/],
 		// The mode is what says whether an agent works in a sandbox: asked by somebody who does not know that.
 		["switch the sandbox off for an agent", /^(security#(3-the-sandbox|modes)|configuration#containment\/(mode|sandbox)|tui#modes)/],
 		["which mode keeps an agent inside its own folders", /^(security#(3-the-sandbox|modes)|tui#modes)/],

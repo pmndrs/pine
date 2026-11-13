@@ -41,7 +41,7 @@ with one file about you they are read into its prompt with every conversation:
 | File | Holds | Who writes it |
 |---|---|---|
 | `workspace/AGENTS.md` | Its purpose and how it works. You shape it by telling the agent ("your purpose is ...", "from now on answer in tables") | The agent, and you |
-| `workspace/SOUL.md` | Who it is: character and tone | The agent, and you |
+| `workspace/SOUL.md` | Who it is: character and tone | The agent, and you. For another agent, the main agent: tell it how that agent should be or sound, and it replaces the file with `update_agent` (`soul`) |
 | `workspace/MEMORY.md` | What matters beyond a conversation: decisions, facts, preferences, open ends | The agent |
 | `USER.md` in pine's home | What every agent knows about you. One file for all agents | The main agent, and you |
 | `agents/<id>/AGENTS.md` | Optional. Rules of yours that the agent reads and cannot change | You |

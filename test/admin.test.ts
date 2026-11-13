@@ -41,7 +41,7 @@ test("admin: the main agent lists agents and changes one by tool call; what is w
 	let out = await main(call("agents"), call("agents", { id: "helper" }), call("agents", { id: "nobody" }));
 	assert.match(out[0], /^3 agents\.\n- main \(the main agent: you\)/);
 	assert.match(out[0], /- helper: Reads papers\n    model mock\/m \(the default\) · reasoning off · mode safe · reach its own folders, in the sandbox · built-in tools read, bash, edit, write, grep, find, ls\n    conversations: none · event sources: none · MCP servers: none · schedules: none · skills: none · 2 files in its workspace/);
-	assert.match(out[1], /workspace: .*agents\/helper\/workspace\n    may hand work to: none\n\nIts instructions \(AGENTS\.md in its workspace, which it also keeps itself\):\nYou are HELPER\./);
+	assert.match(out[1], /workspace: .*agents\/helper\/workspace\n    may hand work to: none\n\nIts instructions \(AGENTS\.md in its workspace, which it also keeps itself; update_agent "instructions" replaces them\):\nYou are HELPER\./);
 	assert.match(out[2], /there is no agent "nobody"\. Agents: aide, helper, main/);
 	assert.equal(asked.length, 0, "looking asks nobody");
 
@@ -101,6 +101,19 @@ test("admin: the main agent lists agents and changes one by tool call; what is w
 	assert.ok(!fs.lstatSync(md).isSymbolicLink());
 	assert.equal(fs.readFileSync(md, "utf8"), "You are HELPER, and you answer in English.\n");
 	assert.doesNotThrow(() => loadConfig(h.home));
+
+	// Its character and tone are a file of their own (SOUL.md), and the main agent's to read and replace the same way.
+	const soul = path.join(h.workspace("helper"), "SOUL.md");
+	fs.writeFileSync(soul, "Warm and chatty.\n");
+	const asks = asked.length;
+	out = await main(call("agents", { id: "helper" }), call("update_agent", { id: "helper", soul: "Cool and technical. No commentary nobody asked for." }), call("update_agent", { id: "helper", soul: "  " }), call("read", { path: soul }));
+	assert.match(out[0], /Its character and tone \(SOUL\.md in its workspace; update_agent "soul" replaces it\):\nWarm and chatty\./);
+	assert.match(asked[asks].summary, /character and tone \(its SOUL\.md\) replaced by:\nCool and technical\./);
+	assert.equal(fs.readFileSync(soul, "utf8"), "Cool and technical. No commentary nobody asked for.\n");
+	assert.equal(fs.readFileSync(md, "utf8"), "You are HELPER, and you answer in English.\n", "its instructions are another file and stay");
+	assert.match(out[2], /soul cannot be empty/);
+	// Opened as a file, it is another agent's: the refusal names the tools that are for it.
+	assert.match(out[3], /another agent|outside the paths this agent may read/);
 	await h.close();
 });
 

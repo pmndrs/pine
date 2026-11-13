@@ -129,6 +129,8 @@ export function checkPath(roots: Roots, kind: "read" | "write", given: string, c
 	const restricted = variant === true || variant === "restricted" || variant === "open-restricted";
 	if (roots.secrets.some((s) => isInside(s, p))) return `${target} is not accessible to agents`;
 	if (isOpen(variant)) {
+		// Said as what it is: a model that reads "pine's own configuration" does not think of the tools that are for this.
+		if (roots.others.some((o) => isInside(o, p))) return `${target} is in another agent's workspace, which is closed to you. What that agent is told is read with the agents tool (id) and changed with update_agent (instructions, soul), by the main agent`;
 		if (isInside(roots.home, p) && !(kind === "read" ? roots.ownedRead : roots.ownedWrite).some((r) => isInside(r, p))) return `${target} is part of pine's own configuration, which stays closed in every mode`;
 		if (kind === "write" && isInside(PINE_CODE, p)) return `${target} is part of pine's own code, which agents cannot change`;
 		if (kind === "write" && restricted) return ownRules(roots, target, p);
