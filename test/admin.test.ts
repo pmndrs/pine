@@ -102,6 +102,19 @@ test("admin: the main agent lists agents and changes one by tool call; what is w
 	assert.equal(fs.readFileSync(md, "utf8"), "You are HELPER, and you answer in English.\n");
 	assert.doesNotThrow(() => loadConfig(h.home));
 
+	// Tools that are given later reach a conversation that is already there, from its next message on, and after a restart.
+	const builtIn = async () => {
+		await h.pine.agents.run({ agent: "helper", prompt: "which tools do you have", trust: "owner" });
+		return h.toolsOffered(h.requestsFor("PERSONA-HELPER").at(-1)).filter((n: string) => ["read", "bash", "edit", "write", "grep", "find", "ls"].includes(n)).sort().join(",");
+	};
+	await main(call("update_agent", { id: "helper", tools: "read,grep" }));
+	assert.equal(await builtIn(), "grep,read");
+	await main(call("update_agent", { id: "helper", tools: "read,bash,edit,write,grep,find,ls" }));
+	assert.equal(await builtIn(), "bash,edit,find,grep,ls,read,write", "the conversation that had two tools has all of them now");
+	await main(call("update_agent", { id: "helper", tools: "read" }));
+	assert.equal(await builtIn(), "read", "and what is taken away is gone from it");
+	await main(call("update_agent", { id: "helper", tools: "read,bash,edit,write,grep,find,ls" }));
+
 	// Its character and tone are a file of their own (SOUL.md), and the main agent's to read and replace the same way.
 	const soul = path.join(h.workspace("helper"), "SOUL.md");
 	fs.writeFileSync(soul, "Warm and chatty.\n");

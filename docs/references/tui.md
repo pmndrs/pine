@@ -215,8 +215,9 @@ Type `/` and the list appears; keep typing to narrow it, `enter` runs the comman
 | `/quit`, `/exit` | Leave. The tabs open again at the next start |
 
 A model you pick is saved as that agent's model (`model` in its `agent.json`) and is still set
-after a restart. A mode is different on purpose: it lasts until the daemon restarts, so an agent
-never comes back up in bypass unless its `agent.json` says so.
+after a restart. A mode you pick is saved the same way when it is `auto`, `safe` or `manual`. `bypass`
+and `plan` are for now: they last until pine restarts, so an agent never comes back up in
+bypass unless its `agent.json` says so.
 
 ## Goals
 

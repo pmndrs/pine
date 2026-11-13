@@ -622,8 +622,9 @@ Set the mode where it should last, or switch it while running:
 ```
 
 in `agent.json` (or `defaults.mode` in `pine.json` for all agents); `/mode` or `shift+tab` in the
-terminal UI; `pine mode <agent> <mode>` from a shell. A switch made while running lasts until the
-daemon restarts.
+terminal UI; `pine mode <agent> <mode>` from a shell. A switch to `auto`, `safe` or `manual` is saved
+in the agent's `agent.json` and holds after a restart. A switch to `bypass` or `plan` lasts until
+the daemon restarts.
 
 ### 5. Sources that go and look
 

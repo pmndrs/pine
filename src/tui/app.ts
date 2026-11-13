@@ -2039,7 +2039,7 @@ export class PineTui {
 		info.mode = mode as any;
 		t.pauseNoted = false;
 		const note = mode === "bypass" ? c.yellow(" Nothing waits for approval now, and its shell and file tools reach your whole account and the network.") : mode === "plan" ? c.gray(" It looks, reads and asks, and changes nothing: ask for what you want, read its plan, then switch the mode back to have it carried out.") : mode === "auto" ? c.gray(" Its shell and file tools work without a sandbox: your whole account and the network. What is critical is still checked.") : mode === "safe" ? c.gray(" Its shell and file tools work inside its sandbox: its own folders, and what you allow it.") : "";
-		this.say(t, `${c.gray(`${t.agent} is now in`)} ${c.bold(mode)} ${c.gray("mode (until the daemon restarts; set \"mode\" in agent.json to keep it).")}${note}`);
+		this.say(t, `${c.gray(`${t.agent} is now in`)} ${c.bold(mode)} ${c.gray(mode === "bypass" || mode === "plan" ? "mode (until pine restarts)." : "mode. It is saved, and holds after a restart too.")}${note}`);
 		await this.refreshTaints();
 	}
 

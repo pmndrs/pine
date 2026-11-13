@@ -1598,9 +1598,12 @@ export class AgentManager {
 		const sessionManager = ephemeral ? SessionManager.create(cwd, sessionDir) : SessionManager.continueRecent(cwd, sessionDir);
 		const runtime = await createAgentSessionRuntime(createRuntime as any, { cwd, agentDir: agent.dir, sessionManager });
 		await runtime.session.bindExtensions({ onError: (e: any) => this.log.warn(`extension error in ${agent.id} (${e.event ?? "?"})`, String(e.error ?? e)) });
-		// grep/find/ls are built in but off by default; switch on the ones this profile lists.
-		const extra = profile.tools.filter((t) => !DEFAULT_TOOLS.includes(t) && BUILTIN_TOOLS.includes(t));
-		if (extra.length) runtime.session.setActiveToolsByName([...new Set([...runtime.session.getActiveToolNames(), ...extra])]);
+		// The built-in tools are the ones this profile lists, and no other. Said here every time:
+		// grep, find and ls are off unless switched on, and a conversation that goes on from its
+		// file comes back with the tools it had when it was made, not with what the agent has now.
+		const builtin = profile.tools.filter((t) => BUILTIN_TOOLS.includes(t));
+		const active: string[] = runtime.session.getActiveToolNames();
+		runtime.session.setActiveToolsByName([...new Set([...active.filter((n) => !BUILTIN_TOOLS.includes(n)), ...builtin])]);
 		live.runtime = runtime;
 		live.session = runtime.session;
 		live.contextStamp = this.stamp(agent, folder);
@@ -1675,9 +1678,11 @@ export class AgentManager {
 	}
 
 	/**
-	 * Change an agent's mode until the daemon restarts. Takes effect on its next tool call.
-	 * `anyway` names a conversation in which the owner, knowing it has read outside content,
-	 * wants bypass to apply all the same.
+	 * Change an agent's mode. Takes effect on its next tool call. "auto", "safe" and "manual"
+	 * are written into its agent.json and are there after a restart. "bypass" and "plan" hold
+	 * until the daemon restarts: an agent does not come back up asking nothing, or doing nothing,
+	 * because of a click a week ago. `anyway` names a conversation in which the owner, knowing
+	 * it has read outside content, wants bypass to apply all the same.
 	 */
 	setMode(agentId: string, mode: Mode, anyway?: string): void {
 		const agent = this.cfg.agents[agentId];
@@ -1689,6 +1694,15 @@ export class AgentManager {
 		if (mode !== "plan") {
 			agent.level = mode;
 			agent.modeSet = true;
+		}
+		if (mode !== "plan" && mode !== "bypass") {
+			try {
+				editJson(path.join(agent.dir, "agent.json"), (json) => {
+					json.mode = mode;
+				});
+			} catch (e) {
+				this.log.warn(`the mode of ${agentId} could not be saved, so it holds until pine restarts`, errText(e));
+			}
 		}
 		// In or out of the sandbox, a session is told other things and has other servers (app control,
 		// a local server's own sandbox): its sessions continue from their history with the new set.

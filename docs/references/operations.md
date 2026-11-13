@@ -244,7 +244,7 @@ What you type in a shell. Every command is the `pine` program with a word after 
 | `pine subscribe --global <source> [--note text] ...`, `pine unsubscribe --global <source>` | The same for every agent that can use the source |
 | `pine approvals`, `pine approve <id> [--always]`, `pine deny <id>` | Answer approval requests; `--always` stops the question for the rest of that conversation |
 | `pine reset <agent> [session]` | Start a conversation over; also clears its taint |
-| `pine mode <agent> [auto\|safe\|manual\|bypass\|plan]` | Show or change an agent's mode until the daemon restarts. `auto` and `bypass` work without a sandbox, `safe` and `manual` in one. `plan`: the agent only looks and answers with a plan. See "Modes" in [security.md](security.md) |
+| `pine mode <agent> [auto\|safe\|manual\|bypass\|plan]` | Show or change an agent's mode. `auto`, `safe` and `manual` are saved in its `agent.json` and hold after a restart; `bypass` and `plan` hold until pine restarts. `auto` and `bypass` work without a sandbox, `safe` and `manual` in one. `plan`: the agent only looks and answers with a plan. See "Modes" in [security.md](security.md) |
 | `pine mcp list` | MCP servers, who gets them (all agents, one agent, or one conversation of an agent), whether they connect. `--offline` lists without connecting |
 | `pine skills` | Lists every skill: whom it is for (all agents, an agent, one conversation) and where it lies |
 | `pine schedules` | Lists what is scheduled: for whom, when, and the task |
@@ -303,7 +303,7 @@ are JSON with `Content-Type: application/json`.
 | `GET /agents/<id>/todos?session=` | The list of steps the agent keeps in that conversation |
 | `POST /agents/<id>/compact` `{ session? }` | Shorten a conversation: its earlier part becomes a summary. Queued like a message; answers with the task's id |
 | `POST /agents/<id>/thinking` `{ level }` | Set an agent's reasoning level and save it in its `agent.json` |
-| `POST /agents/<id>/mode` `{ mode, session?, anyway? }` | Switch an agent's mode (`auto`, `plan`, `manual` or `bypass`) until the daemon restarts. `anyway: true` with a `session` keeps bypass in force in that conversation although it has read outside content |
+| `POST /agents/<id>/mode` `{ mode, session?, anyway? }` | Switch an agent's mode (`auto`, `safe`, `manual`, `bypass` or `plan`). `auto`, `safe` and `manual` are saved and hold after a restart; `bypass` and `plan` hold until the daemon restarts. `anyway: true` with a `session` keeps bypass in force in that conversation although it has read outside content |
 | `GET /tasks?agent=&session=&status=&limit=`, `GET /tasks/<id>` | Tasks |
 | `GET /tasks/<id>/transcript` | What a task did, step by step: the text it was given, what it wrote, its tool calls with the start of each result. With `?full=1`: with the whole result of each call, up to 200 000 characters |
 | `GET /events?topic=&after=&limit=` | Event log; `after=<id>` pages forward |

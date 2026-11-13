@@ -316,6 +316,17 @@ test("the mode can be changed while the daemon runs, and a wrong mode is a confi
 	const asked = answering(h, () => true);
 	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("bash", { command: "echo hi" })] }]), ...owner });
 	assert.equal(asked.length, 1, "the new mode applies to the next call, without a restart");
+	// It is the owner's choice and is kept: written into the agent's file, it is there after a restart.
+	const file = path.join(h.home, "agents", "main", "agent.json");
+	assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mode, "manual");
+	await h.restart();
+	assert.equal(h.pine.cfg.agents.main.mode, "manual");
+	// Bypass and plan are for now: an agent does not come back up asking nothing because of a click a week ago.
+	h.pine.agents.setMode("main", "bypass");
+	h.pine.agents.setMode("main", "plan");
+	assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mode, "manual");
+	h.pine.agents.setMode("main", "auto");
+	assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mode, "auto");
 	await h.close();
 
 	const bad = await harness({ agents: { main: { agent: { mode: "yolo" } } }, start: false });
