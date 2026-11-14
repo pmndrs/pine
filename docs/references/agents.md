@@ -200,6 +200,11 @@ how many it has and names the slot with each request (`id_slot`):
 - One that has none takes a slot pine filled for it (below), else an empty one, else the slot
   that is cheapest to read again. It never takes a slot in which a request is under way.
 - A run started from outside is named a slot too, so that it does not take yours.
+- Another client of the same server (a second pine, another program) has its conversations in
+  slots too. pine asks the server what its slots hold (`/slots`) before it chooses one: a slot
+  with somebody else's conversation is not taken for empty and not filled in the background,
+  and when no slot is empty the smaller conversation goes, whoever's it is. Two clients on one
+  server still share its slots: what one of them pushes out, the other reads again.
 - When the server has kept nothing of a long conversation, it was started anew; pine then
   takes its other slots for empty as well.
 

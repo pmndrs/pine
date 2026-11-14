@@ -30,6 +30,12 @@ export async function startMock(opts = {}) {
 			res.end(JSON.stringify(opts.props));
 			return;
 		}
+		// opts.slots: what a llama.cpp server says its slots hold at /slots (a list, or a function that gives one).
+		if (req.method === "GET" && opts.slots && req.url.endsWith("/slots")) {
+			res.writeHead(200, { "content-type": "application/json" });
+			res.end(JSON.stringify(typeof opts.slots === "function" ? opts.slots(state) : opts.slots));
+			return;
+		}
 		if (req.method === "GET") {
 			res.writeHead(200, { "content-type": "application/json" });
 			res.end(JSON.stringify({ object: "list", data: [{ id: "mock-model", object: "model" }] }));

@@ -444,7 +444,9 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
 - A request names its slot on a llama.cpp server (`takeSlot`, `src/slots.ts`), in either catalogue and
   for a run started from outside too. Filling idle slots (`warm()`) sends a request of pine's own: only
   while nobody works with that model, only when the server says its model is loaded (never what loads
-  one), and with nothing in it but what a conversation begins with. A conversation whose slot is taken
+  one), and with nothing in it but what a conversation begins with. What the server says its slots
+  hold (`lookAtSlots`, `SlotBook.seen`) corrects pine's notes, so that another client's conversation is
+  not taken for an empty slot. A conversation whose slot is taken
   is written into a file of the server and read back when it returns (`page()`, `limits.slotPages`):
   a few files with fixed names that pine chooses, never a name from a conversation, and never for a
   server whose loaded model is another one.

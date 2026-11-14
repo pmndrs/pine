@@ -22,7 +22,7 @@ import { type AgentConfig, loadConfig, agentSkillsDir, conversationsDir, delegat
 import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
 import { families, NOT_A_SUBAGENTS } from "./catalogue.ts";
-import { type Occupant, type Page, SlotBook, WARM } from "./slots.ts";
+import { type Occupant, type Page, SlotBook } from "./slots.ts";
 import { type Approvals, checkPath, denialTools, globMatch, grantable, grantPath, isInside, isOpen, levelOf, matchesToolPattern, outsidePath, ownFileOf, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
 import { type AgentChange, applyAgentChange, checkAgentChange, countFiles, eraseAgent } from "./admin.ts";
 import { createAgent, type NewAgent } from "./agent-admin.ts";
@@ -300,6 +300,9 @@ export class AgentManager {
 	private warmTimers = new Map<string, NodeJS.Timeout>();
 	/** Whether a model server writes slots to files and reads them back: not known until it was tried. By server. */
 	private paging = new Map<string, boolean>();
+	/** When a model server was last asked what its slots hold, and whether it answers that at all. By server. */
+	private slotsSeenAt = new Map<string, number>();
+	private slotsTold = new Map<string, boolean>();
 	/** How the key of a model server is had, from the session that used it last. By server. */
 	private serverKeys = new Map<string, () => Promise<string | undefined>>();
 	private log: Logger;
@@ -2837,6 +2840,8 @@ export class AgentManager {
 		const who = live.ephemeral ? `${agent.id}:~${(live.uid ??= Math.random().toString(36).slice(2))}` : `${agent.id}:${live.key}`;
 		live.server = server;
 		this.serverKeys.set(server, key);
+		// Other clients may use the same server: what its slots really hold is asked before one is chosen.
+		await this.lookAtSlots(server, origin, model, key).catch(() => {});
 		const got = this.slots.takeFrom(server, who);
 		if (got) {
 			live.slot = { server, slot: got.slot, who, held: got.held };
@@ -2891,7 +2896,8 @@ export class AgentManager {
 	private async page(server: string, origin: string, model: string, key: () => Promise<string | undefined>, got: { slot: number; held: number; evicted?: Occupant }, who: string): Promise<number | undefined> {
 		const max = this.cfg.limits.slotPages;
 		if (max <= 0 || this.paging.get(server) === false) return undefined;
-		const out = got.evicted && got.evicted.who !== WARM && !got.evicted.who.includes(":~") && got.evicted.tokens >= 2048 ? got.evicted : undefined;
+		// (Not a slot pine filled itself, not somebody else's conversation, which only they could read back, and not a sub-agent's.)
+		const out = got.evicted && !got.evicted.who.startsWith("~") && !got.evicted.who.includes(":~") && got.evicted.tokens >= 2048 ? got.evicted : undefined;
 		const back = got.held === 0 ? this.slots.pageOf(server, who) : undefined;
 		if (!out && !back) return undefined;
 		const k = await key().catch(() => undefined);
@@ -2920,6 +2926,30 @@ export class AgentManager {
 		if (!ok) return undefined;
 		this.slots.restored(server, got.slot, who, back.tokens);
 		return back.tokens;
+	}
+
+	/**
+	 * Ask a llama.cpp server what its slots hold (GET /slots: tokens per slot), so that pine's notes
+	 * know of conversations that are not pine's: another pine, another program on the same server.
+	 * At most every two seconds (and in time for the filling of idle slots, which waits longer than
+	 * that), only for a server pine knows the slots of, and only when it is this model that answers.
+	 * A server that does not tell is not asked again.
+	 */
+	private async lookAtSlots(server: string, origin: string, model: string, key: () => Promise<string | undefined>): Promise<void> {
+		if (!this.slots.known(server) || this.slotsTold.get(server) === false || (this.slotsSeenAt.get(server) ?? 0) > Date.now() - Math.min(2000, this.cfg.limits.warmAfterMs / 2)) return;
+		this.slotsSeenAt.set(server, Date.now());
+		const k = await key().catch(() => undefined);
+		const headers: Record<string, string> = k && k !== "none" ? { authorization: `Bearer ${k}` } : {};
+		const props = await fetch(`${origin}/props`, { headers, redirect: "error", signal: AbortSignal.timeout(1500) });
+		const about: any = props.ok ? await props.json().catch(() => undefined) : (void props.body?.cancel().catch(() => {}), undefined);
+		if (!about || !this.sameModel(about, model)) return;
+		const res = await fetch(`${origin}/slots`, { headers, redirect: "error", signal: AbortSignal.timeout(1500) });
+		const list: any = res.ok ? await res.json().catch(() => undefined) : (void res.body?.cancel().catch(() => {}), undefined);
+		if (!Array.isArray(list) || !list.every((s) => Number.isInteger(s?.id))) return void this.slotsTold.set(server, false);
+		this.slotsTold.set(server, true);
+		const real: Array<number | undefined> = [];
+		for (const s of list) real[s.id] = typeof s.n_prompt_tokens === "number" ? s.n_prompt_tokens : undefined;
+		this.slots.seen(server, real);
 	}
 
 	/** Whether what a server says about itself (/props) is about this model: llama.cpp names the model it has loaded. */
@@ -2952,6 +2982,8 @@ export class AgentManager {
 	private async warm(server: string): Promise<void> {
 		const w = this.warmWith.get(server);
 		if (!w || this.stopping || !this.cfg.limits.warmSlots) return;
+		// A slot that somebody else's conversation is in is not an idle one.
+		await this.lookAtSlots(server, w.origin, String(w.body.model ?? ""), w.key).catch(() => {});
 		const slot = this.slots.toFill(server, w.what)[0];
 		if (slot === undefined) return;
 		// Somebody is at work with this model, between two of its requests perhaps: looked at again in a moment.

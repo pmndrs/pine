@@ -322,6 +322,59 @@ test("cache: the judge of a goal is given a slot of its own, not the one of the 
 	await h.close();
 });
 
+test("slots: a conversation of another client of the model server is seen, and its slot is neither taken for empty nor filled", async () => {
+	const { SlotBook, OTHER, WARM } = await import("../src/slots.ts");
+	const book = new SlotBook(undefined, () => {});
+	const S = "http://server|model";
+	book.setCount(S, 3);
+	// The server says what its slots hold: one that pine has nothing in and the server has, is somebody else's.
+	book.seen(S, [20_000, undefined, undefined]);
+	assert.equal(book.state(S)[0]?.who, OTHER);
+	const mine = book.take(S, "main:main")!;
+	assert.notEqual(mine, 0, "a new conversation takes a slot that is empty, not theirs");
+	book.give(S, mine, "main:main", 9000);
+	assert.ok(!book.toFill(S, "main:t:f").includes(0), "and it is not filled in the background");
+	// With no slot empty, the smaller one goes: pine's own short conversation before their long one.
+	const rest = [0, 1, 2].find((i) => i !== 0 && i !== mine)!;
+	assert.equal(book.take(S, "main:b"), rest);
+	book.give(S, rest, "main:b", 12_000);
+	assert.equal(book.take(S, "main:c"), mine);
+	book.give(S, mine, "main:c", 5000);
+	// Their slot is empty again: it is anybody's. And what they left in a slot that pine filled is seen as theirs.
+	book.seen(S, [0, 5000, 12_000]);
+	assert.equal(book.state(S)[0], undefined);
+	book.fill(S, 0, "main:t:f");
+	book.filled(S, 0, true, 9000);
+	assert.equal(book.state(S)[0]?.who, WARM);
+	book.seen(S, [30_000, 5000, 12_000]);
+	assert.equal(book.state(S)[0]?.who, OTHER);
+	// A conversation of pine's whose slot holds something else now (far less, or far more) has lost it; a little more or less is itself.
+	book.seen(S, [30_000, 5200, 300]);
+	assert.deepEqual([book.state(S)[mine]?.who, book.state(S)[rest]?.who], ["main:c", OTHER]);
+	// Where the server does not say, pine's notes stand.
+	book.seen(S, [undefined, undefined, undefined]);
+	assert.equal(book.state(S)[mine]?.who, "main:c");
+});
+
+test("cache: a new conversation does not take the slot of another client, and no idle slot is filled over it", async () => {
+	// The first slot holds a long conversation of somebody else's; the second holds nothing.
+	const report: any[] = [{ id: 0, n_prompt_tokens: 30_000 }, { id: 1 }];
+	const h = await harness({ pine: { limits: { warmAfterMs: 20 } }, agents: { main: {} }, mockOptions: { props: { total_slots: 2 }, slots: () => report } });
+	const say = (prompt: string, session = "main") => h.pine.agents.run({ agent: "main", session, prompt, ...owner });
+	const sent = () => h.mock.state.requests;
+	await say("one");
+	assert.equal(sent().at(-1).wire.id_slot, 1, "the empty slot, not theirs");
+	report[1] = { id: 1, n_prompt_tokens: Math.ceil(JSON.stringify(sent().at(-1).wire).length / 4) };
+	await new Promise((r) => setTimeout(r, 150));
+	assert.equal(sent().filter((r: any) => r.wire.stream === false).length, 0, "their slot is not an idle one to be filled");
+	// They are gone: the slot is empty, and is filled now.
+	report[0] = { id: 0, n_prompt_tokens: 0 };
+	await say("two");
+	await until(() => sent().filter((r: any) => r.wire.stream === false).length === 1, 5000, "the slot they left to be filled");
+	assert.equal(sent().find((r: any) => r.wire.stream === false).wire.id_slot, 0);
+	await h.close();
+});
+
 test("slots: the files for conversations that left their slot are a few, used again and again", async () => {
 	const { SlotBook } = await import("../src/slots.ts");
 	let saved: any;

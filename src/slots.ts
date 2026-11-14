@@ -38,6 +38,13 @@ export interface Page {
 /** Who holds a slot that pine filled in the background with what every conversation begins with. */
 export const WARM = "~warm";
 
+/**
+ * Who holds a slot that somebody else uses: another client of the same model server (a second pine,
+ * another program). pine does not know whose conversation it is, only that the server says the slot
+ * holds one: it is not taken for empty and not filled, and it is taken last among slots of its size.
+ */
+export const OTHER = "~other";
+
 export class SlotBook {
 	/** Slots a server has, by server ("origin|model"). Zero: not a llama.cpp server, or not known yet. */
 	private count = new Map<string, number>();
@@ -164,6 +171,31 @@ export class SlotBook {
 		const held = this.held.get(server);
 		if (!held) return;
 		for (let i = 0; i < held.length; i++) if (i !== except) held[i] = undefined;
+		this.save(Object.fromEntries(this.held));
+	}
+
+	/**
+	 * What the server says its slots hold, in tokens (undefined where it does not say: a slot that was
+	 * never used, or one it read back from a file). pine's own notes are put right by it:
+	 * - a slot pine has nothing in, and the server has something in, is somebody else's;
+	 * - somebody else's that is empty now is empty;
+	 * - a slot of one of pine's conversations, or one pine filled, that holds far less or far more than pine
+	 *   read into it, was taken by somebody else in between.
+	 * A slot with a request of pine's under way is left as it is.
+	 */
+	seen(server: string, real: Array<number | undefined>): void {
+		const held = this.held.get(server) ?? [];
+		this.held.set(server, held);
+		const busy = this.busy.get(server);
+		const least = 256;
+		const other = (tokens: number): Occupant | undefined => (tokens >= least ? { who: OTHER, tokens, at: Date.now() } : undefined);
+		for (let i = 0; i < real.length; i++) {
+			const n = real[i];
+			if (n === undefined || busy?.has(i)) continue;
+			const h = held[i];
+			if (!h || h.who === OTHER) held[i] = other(n);
+			else if (h.tokens >= least && (n < h.tokens * 0.5 || n > h.tokens * 1.5 + 2048)) held[i] = other(n);
+		}
 		this.save(Object.fromEntries(this.held));
 	}
 
