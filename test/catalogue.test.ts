@@ -449,6 +449,10 @@ test("arguments that are nearly right are taken as what was meant, and only thos
 	// Another word for an option that has one reading.
 	assert.deepEqual(ease("add_source", { type: "folder", options: { path: "/x", glob: "*.pdf" } }).options, { dir: "/x", mask: "*.pdf" });
 	assert.deepEqual(ease("add_source", { type: "folder", options: '{"dir": "/x"}' }).options, { dir: "/x" });
+	// A source's name, left out: what an owner would call it, from the folder or the address.
+	assert.equal(ease("add_source", { type: "folder", options: { dir: "/Users/x/Scans 2026/" } }).name, "scans-2026");
+	assert.equal(ease("add_source", { type: "http", options: { url: "https://www.example.com/prices?x=1" } }).name, "example-com");
+	assert.equal(ease("add_source", { name: "mine", type: "folder", options: { dir: "/x/scans" } }).name, "mine");
 	// A source's type, left out, where its options say it; not where they could be two things.
 	assert.equal(ease("add_source", { name: "scans", options: { dir: "/x/scans" } }).type, "folder");
 	assert.equal(ease("add_source", { name: "disk", options: { run: "df -h /" } }).type, "command");

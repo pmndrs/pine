@@ -395,6 +395,16 @@ export function ease(name: string, args: any): any {
 			const fits = by.filter(([k]) => k in args.options && !(k === "url" && !/^https?:/i.test(String(args.options.url))));
 			if (fits.length === 1) args.type = fits[0][1];
 		}
+		// Its name, left out: the last part of the folder or the host of the address, which is what an owner would call it.
+		if ((args.name === undefined || args.name === "") && args.options && typeof args.options === "object") {
+			const o = args.options;
+			let from = "";
+			if (typeof o.dir === "string") from = o.dir.replace(/\/+$/, "").split("/").pop() ?? "";
+			else if (typeof o.url === "string") from = o.url.replace(/^[a-z]+:\/\//i, "").split(/[/:?]/)[0].replace(/^www\./, "");
+			else if (typeof o.run === "string") from = o.run.trim().split(/\s+/)[0].split("/").pop() ?? "";
+			const slug = from.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^[^a-z]+|-+$/g, "").slice(0, 40);
+			if (slug) args.name = slug;
+		}
 		// What it reports, in a line: left out, it is said from what is watched. (A family cannot require an
 		// argument of one action alone, and this is the one a model leaves out.)
 		if ((args.description === undefined || args.description === "") && typeof args.type === "string") {
