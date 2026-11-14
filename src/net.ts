@@ -9,8 +9,10 @@ import { Agent, fetch } from "undici";
 /** Addresses that are not on the public internet: loopback, private ranges, link-local, multicast. */
 export function isPrivateAddress(ip: string): boolean {
 	if (net.isIPv4(ip)) {
-		const [a, b] = ip.split(".").map(Number);
-		return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
+		const [a, b, c] = ip.split(".").map(Number);
+		// Of 192.0.x.x only two blocks are set aside (192.0.0.0/24 for protocols, 192.0.2.0/24 for examples). The rest
+		// is the public internet: iana.org is there, and so is a large hosting network.
+		return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
 	}
 	const v = ip.toLowerCase();
 	if (v.startsWith("::ffff:")) return isPrivateAddress(v.slice(7));

@@ -106,6 +106,9 @@ test("bundled commands server: fixed commands as tools, parameters cannot inject
 test("bundled web server: refuses private addresses, and using it taints the session", async () => {
 	for (const ip of ["127.0.0.1", "10.1.2.3", "192.168.1.10", "172.16.0.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"]) assert.ok(isPrivateAddress(ip), ip);
 	for (const ip of ["8.8.8.8", "93.184.216.34", "2606:4700::1111"]) assert.ok(!isPrivateAddress(ip), ip);
+	// 192.0.x.x: two blocks are set aside and stay closed; the rest is public (iana.org, a large hosting network).
+	for (const ip of ["192.0.0.1", "192.0.0.170", "192.0.2.44"]) assert.ok(isPrivateAddress(ip), ip);
+	for (const ip of ["192.0.43.8", "192.0.78.13", "192.0.1.1"]) assert.ok(!isPrivateAddress(ip), ip);
 	const page = htmlToText("<html><head><title>A &amp; B</title><script>evil()</script><style>p{}</style></head><body><h1>Head</h1><p>one<br>two</p><ul><li>item</li></ul><!-- hidden --></body></html>");
 	assert.equal(page.title, "A & B");
 	assert.equal(page.text, "Head\none\ntwo\n- item");
