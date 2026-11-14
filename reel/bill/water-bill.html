@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Water bill</title>
+<style>
+	@page { size: A4; margin: 0; }
+	* { box-sizing: border-box; }
+	html, body { margin: 0; padding: 0; }
+	body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1d2330; font-size: 9.2pt; line-height: 1.38; }
+	.page { width: 210mm; height: 296.5mm; padding: 12mm 18mm 0 20mm; position: relative; overflow: hidden; }
+	.page + .page { page-break-before: always; }
+
+	header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #1f5fa8; padding-bottom: 4mm; }
+	.brand { display: flex; gap: 4mm; align-items: center; }
+	.mark { width: 14mm; height: 14mm; border-radius: 3mm; background: #1f5fa8; display: grid; place-items: center; }
+	.name { font-size: 17pt; font-weight: 700; color: #1b3d6e; letter-spacing: -0.2pt; }
+	.tag { color: #5b6b82; font-size: 9pt; }
+	.contact { text-align: right; font-size: 8pt; color: #4a5568; line-height: 1.5; }
+	.contact b { color: #1b3d6e; }
+
+	.top { display: flex; justify-content: space-between; margin-top: 6mm; }
+	.window { width: 85mm; }
+	.sender { font-size: 6.6pt; color: #6b7686; border-bottom: 0.6px solid #9aa4b2; padding-bottom: 1mm; margin-bottom: 3mm; }
+	.addr { font-size: 10.5pt; line-height: 1.45; }
+	.meta { width: 68mm; font-size: 8.5pt; }
+	.meta table { width: 100%; border-collapse: collapse; }
+	.meta td { padding: 0.4mm 0; }
+	.meta td:last-child { text-align: right; font-weight: 600; }
+
+	h1 { font-size: 15pt; margin: 7mm 0 1mm; color: #111827; }
+	.sub { color: #4a5568; margin-bottom: 3mm; }
+
+	table.items { width: 100%; border-collapse: collapse; font-size: 8.8pt; }
+	.items th { text-align: left; font-weight: 600; color: #4a5568; font-size: 7.8pt; text-transform: uppercase; letter-spacing: 0.3pt; border-bottom: 1px solid #1d2330; padding: 1.2mm 1.5mm; }
+	.items td { padding: 1.05mm 1.5mm; border-bottom: 0.5px solid #d5dae2; }
+	.items .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+	.items tr.group td { background: #eef3fa; font-weight: 600; color: #1b3d6e; border-bottom: none; }
+	.items tr.sub td { font-weight: 600; border-bottom: 1px solid #9aa4b2; }
+	.items tr.total td { font-size: 10.5pt; font-weight: 700; border-top: 2px solid #1d2330; border-bottom: none; padding-top: 2.5mm; }
+	.items tr.credit td.num { color: #2b6a3f; }
+
+	.pay { display: flex; gap: 6mm; margin-top: 5mm; align-items: stretch; }
+	.paybox { flex: 1; border: 1px solid #9aa4b2; border-radius: 1.5mm; padding: 3mm 5mm; font-size: 8.8pt; }
+	.paybox h3 { margin: 0 0 2mm; font-size: 9.5pt; color: #1b3d6e; }
+	.paybox table td { padding: 0.5mm 4mm 0.5mm 0; }
+	.paybox table td:first-child { color: #5b6b82; }
+	.qr { width: 37mm; border: 1px solid #9aa4b2; border-radius: 1.5mm; padding: 3mm; text-align: center; font-size: 7pt; color: #5b6b82; }
+	.qr svg { width: 29mm; height: 29mm; display: block; margin: 0 auto 1.5mm; }
+
+	.note { margin-top: 4mm; font-size: 8.4pt; color: #374151; }
+
+	footer { position: absolute; left: 20mm; right: 18mm; bottom: 9mm; border-top: 0.8px solid #9aa4b2; padding-top: 2.5mm; display: grid; grid-template-columns: 0.9fr 1fr 1.15fr 1.15fr; gap: 4mm; font-size: 6.8pt; color: #5b6b82; line-height: 1.45; }
+	footer b { color: #374151; }
+	.pageno { position: absolute; right: 18mm; bottom: 4.5mm; font-size: 6.8pt; color: #9aa4b2; }
+
+	h2 { font-size: 11.5pt; margin: 7mm 0 2mm; color: #1b3d6e; }
+	.legal p { margin: 0 0 2.4mm; text-align: justify; }
+	.legal { font-size: 8.6pt; }
+	.reading { width: 100%; border-collapse: collapse; font-size: 8.6pt; margin-top: 2mm; }
+	.reading th, .reading td { padding: 1.5mm; border-bottom: 0.5px solid #d5dae2; text-align: left; }
+	.reading th { font-size: 7.6pt; text-transform: uppercase; color: #4a5568; border-bottom: 1px solid #1d2330; }
+	.reading .num { text-align: right; }
+	.smallhead { display: flex; justify-content: space-between; font-size: 8pt; color: #5b6b82; border-bottom: 1px solid #d5dae2; padding-bottom: 2mm; }
+</style>
+</head>
+<body>
+
+<!-- ============ page 1 ============ -->
+<section class="page">
+	<header>
+		<div class="brand">
+			<div class="mark">
+				<svg width="30" height="30" viewBox="0 0 24 24"><path d="M12 2.5c-3.2 4.3-6.5 8.3-6.5 12a6.5 6.5 0 0 0 13 0c0-3.7-3.3-7.7-6.5-12z" fill="#fff"/><path d="M9 15.5a3 3 0 0 0 3 3" stroke="#1f5fa8" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+			</div>
+			<div>
+				<div class="name">Stadtwerke Musterstadt</div>
+				<div class="tag">Water · Wastewater · Service</div>
+			</div>
+		</div>
+		<div class="contact">
+			<b>Customer service</b><br>
+			+49 1234 56789-0<br>
+			service@stadtwerke-musterstadt.example<br>
+			Mon–Fri 8:00–18:00
+		</div>
+	</header>
+
+	<div class="top">
+		<div class="window">
+			<div class="sender">Stadtwerke Musterstadt · Am Wasserwerk 1 · 12345 Musterstadt</div>
+			<div class="addr">
+				Mr Jonas Feldmann<br>
+				Lindenallee 14<br>
+				12345 Musterstadt
+			</div>
+		</div>
+		<div class="meta">
+			<table>
+				<tr><td>Customer no.</td><td>4471 0938</td></tr>
+				<tr><td>Contract account</td><td>200 118 552</td></tr>
+				<tr><td>Invoice no.</td><td>WA-2026-104233</td></tr>
+				<tr><td>Meter no.</td><td>WZ 7 039 145</td></tr>
+				<tr><td>Supply address</td><td>Lindenallee 14</td></tr>
+				<tr><td>Invoice date</td><td>9 Nov 2026</td></tr>
+			</table>
+		</div>
+	</div>
+
+	<h1>Annual Water Statement 2025/26</h1>
+	<div class="sub">Billing period <b>16 Sep 2025 – 21 Sep 2026</b> (371 days) · Consumption <b>119 m³</b></div>
+
+	<table class="items">
+		<thead>
+			<tr><th>Item</th><th class="num">Quantity</th><th class="num">Unit price</th><th class="num">Amount</th></tr>
+		</thead>
+		<tbody>
+			<tr class="group"><td colspan="4">Drinking water (7% VAT)</td></tr>
+			<tr><td>Water consumption</td><td class="num">119 m³</td><td class="num">1.95 €/m³</td><td class="num">232.05 €</td></tr>
+			<tr><td>Water extraction levy</td><td class="num">119 m³</td><td class="num">0.25 €/m³</td><td class="num">29.75 €</td></tr>
+			<tr><td>Standing charge</td><td class="num">12 months</td><td class="num">5.20 €</td><td class="num">62.40 €</td></tr>
+			<tr><td>Meter rental (Qn 2.5)</td><td class="num">12 months</td><td class="num">1.80 €</td><td class="num">21.60 €</td></tr>
+			<tr><td>Net amount drinking water</td><td></td><td></td><td class="num">345.80 €</td></tr>
+			<tr><td>VAT 7%</td><td></td><td></td><td class="num">24.21 €</td></tr>
+			<tr class="sub"><td>Drinking water, gross</td><td></td><td></td><td class="num">370.01 €</td></tr>
+
+			<tr class="group"><td colspan="4">Wastewater (municipal fee, not subject to VAT)</td></tr>
+			<tr><td>Sewage fee</td><td class="num">119 m³</td><td class="num">2.40 €/m³</td><td class="num">285.60 €</td></tr>
+			<tr><td>Rainwater fee (sealed area 98 m²)</td><td class="num">12 months</td><td class="num">4.90 €</td><td class="num">58.80 €</td></tr>
+			<tr class="sub"><td>Wastewater total</td><td></td><td></td><td class="num">344.40 €</td></tr>
+
+			<tr><td><b>Total charges for the period</b></td><td></td><td></td><td class="num"><b>714.41 €</b></td></tr>
+			<tr class="credit"><td>Less prepayments received</td><td class="num">11 ×</td><td class="num">45.00 €</td><td class="num">−495.00 €</td></tr>
+			<tr class="total"><td>Amount due by 26 Nov 2026</td><td></td><td></td><td class="num">219.41 €</td></tr>
+		</tbody>
+	</table>
+
+	<div class="pay">
+		<div class="paybox">
+			<h3>Payment details</h3>
+			<table>
+				<tr><td>Payee</td><td>Stadtwerke Musterstadt GmbH</td></tr>
+				<tr><td>Bank</td><td>Sparkasse Musterstadt</td></tr>
+				<tr><td>IBAN</td><td><b>DE89 3704 0044 0532 0130 00</b></td></tr>
+				<tr><td>BIC</td><td>COBADEFFXXX</td></tr>
+				<tr><td>Amount</td><td><b>219.41 €</b></td></tr>
+				<tr><td>Reference</td><td><b>WA-2026-104233</b></td></tr>
+			</table>
+		</div>
+		<div class="qr">
+			<svg id="qr" viewBox="0 0 33 33" shape-rendering="crispEdges"></svg>
+			Scan with your banking app
+		</div>
+	</div>
+
+	<div class="note">
+		<b>Your new prepayment:</b> from <b>15 Dec 2026</b> we will collect <b>49.00 €</b> per month (previously 45.00 €),
+		based on your consumption in this period. Please do not pay the amount due twice if you have given us a direct debit mandate.
+	</div>
+
+	<footer>
+		<div><b>Stadtwerke Musterstadt GmbH</b><br>Am Wasserwerk 1<br>12345 Musterstadt</div>
+		<div>Managing directors:<br>Dr. Ulrike Brandt, Tobias Kern<br>Chair of the board: Mayor H. Wolff</div>
+		<div>Registered office: Musterstadt<br>Register court: HRB 99 871<br>VAT ID: DE 000 111 222</div>
+		<div><b>Sparkasse Musterstadt</b><br>IBAN DE89 3704 0044 0532 0130 00<br>BIC COBADEFFXXX</div>
+	</footer>
+	<div class="pageno">Page 1 of 2</div>
+</section>
+
+<!-- ============ page 2 ============ -->
+<section class="page">
+	<div class="smallhead"><span>Stadtwerke Musterstadt · Annual Water Statement 2025/26</span><span>Customer no. 4471 0938 · Invoice WA-2026-104233</span></div>
+
+	<h2>Meter readings</h2>
+	<table class="reading">
+		<thead><tr><th>Meter no.</th><th>Date</th><th>Reading</th><th>Type of reading</th><th class="num">Consumption</th></tr></thead>
+		<tbody>
+			<tr><td>WZ 7 039 145</td><td>16 Sep 2025</td><td>1 482 m³</td><td>Read by meter reader</td><td class="num"></td></tr>
+			<tr><td>WZ 7 039 145</td><td>21 Sep 2026</td><td>1 601 m³</td><td>Read by customer</td><td class="num">119 m³</td></tr>
+		</tbody>
+	</table>
+
+	<h2>Your consumption compared</h2>
+	<table class="reading">
+		<thead><tr><th>Period</th><th class="num">Consumption</th><th class="num">Per day</th></tr></thead>
+		<tbody>
+			<tr><td>2023/24</td><td class="num">104 m³</td><td class="num">285 l</td></tr>
+			<tr><td>2024/25</td><td class="num">111 m³</td><td class="num">304 l</td></tr>
+			<tr><td>2025/26</td><td class="num">119 m³</td><td class="num">321 l</td></tr>
+		</tbody>
+	</table>
+
+	<h2>Notice of your rights</h2>
+	<div class="legal">
+		<p><b>Objection.</b> You may object to the drinking water charges in this statement within one month of receiving it. Please send your objection in writing to Stadtwerke Musterstadt GmbH, Am Wasserwerk 1, 12345 Musterstadt, or by e-mail to service@stadtwerke-musterstadt.example, stating your customer number and the reason for your objection.</p>
+		<p><b>Wastewater fees.</b> The sewage and rainwater fees are levied on behalf of the City of Musterstadt under its wastewater fee statute. An objection against these fees may be lodged within one month of notification, in writing or for the record, with the City of Musterstadt, Civil Engineering Department, Rathausplatz 1, 12345 Musterstadt. An objection does not suspend the obligation to pay.</p>
+		<p><b>Errors in the statement.</b> If you believe a meter reading or calculation is wrong, you may request a check of the meter by an accredited testing body. If the meter is found to exceed the permitted error limits, the costs of the check are borne by us and the statement will be corrected.</p>
+		<p><b>Late payment.</b> If the amount due is not received by the due date, we may charge a reminder fee of 2.50 € and default interest at the statutory rate. Repeated non-payment may lead to a restriction of supply after prior written notice.</p>
+		<p><b>Consumer arbitration.</b> For disputes about this contract you may contact the consumer arbitration board for water supply, Musterstraße 10, 12345 Musterstadt. We are willing to take part in arbitration proceedings.</p>
+		<p><b>Data protection.</b> We process your personal data to perform your supply contract. Details are available from our data protection officer at the address above.</p>
+	</div>
+
+	<footer>
+		<div><b>Stadtwerke Musterstadt GmbH</b><br>Am Wasserwerk 1<br>12345 Musterstadt</div>
+		<div>Managing directors:<br>Dr. Ulrike Brandt, Tobias Kern<br>Chair of the board: Mayor H. Wolff</div>
+		<div>Registered office: Musterstadt<br>Register court: HRB 99 871<br>VAT ID: DE 000 111 222</div>
+		<div><b>Sparkasse Musterstadt</b><br>IBAN DE89 3704 0044 0532 0130 00<br>BIC COBADEFFXXX</div>
+	</footer>
+	<div class="pageno">Page 2 of 2</div>
+</section>
+
+<script>
+	// A pattern that looks like a QR code and encodes nothing: finder squares, timing lines, seeded noise.
+	(() => {
+		const n = 33, svg = document.getElementById("qr");
+		let seed = 104233;
+		const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+		const reserved = (x, y) => (x < 8 && y < 8) || (x > n - 9 && y < 8) || (x < 8 && y > n - 9) || (x >= n - 9 && x < n - 4 && y >= n - 9 && y < n - 4);
+		const cells = [];
+		const finder = (ox, oy) => {
+			for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) {
+				const ring = Math.max(Math.abs(x - 3), Math.abs(y - 3));
+				if (ring !== 2) cells.push([ox + x, oy + y]);
+			}
+		};
+		finder(0, 0); finder(n - 7, 0); finder(0, n - 7);
+		for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) {
+			const ring = Math.max(Math.abs(x - 2), Math.abs(y - 2));
+			if (ring !== 1) cells.push([n - 9 + x, n - 9 + y]);
+		}
+		for (let i = 8; i < n - 8; i += 2) { cells.push([i, 6]); cells.push([6, i]); }
+		for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+			if (reserved(x, y) || x === 6 || y === 6) continue;
+			if (rnd() < 0.5) cells.push([x, y]);
+		}
+		svg.innerHTML = `<rect width="${n}" height="${n}" fill="#fff"/>` +
+			cells.map(([x, y]) => `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="#111"/>`).join("");
+	})();
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
-# The reel's sound: nothing but the keys and the mouse. Every sound is made here, no recordings.
+# The reel's sound: the keys and the mouse, made here. A cue with `f` plays a recording instead
+# (a clip's own sound, as it was filmed), faded in and out so that it does not click.
 #
 # A key is plastic hitting plastic: a burst of noise that is over in a few milliseconds. So every
 # sound here is shaped noise and nothing else: a bright tick, a duller body under it, a short
@@ -98,7 +99,16 @@ def describe(name):
 if __name__ == "__main__":
     cues = json.load(open(sys.argv[1]))
     out = np.zeros((int((cues["duration"] + 1) * SR), 2))
+    import os
     for c in cues["cues"]:
+        if c.get("f"):
+            with wave.open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), c["f"])) as w:
+                y = np.frombuffer(w.readframes(w.getnframes()), "<i2").reshape(-1, w.getnchannels()).astype(float) / 32768
+            if y.shape[1] == 1: y = np.repeat(y, 2, 1)
+            fade = np.minimum(1, np.minimum(np.arange(len(y)), np.arange(len(y))[::-1]) / (0.25 * SR))[:, None]
+            start = int(c["t"] * SR); end = min(len(out), start + len(y))
+            out[start:end] += (y * fade * c.get("gain", 1.0))[: end - start]
+            continue
         k = c["k"] if c["k"] in POOL else c["k"].split("-")[0]
         x = POOL[k][rng.integers(len(POOL[k]))] * rng.uniform(0.7, 1.0)
         start = int(c["t"] * SR)

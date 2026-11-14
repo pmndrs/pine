@@ -122,7 +122,7 @@ function initial() {
 		mode: "shell", title: "~ — zsh",
 		shell: { lines: [], prompt: "⟦b.c|~⟧", typed: "", busy: false },
 		tabs: [], active: 0, input: "", attach: [], pane: { open: false, view: "changes", sub: "" }, overlay: null,
-		vs: { show: 0, typed: 0, dirty: false }, phone: { show: 0, msgs: [], input: "" }, drag: null, outro: 0, winDim: 0, winShift: 0,
+		vs: { show: 0, typed: 0, dirty: false }, phone: { show: 0, msgs: [], input: "" }, drag: null, outro: 0, winDim: 0, winShift: 0, card: 0, cardText: "", finder: { show: 0, sel: -1, rows: [], ql: 0, text: "" },
 	};
 }
 
@@ -408,7 +408,8 @@ function renderAt(seconds) {
 			const side = hpx;
 			return `<div style="left:0;top:${top}px;width:${wpx}px;height:${hpx}px;background:#000;${clip}"><img src="assets/${b.src}-${String(n).padStart(2, "0")}.jpg" style="left:${(wpx - side) / 2}px;top:0;width:${side}px;height:${side}px"></div>`;
 		}
-		return `<img src="assets/${b.src}" style="left:0;top:${top}px;width:${wpx}px;height:${hpx}px;${clip}">`;
+		// Several pictures in one block (the pages of a document) stand side by side, two cells apart.
+		return (b.srcs || [b.src]).map((src, i) => `<img src="assets/${src}" style="left:${i * (wpx + 2 * CW)}px;top:${top}px;width:${wpx}px;height:${hpx}px;${clip}">`).join("");
 	}).join("");
 
 	// window: dimmed and moved aside when something else is in front
@@ -453,6 +454,37 @@ function renderAt(seconds) {
 		$("phtime").textContent = st.phone.clock || "17:42";
 	}
 
+	// Finder, and Quick Look over it
+	const fd = $("finder"), fs = st.finder;
+	fd.style.display = fs.show > 0.001 ? "block" : "none";
+	if (fs.show > 0.001) {
+		const p = ease(fs.show);
+		fd.style.opacity = p;
+		fd.style.transform = `translate(${(1 - p) * 40}px, ${(1 - p) * 70}px) scale(${0.95 + 0.05 * p})`;
+		$("frows").innerHTML = fs.rows.map((r, i) => `<div class="fr${i === fs.sel ? " sel" : ""}" style="top:${86 + i * 30}px"><span style="left:8px"><i class="ic${r.dir ? " dir" : ""}"></i>${r.name}</span><span class="c2">${r.date}</span><span class="c3">${r.size}</span><span class="c4">${r.kind}</span></div>`).join("");
+	}
+	const ql = $("ql");
+	ql.style.display = fs.ql > 0.001 ? "block" : "none";
+	if (fs.ql > 0.001) {
+		const p = ease(fs.ql);
+		ql.style.opacity = p;
+		ql.style.transform = `scale(${0.6 + 0.4 * p})`;
+		$("qltext").innerHTML = fs.text;
+	}
+
+	// a clip filmed on a phone, cut in over the whole picture: its frames are pictures in assets/<src>/,
+	// 001.jpg on, at `fps` frames a second of the finished film
+	const clip = $("clip");
+	const cs = st.clip;
+	clip.style.display = cs && cs.show > 0.001 ? "block" : "none";
+	if (cs && cs.show > 0.001) {
+		clip.style.opacity = ease(cs.show);
+		const s = Math.max(0, t - cs.t0) / SPEED;
+		const n = Math.round(clamp(s * cs.fps, 0, cs.frames - 1)) + 1;
+		clip.firstChild.src = `assets/${cs.src}/${String(n).padStart(3, "0")}.jpg`;
+		clip.firstChild.style.transform = `scale(${1.0 + 0.04 * clamp(s / (cs.frames / cs.fps))})`;
+	}
+
 	// pointer, what it drags, the ring of a click
 	const vis = envelope(t, seen, 0.18);
 	const pt = pointerAt(t);
@@ -480,6 +512,9 @@ function renderAt(seconds) {
 	const cap = captions.map((c) => ({ c, v: Math.min(clamp((t - c.from) / 0.35), clamp((c.to - t) / 0.35)) })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v)[0];
 	$("caption").innerHTML = cap ? `<span>${escape(cap.c.s)}</span>` : "";
 	$("caption").style.opacity = cap ? ease(cap.v) : 0;
+	$("card").style.display = st.card > 0.001 ? "flex" : "none";
+	$("card").style.opacity = st.card;
+	$("cardtext").innerHTML = st.cardText;
 	$("outro").style.opacity = ease(st.outro);
 	$("outro").style.display = st.outro > 0.001 ? "flex" : "none";
 	return st;

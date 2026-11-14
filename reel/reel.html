@@ -13,7 +13,9 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; background: #08090c; }
 #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #020203; font-family: -apple-system, "Helvetica Neue", sans-serif; }
-#world { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+/* No will-change: with it the browser draws the world once and stretches that picture when the camera
+   moves in, so text gets soft at every zoom. Without it each frame is drawn at its own scale. */
+#world { position: absolute; inset: 0; transform-origin: 0 0; }
 #desk { position: absolute; left: -400px; top: -300px; width: 2720px; height: 1680px; background: #020203 url("assets/wallpaper.jpg") center / cover no-repeat; }
 
 /* ---- the terminal window ---- */
@@ -42,8 +44,8 @@ html, body { margin: 0; background: #08090c; }
 #imgs img, #imgs div { position: absolute; display: block; }
 
 /* ---- captions, cursor ---- */
-#caption { position: absolute; left: 0; right: 0; top: 1006px; text-align: center; z-index: 55; }
-#caption span { display: inline-block; padding: 7px 20px 9px; border-radius: 22px; background: rgba(9,10,14,.78); font: 500 26px -apple-system, sans-serif; letter-spacing: .2px; color: rgba(236,238,245,.78); }
+#caption { position: absolute; left: 0; right: 0; top: 990px; text-align: center; z-index: 55; }
+#caption span { display: inline-block; padding: 10px 28px 12px; border-radius: 30px; background: rgba(9,10,14,.92); box-shadow: 0 6px 28px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.08); font: 600 34px -apple-system, sans-serif; letter-spacing: .1px; color: #fff; }
 #cursor { position: absolute; left: 0; top: 0; width: 34px; height: 34px; z-index: 50; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); }
 #ring { position: absolute; left: 0; top: 0; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; border: 2.5px solid rgba(135,215,135,.95); z-index: 49; }
 #drag { position: absolute; left: 0; top: 0; z-index: 48; width: 170px; text-align: center; }
@@ -108,6 +110,46 @@ html, body { margin: 0; background: #08090c; }
 #phone .ib::before { content: ""; position: absolute; left: 16px; top: 20px; width: 21px; height: 21px; border: 2px solid #7f8b97; border-radius: 50%; }
 #phone .ib::after { content: ""; position: absolute; right: 16px; top: 15px; width: 32px; height: 32px; border-radius: 50%; background: #5288c1; }
 
+/* ---- a clip filmed on a phone, cut in over the whole picture ---- */
+#clip { position: absolute; inset: 0; overflow: hidden; background: #000; z-index: 52; }
+#clip img { display: block; width: 100%; height: 100%; object-fit: cover; transform-origin: 50% 50%; }
+
+
+/* ---- a title card at the start ---- */
+#card { position: absolute; inset: 0; background: #020203; display: flex; align-items: center; justify-content: center; z-index: 61; }
+#card p { margin: 0; font: 500 50px "JBM", Menlo, monospace; color: #eceef5; letter-spacing: -.5px; }
+#card p b { color: #8fdc8f; font-weight: 700; }
+
+/* ---- Finder, and Quick Look over it ---- */
+#finder { position: absolute; left: 400px; top: 170px; width: 1120px; height: 640px; border-radius: 16px; background: #1e1e20; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 50px 110px rgba(0,0,0,.7); font: 15px -apple-system, sans-serif; color: #e6e6e8; transform-origin: 50% 60%; }
+#finder .fb { position: absolute; left: 230px; right: 0; top: 0; height: 56px; background: #262628; border-bottom: 1px solid #111; }
+#finder .fb .nav { position: absolute; left: 20px; top: 15px; font: 400 22px -apple-system, sans-serif; color: #8a8a8e; letter-spacing: 14px; }
+#finder .fb .ttl { position: absolute; left: 96px; top: 17px; font: 700 17px -apple-system, sans-serif; color: #eee; }
+#finder .fs { position: absolute; left: 0; top: 0; bottom: 0; width: 230px; background: #2a2a2d; border-right: 1px solid #111; padding-top: 58px; }
+#finder .fs .lights { top: 20px; left: 20px; }
+#finder .fs h6 { margin: 14px 0 6px 20px; font: 700 12.5px -apple-system, sans-serif; color: #8a8a8e; }
+#finder .fs p { margin: 0 10px; padding: 0 12px; line-height: 30px; border-radius: 7px; font-size: 15px; color: #ddd; }
+#finder .fs p i { display: inline-block; width: 22px; color: #3b9cff; font-style: normal; }
+#finder .fs p.on { background: rgba(255,255,255,.1); }
+#finder .fh { position: absolute; left: 230px; right: 0; top: 56px; height: 30px; line-height: 30px; border-bottom: 1px solid #333; font-size: 13px; color: #9a9a9e; }
+#finder .fh span, #finder .fr span { position: absolute; }
+#finder .fr { position: absolute; left: 238px; right: 8px; height: 30px; line-height: 30px; border-radius: 6px; font-size: 15px; }
+#finder .fr:nth-child(odd) { background: rgba(255,255,255,.035); }
+#finder .fr.sel { background: #0a64d8; color: #fff; }
+#finder .fr .ic { display: inline-block; width: 15px; height: 19px; margin: 0 10px -4px 0; border-radius: 2px; background: #f2f2f4; position: relative; }
+#finder .fr .ic::after { content: "MD"; position: absolute; left: 0; right: 0; bottom: 2px; font: 800 6px -apple-system, sans-serif; color: #666; text-align: center; }
+#finder .fr .ic.dir { width: 20px; height: 16px; border-radius: 3px; background: #4aa3f5; margin-bottom: -2px; }
+#finder .fr .ic.dir::after { content: ""; }
+#finder .fr.sel span { color: #fff; }
+#finder .c2 { left: 330px; color: #9a9a9e; } #finder .c3 { left: 560px; color: #9a9a9e; } #finder .c4 { left: 680px; color: #9a9a9e; }
+#finder .fp { position: absolute; left: 230px; right: 0; bottom: 0; height: 30px; line-height: 30px; padding-left: 16px; border-top: 1px solid #333; font-size: 13px; color: #9a9a9e; white-space: pre; }
+#ql { position: absolute; left: 520px; top: 175px; width: 880px; height: 560px; border-radius: 16px; background: #262628; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 60px 130px rgba(0,0,0,.75); font: 15px -apple-system, sans-serif; color: #eee; transform-origin: 30% 30%; }
+#ql .qt { height: 50px; text-align: center; font: 600 16px/50px -apple-system, sans-serif; background: #303033; border-bottom: 1px solid #111; position: relative; }
+#ql .qt .lights { top: 0; left: 18px; height: 50px; align-items: center; }
+#ql .qt u { position: absolute; right: 20px; text-decoration: none; font: 500 14px/50px -apple-system, sans-serif; color: #bbb; }
+#ql pre { margin: 0; padding: 26px 32px; font: 20px/1.75 Menlo, monospace; color: #e8e8ea; white-space: pre-wrap; }
+#ql pre .hd { color: #fff; font-weight: 700; } #ql pre .dn { color: #7d7d82; } #ql pre .nw { color: #8fdc8f; }
+
 /* ---- the end ---- */
 #outro { position: absolute; inset: 0; background: #020203; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 46px; z-index: 60; }
 #outro img { width: 620px; } #outro p { margin: 0; font: 500 30px "JBM", Menlo, monospace; color: rgba(236,238,245,.6); }
@@ -138,14 +180,28 @@ html, body { margin: 0; background: #08090c; }
 			<div class="chat"><div class="list" id="msgs"></div></div>
 			<div class="ib"><div id="phin">Message</div></div>
 		</div></div>
+		<div id="finder" style="display:none">
+			<div class="fs"><div class="lights"><b></b><b></b><b></b></div><h6>Favourites</h6><p><i>◎</i>Recents</p><p><i>⌂</i>you</p><p><i>▭</i>Desktop</p><p><i>▤</i>Documents</p><p><i>↓</i>Downloads</p><h6>Locations</h6><p><i>☁</i>iCloud Drive</p><p class="on"><i>▦</i>workspace</p></div>
+			<div class="fb"><span class="nav">‹›</span><span class="ttl">workspace</span></div>
+			<div class="fh"><span style="left:46px">Name</span><span class="c2" style="left:330px">Date Modified</span><span style="left:560px">Size</span><span style="left:680px">Kind</span></div>
+			<div id="frows"></div>
+			<div class="fp">Macintosh HD  ›  Users  ›  you  ›  .pine  ›  agents  ›  mrbanks  ›  workspace</div>
+		</div>
+		<div id="ql" style="display:none"><div class="qt"><div class="lights"><b></b><b></b><b></b></div>TODO.md<u>Open with TextEdit</u></div><pre id="qltext"></pre></div>
 		<div id="drag"></div>
 		<div id="ring"></div>
 		<svg id="cursor" viewBox="0 0 34 34"><path d="M5 3 L5 26.5 L11.2 21 L15.3 30.6 L19.3 28.9 L15.2 19.5 L23.6 19.5 Z" fill="#111" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
 	</div>
+	<div id="clip"><img alt=""></div>
 	<div id="caption"></div>
+	<div id="card"><p id="cardtext"></p></div>
 	<div id="outro"><img src="assets/logo.svg" alt=""><p>github.com/pmndrs/pine</p></div>
 </div>
 <script src="engine.js"></script>
-<script src="story.js"></script>
+<script>
+	// story.js by default; ?story=scans plays story-scans.js.
+	const story = new URLSearchParams(location.search).get("story");
+	document.write(`<script src="${story && /^[a-z0-9-]+$/.test(story) ? `story-${story}` : "story"}.js"><\/script>`);
+</script>
 </body>
 </html>
