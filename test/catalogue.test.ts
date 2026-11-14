@@ -354,6 +354,19 @@ test("slots: a conversation of another client of the model server is seen, and i
 	// Where the server does not say, pine's notes stand.
 	book.seen(S, [undefined, undefined, undefined]);
 	assert.equal(book.state(S)[mine]?.who, "main:c");
+	// A conversation of pine's whose first request went out before the slots were known (the model was being loaded):
+	// the slot that holds what was read of it is its own, not somebody else's.
+	const cold = new SlotBook(undefined, () => {});
+	cold.setCount(S, 2);
+	cold.seen(S, [undefined, 16_280], { who: "main:main", tokens: 16_252 });
+	assert.equal(cold.state(S)[1]?.who, "main:main");
+	assert.equal(cold.take(S, "main:main"), 1);
+	// What is far from it is not: that is somebody else's.
+	const two = new SlotBook(undefined, () => {});
+	two.setCount(S, 2);
+	two.seen(S, [30_000, undefined], { who: "main:main", tokens: 16_252 });
+	assert.equal(two.state(S)[0]?.who, OTHER);
+	assert.equal(two.take(S, "main:main"), 1);
 });
 
 test("cache: a new conversation does not take the slot of another client, and no idle slot is filled over it", async () => {
@@ -372,6 +385,25 @@ test("cache: a new conversation does not take the slot of another client, and no
 	await say("two");
 	await until(() => sent().filter((r: any) => r.wire.stream === false).length === 1, 5000, "the slot they left to be filled");
 	assert.equal(sent().find((r: any) => r.wire.stream === false).wire.id_slot, 0);
+	await h.close();
+});
+
+test("cache: a conversation whose first request went out while the model was being loaded stays in the slot the server put it in", async () => {
+	// No model is loaded at first, so the server's slots are not known and the first request names none.
+	const props: any = { total_slots: 2, status: 503 };
+	const report: any[] = [{ id: 0 }, { id: 1 }];
+	const h = await harness({ pine: { limits: { warmSlots: false } }, agents: { main: {} }, mockOptions: { props, slots: () => report } });
+	const say = (prompt: string, session = "main") => h.pine.agents.run({ agent: "main", session, prompt, ...owner });
+	const sent = () => h.mock.state.requests;
+	await say("one");
+	assert.equal(sent().at(-1).wire.id_slot, undefined);
+	// The server put it into its second slot, and says how much that slot holds now.
+	delete props.status;
+	report[1] = { id: 1, n_prompt_tokens: Math.ceil(JSON.stringify(sent().at(-1).wire).length / 4) };
+	await say("two");
+	assert.equal(sent().at(-1).wire.id_slot, 1, "its own slot, not the empty one beside it");
+	await say("elsewhere", "other");
+	assert.equal(sent().at(-1).wire.id_slot, 0);
 	await h.close();
 });
 

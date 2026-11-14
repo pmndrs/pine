@@ -259,6 +259,8 @@ export interface Live {
 	slot?: { server: string; slot: number; who: string; held: number };
 	/** The model server this session's requests go to ("origin|model"), once one has gone out. */
 	server?: string;
+	/** Tokens of this session's last request, when it went out without a slot named: where the server put it is found by this. */
+	loose?: number;
 	/** A name for a session that is no conversation (a sub-agent), for the slot book. */
 	uid?: string;
 	/** The session is a sub-agent's. */
@@ -2357,6 +2359,8 @@ export class AgentManager {
 					// The slot held this conversation and the server kept nothing of it: the server was started anew, and
 					// its other slots are as empty as this one was.
 					if (live.slot && live.slot.held >= 2048 && (u.input ?? 0) > 0 && !(u.cacheRead ?? 0)) this.slots.lost(live.slot.server, live.slot.slot);
+					// A request that went out without a slot: how much the server holds of it now, to find its slot by later.
+					if (!live.slot) live.loose = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.output ?? 0);
 					this.giveSlot(live, (u.input ?? 0) + (u.cacheRead ?? 0) + (u.output ?? 0));
 				});
 				pi.on("agent_end", () => {
@@ -2840,8 +2844,10 @@ export class AgentManager {
 		const who = live.ephemeral ? `${agent.id}:~${(live.uid ??= Math.random().toString(36).slice(2))}` : `${agent.id}:${live.key}`;
 		live.server = server;
 		this.serverKeys.set(server, key);
-		// Other clients may use the same server: what its slots really hold is asked before one is chosen.
-		await this.lookAtSlots(server, origin, model, key).catch(() => {});
+		// Other clients may use the same server: what its slots really hold is asked before one is chosen. (A request
+		// of this conversation that went out before the slots were known is found again by how much was read of it.)
+		await this.lookAtSlots(server, origin, model, key, live.loose ? { who, tokens: live.loose } : undefined).catch(() => {});
+		live.loose = undefined;
 		const got = this.slots.takeFrom(server, who);
 		if (got) {
 			live.slot = { server, slot: got.slot, who, held: got.held };
@@ -2935,8 +2941,8 @@ export class AgentManager {
 	 * that), only for a server pine knows the slots of, and only when it is this model that answers.
 	 * A server that does not tell is not asked again.
 	 */
-	private async lookAtSlots(server: string, origin: string, model: string, key: () => Promise<string | undefined>): Promise<void> {
-		if (!this.slots.known(server) || this.slotsTold.get(server) === false || (this.slotsSeenAt.get(server) ?? 0) > Date.now() - Math.min(2000, this.cfg.limits.warmAfterMs / 2)) return;
+	private async lookAtSlots(server: string, origin: string, model: string, key: () => Promise<string | undefined>, loose?: { who: string; tokens: number }): Promise<void> {
+		if (!this.slots.known(server) || this.slotsTold.get(server) === false || (!loose && (this.slotsSeenAt.get(server) ?? 0) > Date.now() - Math.min(2000, this.cfg.limits.warmAfterMs / 2))) return;
 		this.slotsSeenAt.set(server, Date.now());
 		const k = await key().catch(() => undefined);
 		const headers: Record<string, string> = k && k !== "none" ? { authorization: `Bearer ${k}` } : {};
@@ -2949,7 +2955,7 @@ export class AgentManager {
 		this.slotsTold.set(server, true);
 		const real: Array<number | undefined> = [];
 		for (const s of list) real[s.id] = typeof s.n_prompt_tokens === "number" ? s.n_prompt_tokens : undefined;
-		this.slots.seen(server, real);
+		this.slots.seen(server, real, loose);
 	}
 
 	/** Whether what a server says about itself (/props) is about this model: llama.cpp names the model it has loaded. */

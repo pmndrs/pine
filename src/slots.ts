@@ -182,18 +182,24 @@ export class SlotBook {
 	 * - a slot of one of pine's conversations, or one pine filled, that holds far less or far more than pine
 	 *   read into it, was taken by somebody else in between.
 	 * A slot with a request of pine's under way is left as it is.
+	 *
+	 * `loose` is a conversation of pine's whose last request went out without a slot (the server's slots
+	 * were not known yet: its model was being loaded) and how much was read of it: the slot that holds
+	 * about that much, and that pine has nothing in, is where the server put it, and is that conversation's.
 	 */
-	seen(server: string, real: Array<number | undefined>): void {
+	seen(server: string, real: Array<number | undefined>, loose?: { who: string; tokens: number }): void {
 		const held = this.held.get(server) ?? [];
 		this.held.set(server, held);
 		const busy = this.busy.get(server);
 		const least = 256;
 		const other = (tokens: number): Occupant | undefined => (tokens >= least ? { who: OTHER, tokens, at: Date.now() } : undefined);
+		const theirs = loose && !held.some((h) => h?.who === loose.who) ? real.findIndex((n, i) => n !== undefined && !busy?.has(i) && (!held[i] || held[i]!.who === OTHER) && Math.abs(n - loose.tokens) <= Math.max(64, loose.tokens * 0.03)) : -1;
 		for (let i = 0; i < real.length; i++) {
 			const n = real[i];
 			if (n === undefined || busy?.has(i)) continue;
 			const h = held[i];
-			if (!h || h.who === OTHER) held[i] = other(n);
+			if (i === theirs) held[i] = { who: loose!.who, tokens: n, at: Date.now() };
+			else if (!h || h.who === OTHER) held[i] = other(n);
 			else if (h.tokens >= least && (n < h.tokens * 0.5 || n > h.tokens * 1.5 + 2048)) held[i] = other(n);
 		}
 		this.save(Object.fromEntries(this.held));
