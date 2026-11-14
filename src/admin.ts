@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_TOOLS } from "./agent-admin.ts";
-import { type AgentConfig, loadConfig, mainAgentId, type Mode, MODES, PINE_ROOT, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed } from "./config.ts";
+import { type AgentConfig, loadConfig, mainAgentId, type Mode, MODES, PINE_ROOT, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed, CATALOGUES } from "./config.ts";
 import { unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
 import { isInside, realish } from "./security.ts";
@@ -242,7 +242,10 @@ export function eraseAgent(cfg: PineConfig, store: { kv: Kv; tasks: TaskStore },
 	const routes = cfg.routes.filter((r) => r.agent === id).map((r) => r.name);
 	for (const name of routes) dropRoute(cfg, name);
 	unname(cfg, id);
-	for (const prefix of ["taint", "keep", "folder", "todos", "turns", "undone"]) store.kv.forget(`${prefix}:${id}:`);
+	for (const prefix of ["taint", "keep", "folder", "todos", "turns", "undone", "prefix", "note"]) store.kv.forget(`${prefix}:${id}:`);
+	// Which slot of a model server held one of its conversations (src/slots.ts).
+	const slots = store.kv.get<Record<string, Array<{ who?: string } | null | undefined>>>("slots");
+	if (slots) store.kv.set("slots", Object.fromEntries(Object.entries(slots).map(([server, held]) => [server, held.map((o) => (o && String(o.who).startsWith(`${id}:`) ? null : o))])));
 	for (const key of store.kv.keys("timer:")) if (key.endsWith(`@${id}`)) store.kv.set(key, null);
 	for (const key of store.kv.keys("source:")) if (key.slice("source:".length).split(":")[0].endsWith(`@${id}`)) store.kv.forget(key);
 	const pinned = store.kv.get<string[]>("conversations:pinned");
@@ -497,6 +500,12 @@ const ms = (n: number) => (n % 60_000 === 0 ? `${n / 60_000}m` : n % 1000 === 0 
 export const SETTINGS: Record<string, Setting> = {
 	"defaults.model": { about: "The model of every agent that has none of its own, as provider/model.", kind: "model", now: (c) => String(c.defaults.model ?? "none"), live: true },
 	"defaults.thinking": { about: "How much an agent reasons before it answers, unless it says otherwise.", kind: { one: THINKING }, now: (c) => c.defaults.thinking, live: true },
+	"defaults.catalogue": {
+		about: "How an agent's tools are declared to the model, unless the agent says otherwise: families (a group of tools is one declared tool, requests are short and a model server keeps what it has read) or full (every tool by itself with its whole description, as before).",
+		kind: { one: [...CATALOGUES] },
+		now: (c) => c.defaults.catalogue,
+		live: false,
+	},
 	"defaults.mode": {
 		about: "The mode of every agent that names none: auto (no sandbox: your whole account and the network; critical actions are checked), safe (in the sandbox: its own folders), manual (in the sandbox, every action waits), bypass (no sandbox, nothing waits), plan (nothing is done). Not set: auto for the main agent, safe for the others.",
 		kind: { one: [...MODES] },
@@ -510,6 +519,7 @@ export const SETTINGS: Record<string, Setting> = {
 	"limits.maxDelegationDepth": { about: "How many times a task can be handed on from agent to agent.", kind: { from: 0, to: 10 }, now: (c) => String(c.limits.maxDelegationDepth), live: true },
 	"limits.maxDownloadMb": { about: "The largest file the download tool fetches, in megabytes.", kind: { from: 1, to: 100_000 }, now: (c) => String(c.limits.maxDownloadMb), live: true },
 	"defaults.judge": { about: "The model that judges whether a goal is met, as provider/model. Not set: the agent's own.", kind: "model", now: (c) => c.defaults.judge ?? "not set (the agent's own model)", live: true },
+	"limits.warmSlots": { about: "Whether pine has the idle slots of a llama.cpp model server read the beginning that all conversations of an agent share, in the background after you have used the model, so that a new conversation or a sub-agent starts at once.", kind: "boolean", now: (c) => String(c.limits.warmSlots), live: true },
 	"security.askAccess": { about: "Whether pine asks your owner itself when a call of an agent needs a file or folder outside its sandbox, or the network.", kind: "boolean", now: (c) => String(c.security.askAccess), live: true },
 	"security.approvalTimeout": { about: "How long a question to your owner waits before it counts as not answered, for example 5m.", kind: "duration", now: (c) => ms(c.security.approvalTimeoutMs), live: false },
 	"security.taint": {

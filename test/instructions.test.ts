@@ -42,6 +42,9 @@ test("instructions: an agent writes its own files and sees them from its next me
 	assert.equal(fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8"), "REMEMBERED: the tax year ends in June\n", h.toolResults().join(" | "));
 	assert.match(fs.readFileSync(user, "utf8"), /OWNER: Alex, prefers tables/, h.toolResults().join(" | "));
 	await h.pine.agents.run({ agent: "main", prompt: "and now?", ...owner });
+	// With families a conversation keeps the instructions it began with (it knows what it wrote itself): the next
+	// conversation is the one that begins with the files as they are now.
+	if (h.families) await h.pine.agents.run({ agent: "main", session: "next", prompt: "hello", ...owner });
 	const now = h.system(h.mock.state.requests.at(-1));
 	for (const part of ["PURPOSE: keep the books", "REMEMBERED: the tax year ends in June", "SOUL: dry humour", "OWNER: Alex, prefers tables"]) assert.ok(now.includes(part), part);
 

@@ -57,7 +57,7 @@ test("schedules: asked for a time, an agent schedules it for the conversation, f
 		call("add_schedule", { name: "a", task: "x", cron: "every day" }),
 		call("add_schedule", { name: "a", task: "x", at: "2020-01-01 09:00" }),
 		call("add_schedule", { name: "a", task: "x", at: "soon" }),
-		call("add_schedule", { name: "A b", task: "x", in: "1h" }),
+		call("add_schedule", { name: "!!", task: "x", in: "1h" }),
 		call("add_schedule", { name: "a", task: " ", in: "1h" }),
 		call("add_schedule", { name: "a", task: "x", in: "1h", scope: "global" }),
 	]);

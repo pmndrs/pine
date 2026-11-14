@@ -23,6 +23,13 @@ export async function startMock(opts = {}) {
 	};
 
 	const server = http.createServer(async (req, res) => {
+		// opts.props: what a llama.cpp server says about itself at /props (how many slots it has).
+		// A `status` in it is the answer's status: 503 is what a scheduler in front of the server says while no model is loaded.
+		if (req.method === "GET" && opts.props && req.url.endsWith("/props")) {
+			res.writeHead(opts.props.status ?? 200, { "content-type": "application/json" });
+			res.end(JSON.stringify(opts.props));
+			return;
+		}
 		if (req.method === "GET") {
 			res.writeHead(200, { "content-type": "application/json" });
 			res.end(JSON.stringify({ object: "list", data: [{ id: "mock-model", object: "model" }] }));
@@ -37,6 +44,8 @@ export async function startMock(opts = {}) {
 			body = { _unparsed: raw };
 		}
 		const entry = { t: Date.now(), url: req.url, auth: req.headers.authorization, body, reply: null, aborted: false };
+		// opts.onRequest: a host's view of the request it sent (the harness of pine's tests keeps the wire form beside it).
+		opts.onRequest?.(entry);
 		state.requests.push(entry);
 		state.inflight++;
 		state.maxInflight = Math.max(state.maxInflight, state.inflight);
@@ -120,6 +129,14 @@ export async function startMock(opts = {}) {
 
 		if (step.delayMs) await sleep(step.delayMs);
 		if (res.destroyed) return;
+		// A request that is not to be streamed (a host that has a slot read a beginning ahead of time) is answered in one piece.
+		if (body.stream === false) {
+			if (opts.prefixCache) (state.seen ??= []).push(JSON.stringify(body.tools ?? []) + JSON.stringify(body.messages ?? []).slice(0, -1));
+			const read = Math.ceil(raw.length / 4);
+			res.writeHead(200, { "content-type": "application/json" });
+			res.end(JSON.stringify({ id, object: "chat.completion", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: (step.text ?? "").slice(0, 1) }, finish_reason: "length" }], usage: { prompt_tokens: read, completion_tokens: 1, total_tokens: read + 1 } }));
+			return;
+		}
 		res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
 		res.write(chunk({ role: "assistant", content: "" }));
 		if (step.stall) return; // never finishes; client must abort

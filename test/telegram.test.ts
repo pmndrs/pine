@@ -163,7 +163,7 @@ test("telegram: set up by asking, paired by the owner in pine, then a conversati
 	assert.ok(tg.calls.some((c) => c.method === "editMessageReplyMarkup" && /Allowed \(telegram:1001\)/.test(JSON.stringify(c.body))));
 	assert.ok(!JSON.stringify(h.pine.bus.query({ limit: 500 })).includes(TOKEN), "the bot token is in no event");
 	assert.ok(!JSON.stringify(h.mock.state.requests.map((q: any) => q.body)).includes(TOKEN), "and no model was ever sent it");
-	assert.ok(h.system(h.mock.state.requests[0]).includes("never ask your owner to write one into the conversation") || JSON.stringify(h.mock.state.requests[0].body.tools).includes("never ask your owner to write one into the conversation"), "the agent is told that secrets are not its to handle");
+	assert.ok(/never ask your owner to write one into the conversation/i.test(h.system(h.mock.state.requests[0])) || JSON.stringify(h.mock.state.requests[0].body.tools).includes("never ask your owner to write one into the conversation"), "the agent is told that secrets are not its to handle");
 
 	// A question of the agent's reaches the phone with one button for each answer it offers.
 	tg.message(1001, mockMsg([{ tools: [call("question", { question: "Which colour for the header?", choices: ["Blue", "Green"] })] }]));

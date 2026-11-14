@@ -51,7 +51,7 @@ test("skills: an agent writes one down for a conversation, for itself, or (the m
 
 	// What is said before anything is asked or written.
 	await run("books", "april", [
-		call("add_skill", { ...invoices, name: "My Skill" }),
+		call("add_skill", { ...invoices, name: "!!" }),
 		call("add_skill", { ...invoices, name: "pine" }),
 		call("add_skill", { ...invoices, name: "x", description: " " }),
 		call("add_skill", { ...invoices, name: "x", instructions: "" }),

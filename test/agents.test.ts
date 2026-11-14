@@ -65,7 +65,9 @@ test("the main agent hands a task to a specialist and gets the answer back", asy
 	const mainReq = h.requestsFor("PERSONA-MAIN")[0];
 	const childReqs = h.requestsFor("PERSONA-GONZO");
 	assert.ok(h.toolsOffered(mainReq).includes("delegate"));
-	assert.ok(h.system(mainReq).includes("- gonzo: German law") && h.system(mainReq).includes("- kevin: house"));
+	// Who there is to hand work to: in the instructions, or, where those are the same for every conversation, in the note.
+	if (h.families) assert.match(notesOf(mainReq).join("\n"), /Agents you can hand tasks to: gonzo \(German law[^)]*\); kevin \(house/);
+	else assert.ok(h.system(mainReq).includes("- gonzo: German law") && h.system(mainReq).includes("- kevin: house"));
 	assert.ok(!h.toolsOffered(childReqs[0]).includes("delegate"), "a specialist without delegates gets no delegate tool");
 	assert.ok(!JSON.stringify(childReqs[0].body.messages).includes("MAIN-PRIVATE-CONTEXT"), "the specialist sees only the task text");
 	assert.ok(users(childReqs[0])[0].startsWith("[task from agent main]"));
@@ -125,7 +127,9 @@ test("sub-agents run in parallel with fresh contexts, even when only one model s
 		for (const c of children) {
 			assert.ok(!JSON.stringify(c.body.messages).includes("PARENT-CONTEXT"));
 			assert.ok(h.system(c).includes("WS-MAIN"), "a sub-agent is the same agent");
-			assert.ok(!h.toolsOffered(c).includes("subagent") && !h.toolsOffered(c).includes("delegate"), "sub-agents cannot spawn further agents");
+			// With every tool declared by itself a sub-agent is not declared these. With families it is declared what its
+			// conversation is declared, and refused when it calls them (test/catalogue.test.ts).
+			if (!h.families) assert.ok(!h.toolsOffered(c).includes("subagent") && !h.toolsOffered(c).includes("delegate"), "sub-agents cannot spawn further agents");
 		}
 		if (maxConcurrentRuns === 1) assert.ok(ms >= 450, `one slot: sequential (${ms} ms)`);
 		else assert.ok(ms < 400, `three slots: parallel (${ms} ms)`);
@@ -221,8 +225,8 @@ test("agents are told how pine works and can read its manual, but not pi's or pi
 	assert.equal(r.status, "done");
 	const system = h.system(h.mock.state.requests[0]);
 	assert.ok(system.startsWith("You are an agent in pine"), system.slice(0, 80));
-	assert.ok(system.includes("pine's setup is changed through tools, never by writing its files") && system.includes("look it up in pine's manual") && system.includes("you search with the manual tool"));
-	assert.ok(system.includes("You are the main agent, and pine's administrator:") && system.includes("Only you can create, change and remove agents (create_agent, update_agent, remove_agent; agents lists them)") && !system.includes("{{ROLE}}"));
+	assert.ok(system.includes("pine's setup is changed through tools, never by writing its files") && /look it up in (pine's|the) manual/.test(system) && /you search with the manual tool|\(the manual tool\)/.test(system));
+	assert.ok(system.includes("You are the main agent, and pine's administrator:") && (h.families ? system.includes("you change with your tools, and you never tell them to edit pine's files") : system.includes("Only you can create, change and remove agents (create_agent, update_agent, remove_agent; agents lists them)")) && !system.includes("{{ROLE}}"));
 	assert.ok(!system.includes("<name>pine</name>") && h.toolsOffered(h.mock.state.requests[0]).includes("manual"), "the manual is searched with a tool, not carried in the prompt as a skill");
 	assert.ok(!system.includes("pi-coding-agent") && !system.includes("running inside pi,"), "nothing points at pi's manuals, which agents cannot read");
 	assert.ok(system.includes("PERSONA-MAIN") && system.includes("<pine>"), "the agent's own instructions and the per-turn block are still there");
@@ -239,7 +243,7 @@ test("an agent is told its MCP servers and the exact prefix of their tools", asy
 	const h = await harness({ agents: { main: { agent: { mcp: { "my-notes": { command: process.execPath, args: [path.resolve(import.meta.dirname, "../baseline/tests/mcp-stdio-server.mjs")] } } } } } });
 	await h.pine.agents.run({ agent: "main", prompt: "hi", trust: "owner" });
 	const system = h.system(h.mock.state.requests[0]);
-	assert.ok(system.includes("my-notes (mcp__my_notes__)"), system.slice(-600));
+	assert.ok(system.includes(h.families ? 'my-notes (one tool, "my_notes", with an action for each of its tools)' : "my-notes (mcp__my_notes__)"), system.slice(-600));
 	assert.ok(h.toolsOffered(h.mock.state.requests[0]).includes("mcp__my_notes__echo"));
 	await h.close();
 });
@@ -253,8 +257,8 @@ test("an agent is told which servers are reached over the network, and that thei
 	await h.pine.agents.run({ agent: "main", prompt: "hi", trust: "owner" });
 	const system = h.system(h.mock.state.requests[0]);
 	assert.ok(system.includes("Reached over the network: studio. Such a server can run on another computer, and a file path in its answer is then a path there, not on yours. When a file from it is needed on your computer, fetch the link from its answer with the download tool; do not copy the path."), system.slice(-900));
-	assert.ok(system.includes("A picture that came with a tool's answer is already on your owner's screen, above your reply: do not write ![...](...) for it"));
-	assert.ok(system.includes("A sound is played to your owner the same way, with the file in your workspace (wav, mp3, m4a, ogg or flac): ![what is heard](path/to/file.wav), once, and no other link to it. pine plays it and gives your owner play and pause: never play a sound yourself with a command such as afplay."));
+	assert.ok(system.includes(h.families ? "A picture that came with a tool's answer is already on your owner's screen: do not show it again." : "A picture that came with a tool's answer is already on your owner's screen, above your reply: do not write ![...](...) for it"));
+	assert.ok(h.families ? system.includes("pine shows or plays it: never play a sound yourself with a command.") : system.includes("A sound is played to your owner the same way, with the file in your workspace (wav, mp3, m4a, ogg or flac): ![what is heard](path/to/file.wav), once, and no other link to it. pine plays it and gives your owner play and pause: never play a sound yourself with a command such as afplay."));
 	assert.ok(!/Reached over the network: [^.]*near/.test(system), "a server on this computer is not one of them");
 	await h.close();
 });

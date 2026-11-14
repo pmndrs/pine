@@ -67,6 +67,10 @@ src/
   undo.ts           taking back the owner's last message: turns and their steps, what waits for a redo, pi's session file
   http.ts           control API and webhooks
   limiter.ts        model slots with priority
+  catalogue.ts      how tools are declared to the model (`defaults.catalogue`): families (one declared tool for a group, an
+                    action for each tool, the call carried out by the tool itself), short declarations, arguments that are
+                    nearly right taken as meant (`ease`, `fit`), `find_tools`
+  slots.ts          which slot of a llama.cpp server a conversation's requests go to (`SlotBook`), and the idle ones pine fills
   login.ts          `pine login`: pi's sign-in flows, stored in <home>/auth.json
   models.ts         pi's model runtime on pine's home; fills a "$NAME" key in models.json from .env;
                     model servers of the owner's own: asking one what it serves, adding and removing it
@@ -420,6 +424,21 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   in `test/agents.test.ts` fail when a request stops being an extension of the one before; the
   mock's `prefixCache` option reports cached tokens the way a server would, and `strip` removes
   the notes from what the mock echoes.
+- With families (`short()` in `src/agents.ts`) a request begins the same for every conversation of an
+  agent, and `steady()` is the one place that sees to it: the tools in one order (`shortDeclarations`),
+  pine's own text as the system prompt, the instruction files as the conversation's opening message,
+  frozen when it began (kv `prefix:`), and what was added to a file since in the note. So nothing that
+  differs between two conversations of an agent, or between today and tomorrow, goes into a tool's
+  description or into `SHORT_PROMPT`: which agents and sources there are is said in `contextNote()`.
+  The cache tests in `test/catalogue.test.ts` fail when a request stops being an extension of the one
+  before it across a restart, a line in `MEMORY.md` or a new agent. A family is a router and nothing
+  more: `classify()` calls it `look`, and the tool it hands the call to (`ctx.executeTool`) passes the
+  gate under its own name. A new tool of pine's goes into a group in `GROUPS` with a line in `BRIEF`
+  that is true to its description; one for every task is added to `DECLARED` instead.
+- A request names its slot on a llama.cpp server (`takeSlot`, `src/slots.ts`), in either catalogue and
+  for a run started from outside too. Filling idle slots (`warm()`) sends a request of pine's own: only
+  while nobody works with that model, only when the server says its model is loaded (never what loads
+  one), and with nothing in it but what a conversation begins with.
 - Permissions belong to a conversation, not to a session object: `Live.perm` is the key
   ("agent:session"), a sub-agent has its conversation's key, and `AgentManager.grants` and
   `.allowed` are looked up by it. Anything new that the owner can allow "for this conversation"

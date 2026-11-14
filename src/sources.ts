@@ -758,7 +758,10 @@ export class SourceHost {
 		const agent = agentId ? this.cfg.agents[agentId] : undefined;
 		if (agentId && !agent) throw new Error(`unknown agent "${agentId}"`);
 		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) throw new Error(`"${name}" is not a usable source name: lowercase letters, digits, - and _, starting with a letter`);
-		if (this.cfg.sources[name] || Object.values(this.cfg.agents).some((a) => a.sources[name])) throw new Error(`a source named "${name}" exists already; pick another name, or subscribe to that one`);
+		const other = Object.values(this.cfg.agents).find((a) => a.id !== agentId && a.sources[name]);
+		// Another agent's source cannot be subscribed to: saying so would send the caller down a road that ends at a refusal.
+		if (other) throw new Error(`a source named "${name}" exists already, as a source of the agent ${other.id}, which only ${other.id} can be subscribed to. ${agentId ? `For ${agentId}` : "For this one"}: pick another name, or remove that one first (remove_source) if it was meant for ${agentId ?? "everyone"}`);
+		if (this.cfg.sources[name] || agent?.sources[name]) throw new Error(`a source named "${name}" exists already; pick another name, or subscribe to that one`);
 		const file = agent ? path.join(agent.dir, "agent.json") : path.join(this.cfg.home, "pine.json");
 		const before = fs.readFileSync(file, "utf8");
 		// Read access to a watched folder is an agent's: for a source of all agents, the main agent's, which set it up.
@@ -889,7 +892,11 @@ export class SourceHost {
 		const agent = this.cfg.agents[agentId];
 		if (!agent) throw new Error(`unknown agent "${agentId}"`);
 		const found = sourceFor(this.cfg, agentId, name);
-		if (!found) throw new Error(`"${name}" is not an event source ${agentId} can use. Available: ${this.available(agentId).map((s) => s.name).join(", ") || "none"}`);
+		if (!found) {
+			// A source set up for one agent, asked for on behalf of another: say whose it is and what to do instead.
+			const whose = Object.values(this.cfg.agents).find((a) => a.id !== agentId && a.sources[name]);
+			throw new Error(`"${name}" is not an event source ${agentId} can use. Available: ${this.available(agentId).map((s) => s.name).join(", ") || "none"}${whose ? `. "${name}" is a source of the agent ${whose.id}, and a source belongs to the agent it was set up for. For ${agentId} to be woken by it: remove it (remove_source) and set it up for ${agentId} (add_source with "agent": "${agentId}" and a note)` : ""}`);
+		}
 		if (!found.source.enabled) throw new Error(`the source "${name}" is disabled in the configuration`);
 		const clean = this.clean(name, raw);
 		const sub = subscriptionFrom(clean);

@@ -20,7 +20,9 @@ import { isInside, ownFileOf, realish, type Roots, tilde } from "./security.ts";
 export type ActionClass = "look" | "local" | "reach" | "send" | "own" | "critical" | "setup";
 
 /** Tools that only look. */
-export const LOOK_TOOLS = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "manual", "schedules", "mcp_servers", "skills", "stop_program", "question", "todo", "agents", "settings", "routes"];
+/** Tools that carry a call out as a nested call of another tool (src/catalogue.ts). */
+export const ROUTERS = new Set<string>();
+export const LOOK_TOOLS = ["read", "grep", "find", "ls", "state_get", "sources", "tool_search", "manual", "schedules", "mcp_servers", "skills", "stop_program", "question", "todo", "agents", "settings", "routes", "find_tools"];
 /** Tools that change pine's setup or ask for access. Each asks the owner where it matters, so the gate does not ask again. */
 export const SETUP_TOOLS = ["request_access", "add_mcp_server", "remove_mcp_server", "add_source", "remove_source", "add_source_type", "remove_source_type", "add_skill", "remove_skill", "add_schedule", "remove_schedule", "create_agent", "update_agent", "remove_agent", "set_setting", "add_route", "remove_route", "add_model_server", "remove_model_server"];
 
@@ -146,6 +148,8 @@ export interface Action {
 
 /** Sort a tool call into its class. The one place that knows. */
 export function classify(tool: string, input: any, ctx: ActionContext): Action {
+	// A tool that only hands the call on to the tool that is meant: that call is the one that is looked at.
+	if (ROUTERS.has(tool)) return { cls: "look" };
 	if (ctx.sends) return { cls: "send" };
 	if (tool === "add_skill") return { cls: "own", note: "a skill is part of what the agent is told" };
 	// Subscribing changes what wakes the agent. The gate asks about it where the conversation has read outside content.

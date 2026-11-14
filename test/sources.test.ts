@@ -55,7 +55,7 @@ test("sources: a configured source does nothing until an agent subscribes; then 
 	assert.ok(firstLook.startsWith("1 event source; 0 wake this conversation.\nscans (folder: what the scanner saves) - idle\n    nobody of yours is subscribed\n"), firstLook);
 	assert.match(h.toolResults(h.mock.state.requests[1]).join("\n"), /Subscribed to scans \(agent\)\. It is running\. Each event it reports \(source\/scans\/\.\.\.\) will arrive in your main conversation \(this one\)/);
 	assert.match(h.toolResults(h.mock.state.requests[1]).join("\n"), /"nope" is not an event source main can use\. Available: scans/);
-	assert.ok(JSON.stringify(h.mock.state.requests[0].body.tools).includes("Sources right now: scans (folder: what the scanner saves)."), "the agent is told what it can subscribe to");
+	assert.ok(h.families ? notesOf(h.mock.state.requests[0]).join("\n").includes("Event sources you can subscribe to: scans (folder: what the scanner saves)") : JSON.stringify(h.mock.state.requests[0].body.tools).includes("Sources right now: scans (folder: what the scanner saves)."), "the agent is told what it can subscribe to");
 	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.home, "agents", "main", "agent.json"), "utf8")).subscribe, [{ source: "scans", note: "Tell the owner on Telegram which document arrived.", throttle: "150ms" }]);
 	assert.deepEqual([info().running, info().subscribers], [true, ["main"]]);
 
@@ -436,7 +436,7 @@ test("sources: a subscription is for one conversation, for the agent, or for all
 	let r = await run("main", "side", [{ tools: [call("subscribe", { source: "beep", note: "only here", throttle: "1h" }), call("subscribe", { source: "beep", scope: "everywhere", note: "x" })] }]);
 	assert.match(h.toolResults()[0], /Subscribed to beep \(local\)\. It is running\. Each event it reports \(source\/beep\/\.\.\.\) will arrive here, in this conversation, as a message that starts a turn of yours\. The subscription ends when this conversation is closed or reset/);
 	assert.match(h.toolResults()[1], /"scope" must be local, agent or global; leave it out for this conversation\./);
-	assert.ok(JSON.stringify(h.mock.state.requests[0].body.tools).includes("If you think they might want more than this conversation, ask them, do not decide it."));
+	assert.ok(JSON.stringify(h.mock.state.requests[0].body.tools).includes(h.families ? "whom it is for; leave it out unless your owner says it is for you as an agent, or for all agents" : "If you think they might want more than this conversation, ask them, do not decide it."));
 	await settle();
 	assert.deepEqual(woken(), ["main/side"], "the main conversation is not woken by what a side conversation subscribed to");
 	assert.deepEqual(h.pine.sources.list()[0].subscribers, ["main/side"]);
@@ -472,7 +472,8 @@ test("sources: a subscription is for one conversation, for the agent, or for all
 	r = await run("gonzo", "main", [{ tools: [call("subscribe", { source: "beep", scope: "global", note: "x" }), call("unsubscribe", { source: "beep", scope: "global" })] }]);
 	assert.match(h.toolResults()[0], /Only the main agent \(main\) can subscribe or set up sources for all agents\. Tell your owner/);
 	assert.match(h.toolResults()[1], /Only the main agent \(main\) can end a subscription for all agents\./);
-	assert.ok(!JSON.stringify(h.mock.state.requests.at(-1).body.tools.find((t: any) => (t.function?.name ?? t.name) === "subscribe")).includes("global"), "an agent that cannot do it is not offered it");
+	const itsTool = h.mock.state.requests.at(-1).body.tools.find((t: any) => (t.function?.name ?? t.name) === (h.families ? "pine_sources" : "subscribe"));
+	assert.ok(itsTool && !JSON.stringify(h.families ? itsTool.function.parameters.properties.scope : itsTool).includes("global"), "an agent that cannot do it is not offered it");
 	assert.equal(asked.length, 2);
 	r = await run("main", "main", [{ tools: [call("subscribe", { source: "beep", scope: "global", note: "for everyone", throttle: "1h" })] }]);
 	assert.match(r.text, /Subscribed to beep \(global\)\. .* will wake gonzo, each in its main conversation/);
@@ -554,7 +555,7 @@ test("sources: a type says what it takes, add_source works from that; a file mas
 
 	// Every type is offered with the options its own module declares, the owner's type included. One without a schema is not.
 	let r = await run([{ text: "ok" }]);
-	const tool = JSON.stringify(h.mock.state.requests.at(-1).body.tools.find((t: any) => (t.function?.name ?? t.name) === "add_source"));
+	const tool = await h.about("add_source");
 	assert.ok(tool.includes("- folder: a folder: reports every new or changed file in it") && tool.includes("mask: only files whose name matches"));
 	assert.ok(tool.includes("- mqtt: an MQTT broker") && tool.includes("url (required): address of the broker") && tool.includes('password (a secret: name it in \\"ask\\" if one is needed): password, access code or token') && tool.includes("never ask your owner to write one into the conversation"));
 	assert.ok(tool.includes("- bell: a bell: says a word again and again. Options: word (required): what it says; pin (a secret: name it in \\\"ask\\\" if one is needed): its pin code"));

@@ -288,8 +288,9 @@ test("admin: the main agent does for another agent what that agent can do for it
 	assert.match(out[2], /^1 schedule\.\nmine /);
 	// The other agent's tools take no "agent": it sets things up for itself alone.
 	const req = h.mock.state.requests.find((r: any) => h.system(r).includes("PERSONA-HELPER"));
-	const tool = (req.body.tools ?? []).find((x: any) => (x.function?.name ?? x.name) === "add_schedule");
-	assert.ok(!JSON.stringify(tool).includes('"agent"'), "no such parameter for an agent that is not the main one");
+	const tool = (req.body.tools ?? []).find((x: any) => (x.function?.name ?? x.name) === (h.families ? "pine_schedules" : "add_schedule"));
+	assert.ok(tool, "its tool for schedules");
+	assert.ok(!("agent" in ((tool.function ?? tool).parameters?.properties ?? {})), "no such parameter for an agent that is not the main one");
 	await h.close();
 	await stub.close();
 });
@@ -355,7 +356,7 @@ test("admin: routes are listed, added and removed by the main agent; one is chec
 
 	const before = fs.readFileSync(file, "utf8");
 	out = await main(
-		call("add_route", { name: "Bad Name", on: "test/x", agent: "helper" }),
+		call("add_route", { name: "!!", on: "test/x", agent: "helper" }),
 		call("add_route", { name: "r", on: "", agent: "helper" }),
 		call("add_route", { name: "r", on: "test/x" }),
 		call("add_route", { name: "r", on: "test/x", agent: "ghost" }),
@@ -367,7 +368,7 @@ test("admin: routes are listed, added and removed by the main agent; one is chec
 		call("add_route", { name: "r", on: "test/x", agent: "helper", trust: "everyone" }),
 		call("remove_route", { name: "nothing" }),
 	);
-	assert.match(out[0], /"Bad Name" is not a usable route name/);
+	assert.match(out[0], /"!!" is not a usable route name/);
 	assert.match(out[1], /"on" is the topic the route listens to/);
 	assert.match(out[2], /a route has to do something: give at least one of agent/);
 	assert.match(out[3], /there is no agent "ghost"/);

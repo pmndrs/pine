@@ -36,6 +36,13 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 	// [what is asked, a part that must be among the first three]
 	const cases: Array<[string, RegExp]> = [
 		["telegram pairing code", /^sources#telegram$/],
+		["why does the model read the whole conversation again when I switch to another tab", /^(agents#what-the-model-server-keeps|operations#problems)/],
+		["the first answer in a new conversation takes long", /^(agents#what-the-model-server-keeps|operations#problems)/],
+		["the tools take too many tokens of the prompt, how do I make it smaller", /^(agents#how-tools-are-declared|operations#problems|configuration#pine-json\/defaults-catalogue)/],
+		["declare every tool by itself again", /^(agents#how-tools-are-declared|.*defaults-catalogue)$/],
+		["I do not have a tool called add_source, only pine_sources", /^(agents#how-tools-are-declared|pine#if-you-are-an-agent-running-inside-pine)/],
+		["llama.cpp slots", /^agents#what-the-model-server-keeps/],
+		["warmSlots", /limits-warmslots$/],
 		["can I talk to pine instead of typing", /^tui#(dictating-a-message|commands|keys)/],
 		["voice input does not work on linux", /^tui#dictating-a-message/],
 		["how many tokens per second does my model make, and how fast does it process the prompt", /^tui#(how-fast-the-model-is|what-a-model-thinks)/],

@@ -218,7 +218,7 @@ Start at [docs/SKILL.md](docs/SKILL.md); it indexes everything.
 | Install, run, use the CLI, run it as a service                                          | [operations.md](docs/references/operations.md)               |
 | Write `pine.json` and `agent.json`                                                      | [configuration.md](docs/references/configuration.md)         |
 | Let agents set things up by tool call instead of editing files                          | [setup.md](docs/references/setup.md)                         |
-| Set up agents, delegation and sub-agents                                                | [agents.md](docs/references/agents.md)                       |
+| Set up agents, delegation and sub-agents; how tools are declared and what stays cached   | [agents.md](docs/references/agents.md)                       |
 | Route events, schedules, model calls                                                    | [events.md](docs/references/events.md)                       |
 | Event sources: Telegram, folders, MQTT, web addresses, commands, webhooks, FTP          | [sources.md](docs/references/sources.md)                     |
 | MCP servers, web search, command tools                                                  | [mcp.md](docs/references/mcp.md)                             |

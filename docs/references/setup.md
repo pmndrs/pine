@@ -330,6 +330,8 @@ a conversation that has read outside content.
 | `defaults.model`, `defaults.thinking`, `defaults.mode` | What an agent gets that does not say otherwise: model, reasoning, mode (and with the mode, how far it reaches) |
 | `defaults.bashTimeoutSec`, `defaults.taskTimeoutSec` | Seconds a shell call and a task may run. From the next start |
 | `limits.maxConcurrentRuns` | How many agents work at the same time. From the next start |
+| `defaults.catalogue` | How tools are declared to the model: `families` (grouped, short) or `full` (every tool by itself). From the next start. See [agents.md](agents.md), "How tools are declared" |
+| `limits.warmSlots` | Whether the idle slots of a llama.cpp model server are filled in the background, so that a new conversation starts at once |
 | `limits.maxDelegationDepth`, `limits.maxDownloadMb` | How often a task is handed on, and the largest download |
 | `defaults.judge` | The model of the judge of goal mode. Not set: the agent's own |
 | `security.askAccess` | Whether pine asks you itself when a call needs something outside the sandbox |

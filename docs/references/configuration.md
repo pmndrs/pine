@@ -85,6 +85,7 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `dataDir` | `data` | Where the database, media and control token live. |
 | `defaults.model` | none | `provider/model-id` from `models.json`: the model of every agent whose `agent.json` names none. There is no built-in fallback: an agent with neither is a configuration error, which `pine check` and the start of pine report. |
 | `defaults.judge` | not set | The model of the judge of goal mode (`/goal`), as `provider/model-id`. Not set: the agent's own model. A second, small model keeps the judge's call from pushing the agent's conversation out of a model server's cache. See "Goal mode" in [agents.md](agents.md). |
+| `defaults.catalogue` | `families` | How tools are declared to the model, for every agent that names nothing: `families` (grouped, a short line for each tool; about 11 000 tokens for the main agent) or `full` (every tool by itself with its whole description; about 25 000). See [agents.md](agents.md), "How tools are declared". |
 | `defaults.thinking` | `off` | Reasoning level for models that can reason: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
 | `defaults.mode` | not set | The mode of every agent that names none: `auto`, `safe`, `manual`, `bypass` or `plan` (see `mode` below). Not set: `auto` for the main agent, `safe` for all others. Set it to `safe` to keep every agent, the main one too, in its sandbox. See "Modes" in [security.md](security.md). |
 | `defaults.bashTimeoutSec` | `900` | Longest a shell command may run (15 minutes: a build, an install). The model cannot raise it. A server or another program that should keep running, and whatever needs longer, is started in the background, which is not held to it ([coding.md](coding.md)). |
@@ -92,6 +93,8 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `defaults.idleMs` | `15m` | A live session without work is closed after this (and resumed from disk later). |
 | `defaults.settings` | `{}` | pi settings applied to every agent, for example `{ "compaction": { "reserveTokens": 8000 } }`. They are put on top of pi's own settings files and stay in force when pi reads those files again. |
 | `limits.maxConcurrentRuns` | `2` | Model slots: how many runs talk to the model server at once. Match it to the server's parallel slots. |
+| `limits.warmSlots` | `true` | Whether pine has the idle slots of a llama.cpp model server read, in the background, what a conversation of the agent that used it last begins with, so that a new conversation or a sub-agent starts at once. See [agents.md](agents.md), "What the model server keeps". |
+| `limits.warmAfterMs` | `3000` | How long the model server has to have been left alone before an idle slot is filled, in milliseconds. |
 | `limits.maxDelegationDepth` | `3` | How deep a chain of delegations may go. |
 | `limits.maxDownloadMb` | `200` | Largest file the `download` tool fetches. |
 | `limits.maxEventHops` | `8` | Events further than this from an outside trigger are not routed. |
@@ -156,6 +159,7 @@ Every key is optional; `{}` is a valid agent.
 | `workspace` | `agents/<id>/workspace` | The agent's working folder. `AGENTS.md`, `SOUL.md` and `MEMORY.md` at its top are the agent's instructions and are loaded into its prompt. Must exist when you set it. |
 | `context` | `[]` | Further instruction files to load into the system prompt. |
 | `model`, `thinking` | from `defaults` | Per-agent model and thinking level. |
+| `catalogue` | from `defaults.catalogue` | How this agent's tools are declared to the model: `families` or `full`. See [agents.md](agents.md), "How tools are declared". |
 | `settings` | from `defaults.settings` | pi settings for this agent, key by key on top of `defaults.settings`. `agents/<id>/settings.json` is honoured as well; where both set a key, the one here counts. |
 | `taskTimeoutSec`, `idleMs` | from `defaults` | Per-agent overrides. |
 

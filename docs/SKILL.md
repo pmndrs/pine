@@ -30,6 +30,11 @@ You search this manual with your `manual` tool: a search names the parts that fi
 line that matched, and you then read the one or two parts you need. Search before you answer a
 question about pine or say that something is not possible.
 
+A tool that this manual names and that is not among your tools by that name is an action of
+one of them: `add_source` is your tool `pine_sources` with `action: "add_source"`, and
+`mcp__browser__browser_navigate` is `browser` with `action: "browser_navigate"`
+([references/agents.md](references/agents.md), "How tools are declared").
+
 pine's configuration lives in its home folder (`~/.pine` unless your owner chose another),
 which is closed to you on purpose: you never write those files. Four things you set up by
 calling a tool, for the conversation you are in or for yourself as an agent
@@ -147,7 +152,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 | Install it, start it, update it, use the CLI (every `pine` command), the control API for scripts, run it at login or in a container, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
 | Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types, model servers; how an agent lists what it has; the table of pine's own tools (`question`, `todo`, `stop_program` and the rest) | [references/setup.md](references/setup.md) |
-| Add an agent, give it a workspace, tools and a persona; skills; how agents look pine up (the `manual` tool); delegation, sub-agents, sessions, goal mode (`/goal`: working until an objective is met), shared state | [references/agents.md](references/agents.md) |
+| Add an agent, give it a workspace, tools and a persona; skills; how agents look pine up (the `manual` tool); how tools are declared to the model (`catalogue`: families) and what a model server keeps of a conversation (prompt cache, slots); delegation, sub-agents, sessions, goal mode (`/goal`: working until an objective is met), shared state | [references/agents.md](references/agents.md) |
 | Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
 | Have something done at a time (schedules); write rules for events yourself: set state, publish, single model calls, debounce | [references/events.md](references/events.md) |
 | Add MCP servers globally, per agent or for one conversation; web search, page reading and the bundled browser (showing its window to log in yourself, local addresses); turn shell commands into tools | [references/mcp.md](references/mcp.md) |

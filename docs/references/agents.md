@@ -114,11 +114,117 @@ with outside content. The note is only added when something other than the time 
 changed since the last one. Text that arrives from elsewhere cannot fake a note; the tag is
 rewritten on the way in.
 
-The bottom bar of the terminal UI shows `cache N%` after an answer: the share of the input the
-model server took from its cache. In a running conversation it should be above 90%.
-
 The details of how pine works are not in the prompt; they are in this manual, which the agent
 searches when a question calls for it. That keeps the prompt short for small models.
+
+### How tools are declared
+
+Every tool an agent has is declared to the model with each request: its name, what it does and
+what it takes. The main agent has about eighty tools, and declared one by one they are about
+25 000 tokens, which a local model reads before the first word of a new conversation. So pine
+declares them in **families** (`catalogue`), which is about 11 000:
+
+- What nearly every task uses is declared by itself, with a short description: `read`, `bash`,
+  `edit`, `write`, `grep`, `find`, `ls`, `download`, `delegate`, `subagent`, `todo`,
+  `question`, `manual`, and the two web tools.
+- Everything else is grouped. A family is one declared tool that takes an `action` and the
+  arguments of that action, and its description has one line for each action.
+
+| Family | Its actions |
+|---|---|
+| `pine_sources` | `sources`, `subscribe`, `unsubscribe`, `add_source`, `send`, `remove_source`, `publish_event`, and for the main agent `add_source_type`, `remove_source_type` |
+| `pine_schedules` | `schedules`, `add_schedule`, `remove_schedule` |
+| `pine_mcp` | `mcp_servers`, `add_mcp_server`, `remove_mcp_server`, and the three tools for a server's resources |
+| `pine_skills` | `skills`, `add_skill`, `remove_skill` |
+| `pine_agents` | The main agent's: `agents`, `create_agent`, `update_agent`, `remove_agent` |
+| `pine_settings` | The main agent's: `settings`, `set_setting`, `routes`, `add_route`, `remove_route`, `add_model_server`, `remove_model_server` |
+| `pine_other` | `request_access`, `stop_program`, `state_get`, `state_set` |
+| One for each MCP server, named after the server (`browser`, `media`, `home_link`) | The server's tools under their own names (`browser_navigate`, `browser_click`) |
+
+An action has the name its tool has everywhere in this manual. Where the manual says "call
+`add_source`", an agent with families calls `pine_sources` with `action: "add_source"` and the
+same arguments; a tool of an MCP server, `mcp__browser__browser_navigate` in the manual, is
+`browser` with `action: "browser_navigate"`. Nothing else is different. The call is carried
+out by the tool that is meant, so modes, approvals, an `approve` or `deny` list, plan mode and
+the rules after outside content all see `add_source` or `mcp__browser__browser_navigate`, and
+so does the terminal UI.
+
+| Name | What it is |
+|---|---|
+| `catalogue` | In `agent.json`: `families` or `full`, for that agent. Not set: `defaults.catalogue`. |
+| `defaults.catalogue` | In `pine.json`: how the tools of every agent that names nothing are declared. `families` (the default): grouped, as above. `full`: every tool by itself with its whole description, as before; about two and a half times as much to read at the start of a conversation. The main agent changes it with `set_setting`; it holds from the next start of pine. |
+| `find_tools` | A tool every agent with families has. `names`: actions or a whole family. Answers with everything about them: each argument, its limits, examples. For the rare case that the line in the family is not enough. |
+
+What keeps a short declaration from costing calls:
+
+- The arguments of a family are typed, with the values an argument can take listed, so a model
+  server that holds a model to the declared arguments (llama.cpp does) cannot be given an
+  argument that does not exist.
+- A call that is nearly right is carried out as meant: a name with capitals or spaces becomes
+  the name it stands for, a number or a list written as text is read as one, `path` for a
+  folder source's `dir`, a setting named by its last word, an action asked of the wrong family.
+- A call with wrong arguments comes back with the whole description of that action, so the
+  next call is right.
+
+A run that an outside event started is declared its few tools as before, each by itself.
+An `agents/<id>/SYSTEM.md` and a list in `tools` work with either setting.
+
+### What the model server keeps
+
+A model server keeps what it has read of a request, and reads only what is new in the next one,
+as long as the next one begins the same. On a local model that is the difference between an
+answer that starts at once and one that starts after the whole conversation was read again.
+With families, pine builds every request so that its beginning does not change:
+
+| Part of the request | Stays the same |
+|---|---|
+| The tools | Always in one order and with fixed wording, for every conversation of the agent. Nothing in a description names what changes (which agents there are, which sources): that is in the note. |
+| The system prompt | pine's own text only, the same for every conversation of the agent, today and after a restart. |
+| The instruction files (`AGENTS.md`, `SOUL.md`, `USER.md`, `MEMORY.md`, a folder's) | They open the conversation as a first message of their own, in `<instructions>`, as they were when the conversation began. What is added to one later, the agent is told once, in the note in front of the next message ("New in your MEMORY.md since this conversation began"). A file that lost or changed lines is taken anew: that conversation is read again once, the tools and pine's text before it are not. |
+| What changes (agents to hand work to, event sources to subscribe to, the time) | In the `<pine-note>` in front of a message, only when it changed. |
+
+So a line the agent writes into `MEMORY.md`, an agent that is created or removed, a schedule,
+a new MCP server for another conversation, and a restart of pine all cost nothing: the next
+message is read on top of what the server has. What still costs a reading is what truly is
+new: the first conversation after the model was loaded, a tool that was added to this
+conversation, and a conversation that was compacted.
+
+A llama.cpp server keeps one conversation in each of its slots (`-np`). pine asks the server
+how many it has and names the slot with each request (`id_slot`):
+
+- A conversation goes back to the slot it was in, also after a restart of pine.
+- One that has none takes a slot pine filled for it (below), else an empty one, else the slot
+  that is cheapest to read again. It never takes a slot in which a request is under way.
+- A run started from outside is named a slot too, so that it does not take yours.
+- When the server has kept nothing of a long conversation, it was started anew; pine then
+  takes its other slots for empty as well.
+
+Another kind of server is never sent a slot.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `limits.warmSlots` | `true` | Filling idle slots. When pine has left a llama.cpp server alone for a moment, it has each slot that holds nothing read what a conversation of the agent that used the server last begins with: its tools, pine's text, its instruction files as they are now. The next new conversation of that agent, and a sub-agent, is given such a slot and has only its own message to be read. One slot at a time, only while no agent is at work with that model, and never when the model is not loaded (so it is never what loads a model). A filled slot is filled again when the instruction files changed. `false` turns it off. The main agent changes it with `set_setting`, at once. |
+| `limits.warmAfterMs` | `3000` | How long the model server has to have been left alone before a slot is filled, in milliseconds. |
+
+A sub-agent is declared exactly the tools and the text its conversation is declared, also the
+ones that are not its to use (`subagent`, `delegate`, what only a conversation sets up): asked
+for one of those it is told "You are a sub-agent: this is not yours to do." That way a
+sub-agent begins with what the model server has read already, and only its task is new.
+
+What pine cannot help:
+
+- A server that is stopped and started again (a scheduler that makes room for another model)
+  has read nothing. llama.cpp can save a slot and bring it back (`--slot-save-path`); a
+  scheduler has to do that around the stop.
+- With more conversations at work at once than the server has slots, one of them loses its
+  place. Give the server at least as many slots as `limits.maxConcurrentRuns`, and one more
+  if sub-agents are used a lot.
+- A model that cannot go back part of the way in what it has read (llama.cpp says "forcing
+  full prompt re-processing" in its log) reads a conversation from its beginning when it was
+  pushed out of its slot. Slots are what prevents that.
+
+The bottom bar of the terminal UI shows `cache N%` after an answer: the share of the input the
+model server took from its cache. In a running conversation it should be above 90%.
 
 ### The manual tool
 
@@ -310,6 +416,9 @@ A sub-agent works under the permissions of the conversation that started it: acc
 there and your "always" answers apply to it, and what it is granted applies to the conversation.
 It has the agent's MCP servers (unless `subagents.mcp` is `false`) and all its tools, or the
 ones listed in `subagents.tools`.
+
+A sub-agent is declared the same tools and text as its conversation, so that the model server
+has read its beginning already ("What the model server keeps").
 
 Sub-agents count against the model slots. With fewer slots than sub-agents they queue; nothing
 deadlocks, because the waiting parent lends out its own slot.

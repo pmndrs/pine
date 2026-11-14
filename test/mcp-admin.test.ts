@@ -294,7 +294,7 @@ test("the main agent creates an agent by tool call: the owner confirms, it exist
 	assert.ok(!fs.existsSync(dir) && !h.pine.cfg.agents.research);
 
 	// What cannot work is said before anyone is asked, and leaves nothing behind.
-	r = await run("main", [{ tools: [call("create_agent", { id: "Bad Name", description: "x", instructions: "y" }), call("create_agent", { id: "ops", description: "x", instructions: "y", tools: "read, teleport" }), call("create_agent", { id: "main", description: "x", instructions: "y" })] }]);
+	r = await run("main", [{ tools: [call("create_agent", { id: "!!", description: "x", instructions: "y" }), call("create_agent", { id: "ops", description: "x", instructions: "y", tools: "read, teleport" }), call("create_agent", { id: "main", description: "x", instructions: "y" })] }]);
 	allow = true;
 	assert.match(h.toolResults().at(-3)!, /not a usable agent id/);
 	assert.match(h.toolResults().at(-2)!, /unknown tool teleport\. An agent can have: read, bash, edit, write, grep, find, ls/);
