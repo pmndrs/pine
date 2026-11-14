@@ -52,7 +52,7 @@ const SYNONYMS: string[][] = [
 	["scope", "local", "global"],
 	["global", "everyone", "all", "shared", "every"],
 	["agent", "assistant", "bot", "persona"],
-	["subagent", "delegate", "delegation", "handoff", "child", "spawn"],
+	["subagent", "delegate", "delegation", "handoff", "child", "spawn", "helper", "worker"],
 	["model", "llm", "provider", "inference", "endpoint"],
 	["telegram", "messenger", "phone", "chat", "bot"],
 	["pair", "pairing", "link", "connect", "bind"],

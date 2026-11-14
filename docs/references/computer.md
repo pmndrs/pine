@@ -27,7 +27,7 @@ who may operate apps, and who may not.
 | Another agent whose mode is `auto` or `bypass`, in a conversation with its owner | Yes, the same way |
 | An agent that works in its sandbox: `safe` or `manual` mode (every agent but the main one, unless configured otherwise) | No. The tools are not in its list. Operating apps is acting with the owner's whole account, which such an agent does not have |
 | A run that an event from outside started (a mail, a webhook, a message from somebody else) | Never, whatever the agent's `untrusted` profile lists |
-| Sub-agents of a conversation that has it | Yes, when the agent's `subagents.mcp` is on; they share the conversation's answers |
+| Sub-agents of a conversation that has it | Yes, when the agent's `subagents.mcp` is on; they share the conversation's answers, and ask for no app themselves |
 
 An agent without the tools cannot get them by asking: `request_access` does not give app
 control. The owner gives it by putting the agent in `auto` mode (`/mode auto`, or `mode` in

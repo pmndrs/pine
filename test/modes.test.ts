@@ -392,7 +392,7 @@ test("auto mode: tools that only read never ask; one that acts can be allowed fo
 	await h.close();
 });
 
-test("sub-agents work under their conversation's permissions, and what one is granted holds for the conversation", mac, async (t) => {
+test("sub-agents work under their conversation's permissions, and never ask the owner themselves", mac, async (t) => {
 	const dir = elsewhere(t);
 	const file = path.join(dir, "notes.txt");
 	const h = await harness({ agents: { main: {} } });
@@ -405,11 +405,20 @@ test("sub-agents work under their conversation's permissions, and what one is gr
 	assert.ok(first.text.includes("ELSEWHERE-CONTENT"), first.text);
 	assert.equal(asked.length, 1);
 
-	// A sub-agent asks for more. The conversation has it from then on, and so has the next sub-agent.
-	h.mock.state.scripts.asker = [{ tools: [call("request_access", { path: dir, write: true, reason: "save the result" })] }, { tools: [call("bash", { command: `echo from-sub | tee ${dir}/sub.txt` })] }];
+	// A sub-agent that needs more does not wait for the owner: nobody is asked, it is told to say so in its answer.
+	h.mock.state.scripts.asker = [{ tools: [call("request_access", { path: dir, write: true, reason: "save the result" })] }, { tools: [call("bash", { command: `echo from-sub | tee ${dir}/sub.txt` })] }, { tools: [call("question", { question: "May I write there?", choices: ["yes", "no"] })] }];
+	await run([{ tools: [call("subagent", { tasks: ["@@REF:asker@@"] })] }]);
+	const told = h.mock.state.requests.filter((q: any) => JSON.stringify(q.body.messages).includes("May I write there?")).at(-1);
+	assert.equal(asked.length, 1, "the owner is not asked on a sub-agent's behalf");
+	assert.match(h.toolResults(told)[0], /You are a sub-agent: your owner is not asked on your behalf.*Say in your answer what you needed/);
+	assert.match(h.toolResults(told)[1], /Outside what this conversation may reach.*You are a sub-agent/s);
+	assert.match(h.toolResults(told)[2], /You are a sub-agent: your owner is not asked on your behalf\. Go on with the most reasonable assumption/);
+	assert.ok(!fs.existsSync(path.join(dir, "sub.txt")));
+
+	// The conversation asks, and has it from then on, and so has the sub-agent it starts next.
 	h.mock.state.scripts.writer = [{ tools: [call("bash", { command: `echo from-second-sub | tee ${dir}/second.txt` })] }];
-	await run([{ tools: [call("subagent", { tasks: ["@@REF:asker@@"] })] }, { tools: [call("bash", { command: `echo from-parent | tee ${dir}/parent.txt` })] }, { tools: [call("subagent", { tasks: ["@@REF:writer@@"] })] }]);
-	for (const [name, text] of [["sub.txt", "from-sub\n"], ["parent.txt", "from-parent\n"], ["second.txt", "from-second-sub\n"]]) assert.equal(fs.readFileSync(path.join(dir, name), "utf8"), text);
+	await run([{ tools: [call("request_access", { path: dir, write: true, reason: "save the result" })] }, { tools: [call("bash", { command: `echo from-parent | tee ${dir}/parent.txt` })] }, { tools: [call("subagent", { tasks: ["@@REF:writer@@"] })] }]);
+	for (const [name, text] of [["parent.txt", "from-parent\n"], ["second.txt", "from-second-sub\n"]]) assert.equal(fs.readFileSync(path.join(dir, name), "utf8"), text);
 	assert.equal(asked.length, 2);
 
 	// Another conversation of the same agent has none of it, and a reset ends it here.

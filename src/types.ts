@@ -61,6 +61,9 @@ export interface TaskMeta {
 	/** Child sessions of a sub-agent get no delegation tools and an optional narrower tool list. */
 	leaf?: boolean;
 	tools?: string[];
+	/** A sub-agent that does not run on its agent's model or at its reasoning level: what the conversation that started it chose. */
+	model?: string;
+	thinking?: string;
 	label?: string;
 	/** This message was given to a task that was already working (that task's id) instead of becoming work of its own. */
 	steered?: number;

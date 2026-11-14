@@ -173,7 +173,8 @@ line saying so; a cancelled one sends nothing.
   `wait: false` the answer arrives later as a message in the caller's session.
 - `subagent` runs several copies of the same agent in parallel, each with its own task and an
   empty context, and returns their final answers. It keeps large searches out of the caller's
-  context.
+  context. The copies can run on another model than the agent's own (`model`) and reason more
+  or less (`thinking`).
 - Shared state (`state_get`, `state_set`) holds small facts such as `house/mode` that every agent
   can read and that can be shown to an agent in every turn.
 - `publish_event` lets an agent put an event on a topic you allowed, which routes then act on.

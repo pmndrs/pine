@@ -41,10 +41,10 @@ export const DECLARED_SERVERS = ["web"];
  * was two calls of one tool, and a model sends two calls of one tool in two answers about half the
  * time; as two tools it sends them in one, as it does when every tool is declared by itself.
  */
-const LISTS = ["sources", "schedules", "mcp_servers", "skills", "agents", "settings", "routes", "conversations"];
+const LISTS = ["sources", "schedules", "mcp_servers", "skills", "models", "agents", "settings", "routes", "conversations"];
 
 const GROUPS: Array<[id: string, name: string, about: string, tools: string[]]> = [
-	["lists", "pine_list", "What there is: the lists of what you have and of what pine has. Use it when your owner asks what you are watching, what is scheduled, which servers, skills, agents or conversations there are, or how pine is set up", LISTS],
+	["lists", "pine_list", "What there is: the lists of what you have and of what pine has. Use it when your owner asks what you are watching, what is scheduled, which servers, skills, models, agents or conversations there are, or how pine is set up", LISTS],
 	[
 		"sources",
 		"pine_sources",
@@ -100,6 +100,7 @@ const BRIEF: Record<string, string> = {
 	list_mcp_resource_templates: "list the resource templates of MCP servers",
 	read_mcp_resource: "read a resource of an MCP server",
 	skills: "your skills and whom each is for",
+	models: 'the models your owner has set up, as provider/model, and what each can do: what subagent takes as "model"',
 	add_skill: 'write down how something is done, so that you can do it again without being told ("remember how to do this"); the same name replaces it. A fact belongs into MEMORY.md instead',
 	remove_skill: "remove a skill (to change one: add it again under the same name)",
 	agents: "pine's agents: what each is for, its model, mode, reach and what it has; with \"id\", one agent in full with its instructions",
@@ -210,6 +211,8 @@ const CHOICES: Record<string, string[]> = {
 };
 
 /** What a sub-agent is told when it calls what is not its to do. */
+/** What a sub-agent is told where its owner would be asked: it works by itself, and nobody is asked on its behalf. */
+export const SUBAGENT_CANNOT_ASK = "You are a sub-agent: your owner is not asked on your behalf, and this needs their yes. Do not retry and do not look for another way. Say in your answer what you needed and why; the conversation that started you can ask.";
 export const NOT_A_SUBAGENTS = "You are a sub-agent: this is not yours to do. Say in your answer what should be done, and the conversation that started you sees to it.";
 
 interface Tool {
@@ -268,7 +271,7 @@ const SHORT: Record<string, string> = {
 	bash: "Run a bash command in the current folder; returns stdout and stderr (long output is cut to its last 2000 lines, the whole is saved to a file).",
 	edit: "Change a file by exact text replacement. Each edits[].oldText must match the file exactly and only once, edits must not overlap, and all changes to one file go into one call.",
 	delegate: 'Hand a task to another agent and get its answer. It sees only what you write in "task", so include everything it needs.',
-	subagent: "Run up to 4 independent sub-tasks in parallel. Each is a copy of you with an empty context and returns only its answer, so each task must be complete on its own. For research or checks that would fill your context.",
+	subagent: "Run up to 4 independent sub-tasks in parallel. Each is a copy of you with an empty context and returns only its answer, so each task must be complete on its own. For research or checks that would fill your context. With \"model\" the copies run on another model than yours, for work it does better (models lists them).",
 	todo: "Keep a short list of the steps of a task that has several. Send the whole list each time: at the start, when a step begins (in_progress, one at a time) and when one is done. Your owner sees it. An empty list clears it.",
 	question: "Ask your owner one question you cannot go on without. Offer two to six short answers when you can, the one you recommend first. Not for permission: that is asked by itself.",
 	manual: 'Search pine\'s own manual: how pine works and is set up (your tools, event sources and their options, schedules, MCP servers, skills, agents, every configuration key, modes and approvals, the sandbox, the terminal UI, the pine command). "search": short queries in plain words, one thing each. "read": ids of parts to read in full. Search first, then read the part that fits.',

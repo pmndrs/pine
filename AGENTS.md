@@ -34,7 +34,7 @@ src/
   agents.ts         AgentManager: task queue, pi sessions, conversations, the policy gate, the download tool, context block
   tools.ts          the tools pine gives an agent: delegate, subagent, publish_event, send, request_access, state_get,
                     state_set, question, todo, stop_program, manual; the lists of what it has (sources, schedules,
-                    mcp_servers, skills); and the setup tools (subscribe, unsubscribe, add_/remove_ source, source_type,
+                    mcp_servers, skills, models); and the setup tools (subscribe, unsubscribe, add_/remove_ source, source_type,
                     mcp_server, skill, schedule, model_server; create_agent); and the main agent's tools for
                     conversations (conversations, read_conversation, set_conversation, remove_conversation)
   agent-admin.ts    create_agent: checks a proposed agent and writes its folder
@@ -238,7 +238,9 @@ These are invariants. A change that breaks one needs a test that shows why it is
 4. **Untrusted runs get their capabilities by registration.** Tools and MCP servers that the
    untrusted profile does not list are not registered in that session at all, and the session
    key gets `~u` so history is never shared with the owner's session. The app control server
-   is never registered for such a run, whatever the profile lists (`profileFor`).
+   is never registered for such a run, whatever the profile lists (`profileFor`). Where its
+   profile gives it sub-agents, they are copies and nothing else: `model` and `thinking` of
+   `subagent` are the owner's conversations' to give, and are not declared to such a run.
 5. **Every tool call passes `tool_call` in `coreExtension()`, and has a class.** That is where
    deny patterns, the bash time limit, path checks, taint marking and approvals happen.
    `classify()` in `src/actions.ts` is the one place that says what a call is (look, local,
@@ -251,7 +253,12 @@ These are invariants. A change that breaks one needs a test that shows why it is
    owner's own `approve` list, and everything in manual mode. "Always here" is offered wherever
    the same question would come again; for a critical call it is kept by the kind of action
    (`action.note`), not for the whole tool. Do not make `reach`, `local` or `own` ask outside
-   manual mode. A tool of the app control server has its class from `ctx.app`: looking is
+   manual mode. A sub-agent never waits for the owner: where anything would ask, a sub-agent's
+   session is refused with `SUBAGENT_CANNOT_ASK` (`lone` in `coreExtension`, `profile.leaf` in
+   `src/tools.ts`), and its conversation can ask. A new place that asks does the same. A
+   sub-agent differs from its conversation in the model it runs on and how much it reasons
+   (`TaskMeta.model`, `.thinking`; `modelOf`), and in nothing the gate looks at.
+   A tool of the app control server has its class from `ctx.app`: looking is
    `look`, acting is `local`, so that a click is not asked about. What stands in for that is
    the owner's yes per app (rule 13); do not take one away without the other.
 6. **Secrets stay in `.env`.** They are interpolated into the configuration and never exported to

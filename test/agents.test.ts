@@ -113,6 +113,49 @@ test("delegation loops and over-deep chains are refused with a message the model
 	await h.close();
 });
 
+test("sub-agents run on the model and at the reasoning level their conversation chose, and only the owner's conversations choose", async () => {
+	const thinks = { reasoning: true, compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: true, thinkingFormat: "openai", maxTokensField: "max_tokens" } };
+	const h = await harness({ models: [{ id: "eyes", ...thinks }, { id: "quick" }], agents: { main: { agent: { untrusted: { tools: ["read"], subagents: true } }, files: { "seen.txt": "IN-THE-WORKSPACE\n" } } } });
+	const call = (name: string, args: any = {}) => ({ name, args });
+	const childOf = (marker: string) => h.mock.state.requests.filter((q: any) => users(q)[0]?.includes(marker) && !users(q)[0].includes("<<MOCK"));
+	h.mock.state.scripts.look = [{ tools: [call("read", { path: "seen.txt" })] }, { text: "looked" }];
+	h.mock.state.scripts.plain = [{ text: "plain" }];
+
+	// What there is to choose from, the agent is told by a tool.
+	let r = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("models")] }]), ...owner });
+	assert.match(h.toolResults()[0], /^3 models:\n- mock\/eyes: text only, reasons\n- mock\/m \(yours\): sees pictures\n- mock\/quick: text only\n/);
+
+	// The id alone is enough where one model has it. The copy has the agent's files, tools and instructions: only the model differs.
+	r = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("subagent", { tasks: ["@@REF:look@@"], model: "eyes", thinking: "high" })] }, { tools: [call("subagent", { tasks: ["@@REF:plain@@"] })] }]), session: "chooses", ...owner });
+	assert.equal(r.status, "done");
+	const [chosen, own] = [childOf("@@REF:look@@"), childOf("@@REF:plain@@")];
+	assert.deepEqual([...new Set(chosen.map((q: any) => q.body.model))], ["eyes"], "every request of the sub-agent goes to the model it was given");
+	assert.deepEqual([...new Set(chosen.map((q: any) => q.body.reasoning_effort))], ["high"]);
+	assert.ok(h.toolResults(chosen.at(-1)).some((x) => x.includes("IN-THE-WORKSPACE")), "it works in the agent's workspace");
+	assert.match(notesOf(chosen[0]).join("\n"), /The model you run on: mock\/eyes/);
+	assert.deepEqual([...new Set(own.map((q: any) => q.body.model))], ["m"], "without a model a sub-agent is a copy, model included");
+	assert.deepEqual([...new Set(h.mock.state.requests.filter((q: any) => !chosen.includes(q)).map((q: any) => q.body.model))], ["m"], "the conversation itself stays on the agent's model");
+	const task = h.pine.tasks.list({ limit: 100 }).find((t) => t.kind === "subagent" && t.meta.model);
+	assert.deepEqual([task?.meta.model, task?.meta.thinking], ["mock/eyes", "high"]);
+
+	// What does not exist is said with what does, and nothing starts.
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("subagent", { tasks: ["x"], model: "nemo" }), call("subagent", { tasks: ["x"], thinking: "hard" })] }]), session: "wrong", ...owner });
+	assert.match(h.toolResults()[0], /there is no model "nemo"\. Models: mock\/eyes, mock\/m, mock\/quick/);
+	assert.match(h.toolResults()[1], /"thinking" is one of off, minimal, low, medium, high, xhigh, max/);
+	assert.equal(h.pine.tasks.list({ limit: 100 }).filter((t) => t.kind === "subagent").length, 2);
+
+	// A run that outside content started has sub-agents only where the owner said so, and they are copies: it chooses no model.
+	const n = h.mock.state.requests.length;
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("subagent", { tasks: ["@@REF:plain@@"], model: "eyes", thinking: "high" })] }]), trust: "untrusted" });
+	const outside = h.mock.state.requests.slice(n);
+	assert.match(h.toolResults()[0], /work on your own model and at your own reasoning level/);
+	assert.deepEqual([...new Set(outside.map((q: any) => q.body.model))], ["m"]);
+	const declared = (outside[0].body.tools ?? []).map((t: any) => t.function ?? t).find((t: any) => t.name === "subagent");
+	assert.deepEqual(Object.keys(declared.parameters.properties), ["tasks"], "it is not offered the choice either");
+	assert.ok(!h.toolsOffered(outside[0]).includes("models"));
+	await h.close();
+});
+
 test("sub-agents run in parallel with fresh contexts, even when only one model slot exists", async () => {
 	for (const maxConcurrentRuns of [1, 3]) {
 		const h = await harness({ pine: { limits: { maxConcurrentRuns } }, agents: { main: { files: { "AGENTS.md": "WS-MAIN\n" } } } });

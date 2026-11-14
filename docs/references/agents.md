@@ -417,16 +417,41 @@ agent. "Contract law; knows the case files in its workspace" works;
 
 ## Sub-agents
 
-`subagent(tasks: string[])` runs up to `subagents.maxParallel` copies of the same agent at once
-(4 unless the agent's `agent.json` says otherwise).
+`subagent(tasks: string[], model?, thinking?)` runs up to `subagents.maxParallel` copies of the
+same agent at once (4 unless the agent's `agent.json` says otherwise).
 Each copy has the agent's workspace, instructions and tools but an empty conversation, cannot
 delegate or spawn further, and returns only its final answer. Use it for searches and checks
 that would otherwise fill the context:
 
 > Find every clause about notice periods in `contracts/`. Use sub-agents, one per file.
 
-A sub-agent works under the permissions of the conversation that started it: access you granted
-there and your "always" answers apply to it, and what it is granted applies to the conversation.
+| Argument | What it does |
+|---|---|
+| `tasks` | One task per sub-agent. A sub-agent sees nothing of the conversation, so each task says everything it needs: what to do, which files (by their path), what to answer. |
+| `model` | Another model for these sub-agents than the agent's own, as `provider/model` (the id alone is enough where only one model has it). For work another model does better: one that sees pictures, a small fast one for many simple checks, a large one for a hard part. The `models` tool lists what there is. Left out: the agent's own model. |
+| `thinking` | How much these sub-agents reason: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. A model that cannot reason ignores it. Left out: the agent's own level. |
+
+A sub-agent on another model is still the same agent: the same workspace, files, tools,
+instructions and permissions. Only the model that reads and answers is another one. So a file is
+handed to it by its path, also a picture or a file an event source received
+([sources.md](sources.md), "Files a source received"): the sub-agent opens it with `read`, and a
+model that sees pictures is shown it. A video or a sound file is not shown to any model; the
+sub-agent turns a video into pictures first, as the agent itself would.
+
+> Have a sub-agent on local/nemo look at the camera clip and describe who is in the garden.
+
+The model of the conversation itself does not change this way: that is `update_agent` of the
+main agent, `/model` in the terminal UI or `pine agent update`. A run that an outside event
+started has sub-agents only where its `untrusted` profile allows them, and they run on the
+agent's own model: such a run chooses none.
+
+A sub-agent works under the permissions of the conversation that started it: the access you
+granted there, your "always" answers and the conversation's folder apply to it. It never waits
+for you. Where you would be asked (a critical action, a path outside what the conversation has,
+a question), the sub-agent is refused and told to say in its answer what it needed, and the
+conversation that started it can ask you. So allow what sub-agents will need before they start
+(`request_access` in the conversation). In manual mode, where every action waits for your
+go-ahead, a sub-agent only reads, unless you answered "always" for a tool there.
 It has the agent's MCP servers (unless `subagents.mcp` is `false`) and all its tools, or the
 ones listed in `subagents.tools`.
 

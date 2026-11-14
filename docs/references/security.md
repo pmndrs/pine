@@ -472,9 +472,13 @@ never in a run started from outside. See [computer.md](computer.md).
 
 **Sub-agents share their conversation's permissions.** A sub-agent is a copy of the agent doing
 part of the conversation's job, so it works under what you allowed there: the access you
-granted, your "always" answers, and your answer on whether the conversation keeps your account. It works the other way too: what a sub-agent asks for and
-gets holds for the conversation and its other sub-agents, so you are asked once, not once per
-copy. Nothing is widened by this: a sub-agent inherits the conversation's outside-content mark
+granted, your "always" answers, and your answer on whether the conversation keeps your account.
+A sub-agent never asks you anything itself: it works unattended, often several at once, and a
+question would leave it waiting. Where you would be asked, it is refused and told to say in its
+answer what it needed, and the conversation that started it asks you, once. The model a
+sub-agent runs on can be another one than the agent's (`model` of `subagent`); nothing of the
+above depends on the model, and a run started by an outside event chooses none. Nothing is
+widened by this: a sub-agent inherits the conversation's outside-content mark
 as well, and another conversation of the same agent, or a run started by an outside event, has
 none of it. An agent that a task is *delegated* to is a different agent with its own sandbox and
 its own permissions.

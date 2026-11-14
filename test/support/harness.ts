@@ -102,7 +102,7 @@ const write = (file: string, content: string) => {
 	fs.writeFileSync(file, content);
 };
 
-export async function harness(spec: { pine?: Record<string, unknown>; agents: Record<string, AgentSpec>; files?: Record<string, string>; model?: Record<string, unknown>; mock?: any; mockOptions?: Record<string, unknown>; start?: boolean }): Promise<Harness> {
+export async function harness(spec: { pine?: Record<string, unknown>; agents: Record<string, AgentSpec>; files?: Record<string, string>; model?: Record<string, unknown>; /** More models of the scripted server, beside "m". */ models?: Array<Record<string, unknown>>; mock?: any; mockOptions?: Record<string, unknown>; start?: boolean }): Promise<Harness> {
 	const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-test-")));
 	const mock =
 		spec.mock ??
@@ -116,7 +116,7 @@ export async function harness(spec: { pine?: Record<string, unknown>; agents: Re
 		}));
 	write(
 		path.join(home, "models.json"),
-		JSON.stringify({ providers: { mock: { name: "Mock", baseUrl: mock.baseUrl, api: "openai-completions", apiKey: mock.apiKey ?? "sk-mock", models: [{ id: "m", name: "Mock", contextWindow: 128000, maxTokens: 4096, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...(spec.model ?? {}) }] } } }),
+		JSON.stringify({ providers: { mock: { name: "Mock", baseUrl: mock.baseUrl, api: "openai-completions", apiKey: mock.apiKey ?? "sk-mock", models: [{ id: "m", name: "Mock", contextWindow: 128000, maxTokens: 4096, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...(spec.model ?? {}) }, ...(spec.models ?? []).map((m) => ({ name: String(m.id), contextWindow: 128000, maxTokens: 4096, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...m }))] } } }),
 	);
 	// Tests script the model, and a scripted command must not reach the account of whoever runs
 	// them: every agent works in safe mode, in its sandbox, unless a test asks for another by name.

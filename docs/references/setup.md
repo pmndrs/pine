@@ -93,7 +93,7 @@ otherwise skipped are asked too (ending a subscription: in manual mode only).
 
 In plan mode nothing is set up: every tool that adds, removes, subscribes or sends is refused
 there without a question, and the agent says what it would set up. The tools that only list
-(`sources`, `schedules`, `mcp_servers`, `skills`) work in every mode and are never asked about.
+(`sources`, `schedules`, `mcp_servers`, `skills`, `models`) work in every mode and are never asked about.
 
 In a conversation that has read outside content two things are stricter, because what they
 write is read back as instructions or runs as a program. `add_skill` is put to you first,
@@ -116,6 +116,7 @@ by a guess and never by looking for a file.
 |---|---|
 | MCP servers: which are connected, which the agent has | `mcp_servers` |
 | Skills: what the agent knows how to do | `skills` |
+| Models: which are set up, and which one the agent runs on | `models` |
 | Events: sources, and who is subscribed and woken | `sources` |
 | Schedules: what happens at set times | `schedules` |
 
@@ -157,7 +158,8 @@ Which model the agent runs on is told to it with your message, so it needs no to
 | **Not setup: the other tools pine gives an agent** | |
 | `request_access` [`path`] [`write`] [`network`] `reason` | Asks you for access the conversation does not have: a file or folder outside the workspace (`path`; with `write: true` also to change it), or the network from the shell (`network: true`). You decide; a yes holds for the conversation until it is reset or pine restarts. pine's home is never granted. An agent does not have to call it: when a file tool or a shell command needs something outside, pine asks you the same question itself. See "When a call needs something outside" and "Modes" in [security.md](security.md). |
 | `delegate` `agent` `task` [`wait`] [`thread`] | Hands a task to another agent and gets its answer. Only there when the agent's `delegates` list is not empty. See [agents.md](agents.md). |
-| `subagent` `tasks` | Runs several copies of the agent side by side, one task each, and returns their answers. See [agents.md](agents.md). |
+| `subagent` `tasks` [`model`] [`thinking`] | Runs several copies of the agent side by side, one task each, and returns their answers. With `model` the copies run on another model than the agent's, with `thinking` at another reasoning level. They never ask you anything. See [agents.md](agents.md), "Sub-agents". |
+| `models` | Lists the models that are set up, as `provider/model`, with what each can do (see pictures, reason) and which one is the agent's own. This is how an agent answers "which models are there", and where it finds what `subagent` takes as `model`. |
 | `download` `url` `path` | Fetches a file from a web address into the workspace, byte for byte. It is how an agent gets a file that a remote MCP server made: by the link in the tool's answer, never by a file path from it. See "Downloads" in [security.md](security.md) and "Files and pictures from a remote server" in [mcp.md](mcp.md). |
 | `publish_event` `topic` [`text`] [`data`] | Publishes an event on a topic of the agent's `publish` list. Without that list the tool is not there. See [events.md](events.md). |
 | `state_get` `key`, `state_set` `key` `value` | Read and write shared state, within `state.read` and `state.write`. See "Shared state" in [agents.md](agents.md). |

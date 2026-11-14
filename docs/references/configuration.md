@@ -183,7 +183,7 @@ Every key is optional; `{}` is a valid agent.
 | Key | Default | Meaning |
 |---|---|---|
 | `delegates` | `["*"]` for the agent that `main` in `pine.json` names, else `[]` | Agents this one may hand tasks to. |
-| `subagents` | on, 4 in parallel | `false`, or `{ "maxParallel": 4, "tools": [...], "mcp": true }`. `tools` narrows what sub-agents get. |
+| `subagents` | on, 4 in parallel | `false`, or `{ "maxParallel": 4, "tools": [...], "mcp": true }`. `tools` narrows what sub-agents get. Which model they run on, the agent says call by call (`model` of `subagent`); without it, the agent's own. |
 | `publish` | `[]` | Topic patterns the `publish_event` tool may publish on. Empty: the agent has no such tool. |
 | `state.read` | `["#"]` | State keys the agent may read. |
 | `state.write` | `["agent/<id>/#"]` | State keys the agent may write. |

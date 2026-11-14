@@ -5,7 +5,8 @@ import { Type } from "typebox";
 import { type AgentConfig, effectiveMcp, mainAgentId, type McpServerConfig, PINE_ROOT, RESERVED_TOPICS, unsandboxed } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
 import { addRoute, type AgentChange, applyAgentChange, applySetting, checkAgentChange, checkRoute, checkSetting, dropRoute, routesText, SETTINGS, settingsText } from "./admin.ts";
-import type { AgentManager, Live, Profile } from "./agents.ts";
+import { type AgentManager, type Live, type Profile, THINKING_LEVELS } from "./agents.ts";
+import { SUBAGENT_CANNOT_ASK } from "./catalogue.ts";
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { addServer, mcpEnvName, removeServer, splitCommand, validateServer } from "./mcp-config.ts";
@@ -118,19 +119,63 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 		);
 	}
 
+	// Which models there are is the owner's setup, and an agent is told it by a tool: for a sub-agent
+	// on another model, and for the main agent, which gives agents their models.
+	const modelRef = (m: any) => `${m.provider}/${m.id}`;
+	/** A model as the owner set it up, from what an agent wrote: "provider/id", or the id alone where only one model has it. */
+	const pickModel = async (wanted: string): Promise<string> => {
+		const all = await manager.availableModels();
+		const w = wanted.trim().toLowerCase();
+		const found = all.filter((m) => m.toLowerCase() === w);
+		const byId = found.length ? found : all.filter((m) => m.slice(m.indexOf("/") + 1).toLowerCase() === w);
+		if (byId.length === 1) return byId[0];
+		throw new Error(byId.length ? `"${wanted}" is the name of ${byId.length} models: ${byId.join(", ")}. Give one of them in full.` : `there is no model "${wanted}". Models: ${all.slice(0, 40).join(", ")}`);
+	};
+	if (live.trust === "owner") {
+		tools.push(
+			defineTool({
+				name: "models",
+				label: "Models",
+				description: 'List the models your owner has set up, as provider/model, with what each can do (see pictures, reason) and which one is yours. Use it when your owner asks which models there are, and before you give sub-agents another model with "model" of subagent. Do not look for this in files: pine\'s files are closed to you.',
+				parameters: Type.Object({}),
+				execute: async () => {
+					const mine = agent.model ?? cfg.defaults.model;
+					const all = [...(await manager.models.getAvailable())].sort((x: any, y: any) => modelRef(x).localeCompare(modelRef(y)));
+					if (!all.length) return ok("No model is set up.");
+					const lines = all.slice(0, 60).map((m: any) => `- ${modelRef(m)}${modelRef(m) === mine ? " (yours)" : ""}: ${m.input?.includes("image") ? "sees pictures" : "text only"}${m.reasoning ? ", reasons" : ""}`);
+					return ok(`${all.length} model${all.length === 1 ? "" : "s"}:\n${lines.join("\n")}${all.length > 60 ? `\n... and ${all.length - 60} more` : ""}\n\nsubagent takes one of them as "model", for sub-tasks another model does better than yours. Your own model is changed by your owner${agent.id === mainAgentId(cfg) ? " or by you with update_agent" : ` or by the main agent (${mainAgentId(cfg)})`}, not by you.`);
+				},
+			}),
+		);
+	}
+
 	if (profile.subagents) {
+		// Another model costs what that model costs: a run that outside content started does not choose one.
+		const choose = live.trust === "owner";
 		tools.push(
 			defineTool({
 				name: "subagent",
 				label: "Sub-agents",
-				description: `Run up to ${agent.subagents.maxParallel} independent sub-tasks in parallel. Each runs as a copy of you with a fresh, empty context in the same workspace and returns only its final answer. Use it for research or checks that would otherwise fill your context. Each task text must be self-contained.`,
-				parameters: Type.Object({ tasks: Type.Array(Type.String(), { minItems: 1, description: "One self-contained task per sub-agent" }) }),
-				execute: async (_id, p, signal) => {
+				description: `Run up to ${agent.subagents.maxParallel} independent sub-tasks in parallel. Each runs as a copy of you with a fresh, empty context in the same workspace and returns only its final answer. Use it for research or checks that would otherwise fill your context. Each task text must be self-contained. A copy has your files and tools and what your owner allowed this conversation.${choose ? ' With "model" the copies run on another model than yours, for work it does better (a model that sees pictures, a small fast one); with "thinking" they reason more or less than you.' : ""}`,
+				parameters: Type.Object({
+					tasks: Type.Array(Type.String(), { minItems: 1, description: "One self-contained task per sub-agent" }),
+					...(choose
+						? {
+								model: Type.Optional(Type.String({ description: "Another model for these sub-tasks, as provider/model. Leave out for your own. The models tool lists them" })),
+								thinking: Type.Optional(Type.String({ description: `Reasoning level for them, one of ${THINKING_LEVELS.join(", ")}. Leave out for your own` })),
+							}
+						: {}),
+				}),
+				execute: async (_id, p: any, signal) => {
 					const r = run();
 					if (p.tasks.length > agent.subagents.maxParallel) throw new Error(`at most ${agent.subagents.maxParallel} sub-tasks per call`);
+					if ((p.model || p.thinking) && !choose) throw new Error('sub-agents of this run work on your own model and at your own reasoning level: leave out "model" and "thinking"');
+					const model = p.model ? await pickModel(String(p.model)) : undefined;
+					const thinking = p.thinking ? String(p.thinking).trim().toLowerCase() : undefined;
+					if (thinking && !THINKING_LEVELS.includes(thinking)) throw new Error(`"thinking" is one of ${THINKING_LEVELS.join(", ")}`);
 					const ids = p.tasks.map(
 						(t: string) =>
-							manager.submit({ agent: agent.id, prompt: t, session: "new", kind: "subagent", parent: r.task, tainted: live.tainted, leaf: true, tools: agent.subagents.tools, label: truncate(t, 80) }).id,
+							manager.submit({ agent: agent.id, prompt: t, session: "new", kind: "subagent", parent: r.task, tainted: live.tainted, leaf: true, tools: agent.subagents.tools, model, thinking, label: truncate(t, 80) }).id,
 					);
 					const res = await manager.awaitChildren(r, ids, signal);
 					res.forEach((x, i) => absorb(`sub-agent ${i + 1}`, x));
@@ -199,6 +244,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				}),
 				execute: async (_id, p) => {
 					const r = run();
+					// A sub-agent works by itself: nobody waits for an answer on its behalf.
+					if (profile.leaf) return ok("You are a sub-agent: your owner is not asked on your behalf. Go on with the most reasonable assumption and say in your answer which one you made, or say there what you need to know.");
 					const text = String(p.question ?? "").trim();
 					if (!text) throw new Error("give the question");
 					const choices = [...new Set((p.choices ?? []).map((c) => truncate(String(c).replace(/\s+/g, " ").trim(), 80)).filter(Boolean))].slice(0, 6);
@@ -253,6 +300,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const kind = p.network ? "network" : p.write ? "write" : "read";
 					const what = p.network ? "network access from the shell" : `${p.write ? "read and write" : "read"} access to ${p.path}`;
 					if (live.mode() === "bypass" || live.wide()) return ok(live.mode() === "bypass" ? "You already have that access in bypass mode." : "You already have that access: your shell and file tools reach your owner's whole account and the network.");
+					if (profile.leaf) throw new Error(SUBAGENT_CANNOT_ASK);
 					const decision = await r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "request_access", holds: "this conversation", summary: `${what}\nreason: ${p.reason}`, why: `the agent asks for access beyond its sandbox, for this conversation${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
 					if (!decision.allow) throw new Error(`not granted (${decision.by}). Do not retry; work without it or tell your owner what is missing.`);
 					const refused = live.grant(kind, p.path);
@@ -292,6 +340,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 	/** Put something to the owner. With `inputs` they also type values that must not pass through a model, which come back in the decision. */
 	const confirm = (tool: string, summary: string, why: string, signal: AbortSignal | undefined, inputs?: Array<{ name: string; label: string; secret?: boolean }>) => {
 		const r = run();
+		// A sub-agent never waits for the owner (the gate in coreExtension says the same).
+		if (profile.leaf) throw new Error(SUBAGENT_CANNOT_ASK);
 		return r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool, summary, why, ...(inputs?.length ? { inputs } : {}) }, signal));
 	};
 	const careful = () => (live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : "");
@@ -324,6 +374,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 				const r = run();
 				const summary = scope === "global" ? `subscribe ALL agents to the event source "${name}"` : `subscribe the agent ${agent.id} as such to the event source "${name}": its main conversation is woken, not this one, and it stays when this conversation is closed`;
 				const why = scope === "global" ? "this changes what wakes every agent, not only this one" : "asked for in another conversation than the one that will be woken. Deny it if you meant this conversation only";
+				if (profile.leaf) throw new Error(SUBAGENT_CANNOT_ASK);
 				const decision = await r.slot.suspend(() => manager.approvals.request({ agent: asker, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: "subscribe", summary: `${summary}${details.note ? `\nNote: ${details.note}` : ""}`, why }, signal));
 				if (!decision.allow) throw new Error(`not subscribed (${decision.by}). Do not retry with this scope. If your owner meant this conversation only, subscribe without a scope.`);
 			}
@@ -1401,6 +1452,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					const whose = targetId === agent.id ? `your conversation "${key}"` : `the agent ${target.id}${session ? `, its conversation "${session}"` : ""}`;
 					// Ending what wakes another agent is taking something away, and that tool asks nobody.
 					if (tool.name === "unsubscribe") {
+						if (profile.leaf) throw new Error(SUBAGENT_CANNOT_ASK);
 						const decision = await r.slot.suspend(() => manager.approvals.request({ agent: agent.id, task: r.task.id, root: r.task.meta.root ?? r.task.id, tool: tool.name, summary: `end a subscription of ${whose} to the event source "${String(rest.source ?? "")}"`, why: `this changes what wakes ${targetId === agent.id ? "another conversation" : "another agent"}${live.tainted ? ". Careful: this conversation has read outside content, which may be where the request comes from" : ""}` }, signal));
 						if (!decision.allow) throw new Error(`not done (${decision.by}). Do not retry; tell your owner.`);
 					}
