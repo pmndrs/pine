@@ -34,12 +34,11 @@ async function liveModel(t: { after(fn: () => unknown): void }): Promise<{ mock:
 }
 
 test("live: the main agent hands a question to a specialist, which reads its own files", { skip: !live, timeout: 240_000 }, async (t) => {
-	const model = await startClaudeModel({ model: process.env.PINE_LIVE_MODEL ?? "haiku", log: (l) => process.env.PINE_TEST_LOG && console.error(l) });
-	t.after(() => model.close());
+	const m = await liveModel(t);
 	const h = await harness({
-		mock: { baseUrl: model.baseUrl, port: model.port, state: { requests: [] } },
-		model: { contextWindow: 180000, maxTokens: 4096, input: ["text"] },
-		pine: { main: "main", routes: [{ on: "hook/mail", agent: "main", session: "new" }] },
+		mock: m.mock,
+		model: m.model,
+		pine: { main: "main", defaults: { model: m.ref }, routes: [{ on: "hook/mail", agent: "main", session: "new" }] },
 		agents: {
 			main: { agent: { description: "front desk" }, persona: "You are the front desk. You have no files of your own. Questions about tenancy cases go to the gonzo agent.\n" },
 			gonzo: { agent: { description: "Knows the tenancy case files in its workspace", tools: ["read", "bash", "grep", "find", "ls"] }, persona: "You answer questions about tenancy cases from the files in your workspace. Look before you answer.\n", files: { "cases/okapi.md": "# Okapi tenancy\n\nThe notice period agreed in the Okapi tenancy is 7 weeks.\n" } },
