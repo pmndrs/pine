@@ -94,6 +94,17 @@ test("linux sandbox: the same rules as on macOS, said with mounts", async (t) =>
 	const sealed = (list: string[]) => list.flatMap((x, i) => (x === "--remount-ro" ? [list[i + 1]] : []));
 	assert.deepEqual(sealed(args).sort(), [m.userHome, m.pineHome, m.other, path.join(m.root, "run", "user")].sort());
 	assert.ok(args.lastIndexOf("--bind") < args.indexOf("--remount-ro") && args.lastIndexOf("--tmpfs") < args.indexOf("--remount-ro"), "after everything was put in its place");
+	// What an event source received lies in pine's data folder, which is closed: that folder is
+	// put back for reading, before the empty folders are sealed, and nothing beside it.
+	const files = m.mk("home/me/.pine/data/sources/cam/files");
+	const got = bwrapArgs({ ...m.jail, sources: [files] });
+	assert.equal(fate(got, path.join(files, "clip.mp4")), "ro-bind");
+	assert.equal(fate(got, path.join(m.pineHome, "data", "sources", "cam", "state.json")), "tmpfs");
+	assert.equal(fate(got, path.join(m.pineHome, "data", "pine.db")), "tmpfs");
+	assert.ok(got.lastIndexOf(files) < got.indexOf("--remount-ro"));
+	// A watched folder in the agent's own workspace stays as writable as it was.
+	const inbox = m.mk("home/me/.pine/agents/main/workspace/inbox");
+	assert.equal(fate(bwrapArgs({ ...m.jail, sources: [inbox] }), path.join(inbox, "a.pdf")), "bind");
 	// Network only when it was granted.
 	assert.ok(!bwrapArgs({ ...m.jail, network: true }).includes("--unshare-net"));
 	// What does not exist is not mounted: bwrap would otherwise create it on the real disk.

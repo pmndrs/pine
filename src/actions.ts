@@ -99,15 +99,19 @@ export function criticalCommand(command: string): string | undefined {
  * of the command line, so it is a net and not a wall: what a script or a variable holds is not
  * seen, and a command that walks a whole folder is not followed into it.
  */
-export function pineOwn(command: string, o: { home: string; own: string[]; code: string; cwd: string; ownerHome: string; port?: number }): string | undefined {
+export function pineOwn(command: string, o: { home: string; own: string[]; code: string; cwd: string; ownerHome: string; port?: number; received?: string[] }): string | undefined {
 	const where = { cwd: o.cwd, shellHome: o.ownerHome, ownerHome: o.ownerHome };
 	const closed = (p: string) => isInside(o.home, p) && !o.own.some((r) => isInside(r, p));
+	// What the agent's event sources received lies in pine's home and is read all the same.
+	const fromSource = (p: string) => Boolean(o.received?.some((r) => isInside(r, p)));
 	// A path with ".." is read from where the shell starts. After a "cd" that is no longer where
 	// the command is, so only what stands up to the first one is read that way.
 	const moved = /(^|[;&|(\n])\s*(cd|pushd)\s+("[^"]*"|'[^']*'|[^\s;&|)]+)/.exec(command);
 	const start = moved ? command.slice(0, moved.index + moved[0].length) : command;
 	const named = [...reaches(command, where).filter((r) => !r.text.startsWith("..")), ...reaches(start, where).filter((r) => r.text.startsWith(".."))];
-	const hit = named.find((r) => closed(realish(r.path)));
+	const changed = named.find((r) => r.write && closed(realish(r.path)) && fromSource(realish(r.path)));
+	if (changed) return `${changed.text} is a file an event source received, which you can read and not change: copy it into your workspace and work on the copy`;
+	const hit = named.find((r) => closed(realish(r.path)) && !fromSource(realish(r.path)));
 	if (hit) return `${hit.text} is part of pine itself, which is closed to every agent in every mode`;
 	// pine's program files can be read. What a command plainly writes there (a redirect, touch, rm, cp to it) is not run.
 	const written = named.find((r) => r.write && isInside(o.code, realish(r.path)));

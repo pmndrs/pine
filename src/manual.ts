@@ -76,7 +76,7 @@ const SYNONYMS: string[][] = [
 	["goal", "objective", "target", "aim", "mission", "autonomous", "autonomously", "unattended", "nonstop", "overnight"],
 	["error", "problem", "fail", "broken", "troubleshoot", "debug", "wrong", "stuck"],
 	["log", "history", "audit", "record", "trace"],
-	["image", "picture", "photo", "screenshot", "video", "media"],
+	["image", "picture", "photo", "screenshot", "video", "media", "clip"],
 	["sound", "audio", "speech", "voice", "music", "hear", "wav", "mp3"],
 	["dictate", "dictating", "dictation", "microphone", "talk", "talking", "speak", "speaking"],
 	["browser", "web", "playwright", "page", "search"],

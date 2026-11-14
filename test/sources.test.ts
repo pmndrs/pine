@@ -277,6 +277,61 @@ test("sources: an FTP drop takes uploads from a device that knows the password, 
 	await h.close();
 });
 
+test("sources: what a source received, the agents subscribed to it read and do not change; nobody else reads it, and nothing beside it opens", { skip: !sandboxAvailable() }, async () => {
+	const free = await freePort();
+	const h = await harness({
+		pine: { sources: { cam: { type: "ftp", host: "127.0.0.1", port: free, user: "cam", password: "garden-cam-pass" } } },
+		agents: { main: {}, kevin: { agent: { subscribe: { cam: { throttle: "0s", separate: true } } } }, other: {} },
+	});
+	// A clip: not a picture, so the model is shown nothing, and the event carries where it lies.
+	const cam = await ftpClient(free);
+	await cam.cmd("USER cam");
+	await cam.cmd("PASS garden-cam-pass");
+	await cam.cmd("TYPE I");
+	const data = await cam.passive();
+	assert.match(await cam.cmd("STOR garden_001.mp4"), /^150 /);
+	data.end(Buffer.from("CLIP-FRAMES-0815"));
+	assert.match(await cam.reply(), /^226 /);
+	cam.close();
+	await until(() => h.pine.tasks.list({ agent: "kevin", session: "on-cam~u" }).some((x: any) => x.status === "done"), 6000, "the upload to wake the agent");
+	const clip = (h.pine.bus.query({ topic: "source/cam/upload" })[0].payload as any).path as string;
+	assert.ok(clip.startsWith(path.join(h.home, "data", "sources", "cam", "files") + path.sep), clip);
+	const beside = path.join(h.home, "data", "sources", "cam", "notes.txt");
+	fs.writeFileSync(beside, "BESIDE-THE-FILES\n");
+	const look = [{ name: "bash", args: { command: `cat ${clip}` } }, { name: "read", args: { path: clip } }, { name: "bash", args: { command: `ls ${path.dirname(clip)} && realpath ${clip} && cp ${clip} copy.mp4 && cat copy.mp4` } }];
+	const said = (i: number) => h.toolResults()[i] ?? "";
+	// Each time in a conversation of its own, so that the results are those of the calls just made.
+	let n = 0;
+	const ask = (agent: string, tools: any[], trust: "owner" | "untrusted" = "owner") => h.pine.agents.run({ agent, session: `c${n++}`, prompt: mockMsg([{ tools }]), trust });
+
+	// The agent that is subscribed reads it, with its shell and with its file tools, and can take a copy to work on.
+	await ask("kevin", look);
+	for (const i of [0, 1, 2]) assert.match(said(i), /CLIP-FRAMES-0815/, `call ${i}: ${said(i)}`);
+	// It does not change it or delete it, and what lies beside it in pine's data folder stays closed.
+	await ask("kevin", [{ name: "bash", args: { command: `echo x | tee ${clip}; rm ${clip}; echo tried` } }, { name: "write", args: { path: clip, content: "x" } }, { name: "bash", args: { command: `cat ${beside}; cat ${path.join(h.home, "pine.json")}; ls ${path.join(h.home, "data")}` } }, { name: "read", args: { path: beside } }]);
+	assert.equal(fs.readFileSync(clip, "utf8"), "CLIP-FRAMES-0815");
+	assert.match(said(1), /is a file an event source received\. You can read it, not change it: copy it into your workspace/);
+	assert.ok(!/BESIDE-THE-FILES|"sources"|pine\.db/.test(said(2)), said(2));
+	assert.match(said(3), /not accessible to agents/);
+	// A run that outside content started is the one that hears of the file first: it reads it too.
+	await ask("kevin", [{ name: "read", args: { path: clip } }], "untrusted");
+	assert.match(said(0), /CLIP-FRAMES-0815/);
+
+	// An agent that is not subscribed reads nothing of it.
+	await ask("other", look);
+	assert.ok(!h.toolResults().some((r: string) => r.includes("CLIP-FRAMES-0815")), h.toolResults().join(" | "));
+	assert.match(said(1), /not accessible to agents/);
+	// Subscribed, it does, at once; and when the subscription ends, so does that.
+	await h.pine.sources.subscribe("other", "cam");
+	await ask("other", look);
+	for (const i of [0, 1, 2]) assert.match(said(i), /CLIP-FRAMES-0815/, `call ${i}: ${said(i)}`);
+	await h.pine.sources.unsubscribe("other", "cam");
+	fs.rmSync(path.join(h.home, "agents", "other", "workspace", "copy.mp4"), { force: true });
+	await ask("other", look);
+	assert.ok(!h.toolResults().some((r: string) => r.includes("CLIP-FRAMES-0815")), h.toolResults().join(" | "));
+	await h.close();
+});
+
 test("sources: a module of your own is a source like the built-in ones", async () => {
 	const h = await harness({
 		pine: { sources: { beep: { use: "./sources/beep.ts", word: "hello", description: "says a word when asked" } } },

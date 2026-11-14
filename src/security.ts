@@ -60,6 +60,12 @@ export interface Roots {
 	secrets: string[];
 	/** Workspaces of the other agents. Agents exchange information through delegation, not through each other's files. */
 	others: string[];
+	/**
+	 * Folders of files that event sources received for this agent: its own sources and the ones it
+	 * is subscribed to (`received`). Read, never written, also where they lie in pine's data
+	 * folder, which is closed otherwise. Filled in by the session, since subscriptions come and go.
+	 */
+	sources: string[];
 }
 
 export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
@@ -91,7 +97,20 @@ export function rootsFor(cfg: PineConfig, agent: AgentConfig): Roots {
 			.filter((a) => a.id !== agent.id)
 			.map((a) => realish(a.workspace))
 			.filter((w) => ![...ownedRead, ...ownedWrite].some((own) => isInside(own, w) || isInside(w, own))),
+		sources: [],
 	};
+}
+
+/**
+ * Which of the folders that an agent's sources keep received files in the agent may read. A
+ * source of pine's keeps them in its own folder under `data/sources`, and that is the one part
+ * of pine's data that is opened. A folder elsewhere (a watched one) counts when it lies outside
+ * pine's home and is not another agent's: a subscription opens nothing that is closed for a reason.
+ */
+export function received(cfg: PineConfig, roots: Roots, dirs: string[]): string[] {
+	const kept = realish(path.join(cfg.dataDir, "sources"));
+	const about = (root: string, p: string) => isInside(root, p) || isInside(p, root);
+	return [...new Set(dirs.map(realish))].filter((d) => (isInside(kept, d) && d !== kept) || (!about(roots.home, d) && !roots.secrets.some((s) => about(s, d)) && !roots.others.some((o) => about(o, d))));
 }
 
 /**
@@ -127,7 +146,10 @@ export function checkPath(roots: Roots, kind: "read" | "write", given: string, c
 	const target = tilde(given);
 	const p = realish(path.isAbsolute(target) ? target : path.join(cwd, target));
 	const restricted = variant === true || variant === "restricted" || variant === "open-restricted";
-	if (roots.secrets.some((s) => isInside(s, p))) return `${target} is not accessible to agents`;
+	// What a source received for this agent is read, wherever it lies. It is not written: pine keeps and deletes it.
+	const fromSource = roots.sources.some((s) => isInside(s, p));
+	if (fromSource && kind === "read") return undefined;
+	if (roots.secrets.some((s) => isInside(s, p))) return fromSource ? `${target} is a file an event source received. You can read it, not change it: copy it into your workspace (${roots.workspace}) and work on the copy` : `${target} is not accessible to agents`;
 	if (isOpen(variant)) {
 		// Said as what it is: a model that reads "pine's own configuration" does not think of the tools that are for this.
 		if (roots.others.some((o) => isInside(o, p))) return `${target} is in another agent's workspace, which is closed to you. What that agent is told is read with the agents tool (id) and changed with update_agent (instructions, soul), by the main agent`;
@@ -171,7 +193,7 @@ export function outsidePath(roots: Roots, kind: "read" | "write", given: string,
  */
 export function shellRefuses(roots: Roots, kind: "read" | "write", p: string): boolean {
 	if (kind === "write") return !roots.write.some((r) => isInside(r, p));
-	return isInside(realish(os.homedir()), p) && !roots.read.some((r) => isInside(r, p));
+	return isInside(realish(os.homedir()), p) && ![...roots.read, ...roots.sources].some((r) => isInside(r, p));
 }
 
 /**
@@ -245,6 +267,12 @@ const GIT_RUNS_PROFILE = String.raw`(.*/)?\.git(/(modules/.+/)?(hooks(/.*)?|conf
 const q = (s: string) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 const rx = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const subpaths = (list: string[]) => list.map((p) => `(subpath ${q(p)})`).join(" ");
+/** The folders that lie between `root` and `p`, neither of the two among them. */
+const above = (root: string, p: string) => {
+	const out: string[] = [];
+	for (let d = path.dirname(p); d !== root && isInside(root, d); d = path.dirname(d)) out.push(d);
+	return out;
+};
 
 /**
  * macOS sandbox profile for everything an agent does on the file system: its shell commands and
@@ -304,6 +332,10 @@ export function sandboxProfile(_cfg: PineConfig, agent: AgentConfig, roots: Root
 		`(allow file-read* ${subpaths(roots.ownedRead)})`,
 		`(allow file-write* ${subpaths(roots.ownedWrite)})`,
 		`(deny file-read* file-write* ${subpaths([...roots.secrets, ...roots.others])}${said})`,
+		// What its event sources received: read, and nothing more. The folders on the way there can be
+		// seen to exist, which a program that resolves a path needs, and not listed.
+		...(roots.sources.length ? [`(allow file-read* ${subpaths(roots.sources)})`] : []),
+		...[...new Set(roots.sources.flatMap((s) => above(roots.home, s)))].map((d) => `(allow file-read-metadata (literal ${q(d)}))`),
 	];
 	if (restricted) lines.push(...frozen());
 	if (agent.sandbox.network || network) {
@@ -459,6 +491,7 @@ export function sandboxArgv(cfg: PineConfig, agent: AgentConfig, roots: Roots, v
 			ownedRead: roots.ownedRead,
 			ownedWrite: roots.ownedWrite,
 			closed: [...roots.secrets, ...roots.others, ...SESSIONS],
+			sources: roots.sources.filter(present),
 			network: net,
 			variant: v,
 			frozen: v === "restricted" ? protectedNow(protectedOf(roots)) : undefined,

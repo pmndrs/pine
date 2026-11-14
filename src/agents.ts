@@ -23,7 +23,7 @@ import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
 import { families, NOT_A_SUBAGENTS } from "./catalogue.ts";
 import { type Occupant, type Page, SlotBook } from "./slots.ts";
-import { type Approvals, checkPath, denialTools, globMatch, grantable, grantPath, isInside, isOpen, levelOf, matchesToolPattern, outsidePath, ownFileOf, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
+import { type Approvals, checkPath, denialTools, globMatch, grantable, grantPath, isInside, isOpen, levelOf, matchesToolPattern, outsidePath, ownFileOf, realish, received, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
 import { type AgentChange, applyAgentChange, checkAgentChange, countFiles, eraseAgent } from "./admin.ts";
 import { createAgent, type NewAgent } from "./agent-admin.ts";
 import type { Router } from "./router.ts";
@@ -2020,7 +2020,11 @@ export class AgentManager {
 		// is part of it, and so is the variant the run is in at that moment.
 		let network = false;
 		// Where the call works with the owner's account ("auto", "bypass") there is no sandbox: an empty prefix.
-		const jail = sandboxed ? (variant: SandboxVariant = live.variant(), tag?: string) => (isOpen(variant) ? [] : sandboxArgv(cfg, agent, roots, variant, network, tag)) : undefined;
+		// What the agent's event sources received is its to read. Looked up for every call: a
+		// subscription made a moment ago counts, and one that has ended no longer does.
+		const sourceFiles = () => void (roots.sources = received(cfg, roots, this.sources?.filesFor(agent.id) ?? []));
+		sourceFiles();
+		const jail = sandboxed ? (variant: SandboxVariant = live.variant(), tag?: string) => (isOpen(variant) ? [] : (sourceFiles(), sandboxArgv(cfg, agent, roots, variant, network, tag))) : undefined;
 		/** Whether the call that is about to run meets a sandbox. */
 		const boxed = () => Boolean(jail) && !isOpen(live.variant());
 		// What the conversation was granted before this session existed (a sub-agent starting later, or
@@ -2496,6 +2500,7 @@ export class AgentManager {
 				const input = event.input ?? {};
 				const run = live.current;
 				if (!run) return { block: true, reason: "no task is running in this session" };
+				sourceFiles();
 				// The folder as it is before the first thing a message does there: what the owner's undo goes back to (src/undo.ts).
 				await this.turns.touching(run.task);
 
@@ -2511,7 +2516,7 @@ export class AgentManager {
 					if (!jail && this.effectiveLevel(agent, live) === "safe") return { block: true, reason: "Not run: you are in safe mode, which runs your shell in a sandbox, and this machine has none. Your file tools work. Tell your owner what you wanted to run: they can switch you to auto mode, where your shell runs with their rights." };
 					// Without a sandbox nothing of the operating system keeps a command out of pine's own
 					// files. What the command names is read instead (pineOwn): a net, said to be one.
-					const own = boxed() ? undefined : pineOwn(command, { home: roots.home, own: [...roots.ownedRead, ...roots.ownedWrite], code: realish(PINE_ROOT), cwd: roots.cwd, ownerHome: realish(os.homedir()), port: cfg.http ? cfg.http.port : undefined });
+					const own = boxed() ? undefined : pineOwn(command, { home: roots.home, own: [...roots.ownedRead, ...roots.ownedWrite], received: roots.sources, code: realish(PINE_ROOT), cwd: roots.cwd, ownerHome: realish(os.homedir()), port: cfg.http ? cfg.http.port : undefined });
 					if (own) return { block: true, reason: pineOwnRefusal(own) };
 				}
 				const fileKind = FILE_TOOLS[tool];

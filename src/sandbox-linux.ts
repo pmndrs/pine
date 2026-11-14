@@ -32,6 +32,8 @@ export interface Jail {
 	ownedWrite: string[];
 	/** Closed even where a wider rule would open them. */
 	closed: string[];
+	/** What the agent's event sources received: read only, also inside what is closed (pine's data folder). */
+	sources?: string[];
 	/**
 	 * Folders in which the services of the machine listen (/run). They stay readable, but the
 	 * sockets in them are covered, for the case that the network (and with it sockets) is
@@ -189,6 +191,9 @@ export function bwrapArgs(jail: Jail): string[] {
 	const opened = [...jail.read, ...jail.write, ...own];
 	const hidden = (p: string) => (isInside(jail.pineHome, p) ? !own.some((r) => isInside(r, p)) : isInside(jail.userHome, p) && !opened.some((r) => isInside(r, p)));
 	for (const p of shallowFirst(jail.closed)) if (!hidden(p)) close(p);
+	// What its event sources received is put back for reading, after everything was closed. A
+	// folder the agent writes anyway (a watched one in its workspace) is left as it is.
+	for (const p of shallowFirst(jail.sources ?? [])) if (![...jail.write, ...jail.ownedWrite].some((r) => isInside(r, p))) ro(p);
 	// The services of the machine and of the desktop: what the macOS profile denies by name
 	// (keychain, clipboard, other programs) is reached through sockets here.
 	for (const p of sockets(jail.shared ?? SHARED, jail.closed)) if (!jail.closed.some((c) => isInside(c, p))) args.push("--ro-bind", "/dev/null", p);

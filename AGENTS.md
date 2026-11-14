@@ -203,6 +203,13 @@ These are invariants. A change that breaks one needs a test that shows why it is
    was set to `safe` gets no shell (the gate), and a run started from outside gets none
    (`profileFor`). Never start a shell for a run from outside where there is no sandbox, and
    never move an agent that was set to `safe` out of it.
+   One part of pine's data folder is an agent's to read: the folders in which its event sources
+   keep the files they received (`Roots.sources`). Which they are, the daemon says, for every
+   call: what the running sources declared with `media` (`SourceHost.filesFor`: the agent's own
+   sources and those it is subscribed to), let through by `received()` in `src/security.ts`,
+   which opens nothing else in pine's home and nothing of another agent's. They are read and
+   never written, in every variant: the profile and the mounts allow reading only, and
+   `checkPath` and `pineOwn` follow. Do not open anything else under `data/` that way.
    What a call needs beyond its sandbox, pine asks the owner for (`seek` in `coreExtension`):
    before the call for what a file tool is given or a command names (`reaches` in
    `src/access.ts`), after a command for what the system reports the sandbox refused it

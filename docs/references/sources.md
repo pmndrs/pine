@@ -173,7 +173,8 @@ scanners and other devices whose way of sending a file is "upload to FTP server"
 
 Event `upload`: `{ file, path, size, from, images? }`. `file` is the name the device gave it,
 `path` is where it lies now (`data/sources/<name>/files/`, or `data/sources/<name>@<agent>/files/`
-for an agent's own source).
+for an agent's own source). A picture is shown to the agent with the event. A video or any
+other file is not: the agent reads it from `path` (see "Files a source received").
 
 It speaks plain FTP, as these devices do, so the password crosses your network unencrypted. It
 only receives: nothing can be listed, read, changed or deleted through it, and every file lands
@@ -583,6 +584,27 @@ reported, followed by the agent's answer; if no tab has that conversation open, 
 when you are not looking, the agent uses its `send` tool with a source that can send, Telegram for example: say so in the note
 or in its `AGENTS.md`.
 
+### Files a source received
+
+A camera uploads a picture or a video clip, a scanner a PDF, you send a photo through
+Telegram. A source that receives files (`ftp`, `telegram`) keeps them in a folder of its own
+in pine's data folder, `data/sources/<name>/`, and the event says where the file lies (`path`).
+An agent can open and read the files of its own sources and of every source it is subscribed
+to: with `read`, and in its shell (`cp`, `ffmpeg`, a script). The folder a `folder` source
+watches is read the same way.
+
+It reads these files and does not change or delete them: pine keeps them and removes them when
+their time is up (`keepDays`). To change a file, the agent copies it into its workspace and
+works on the copy. Everything else in pine's data folder stays closed, and so do the uploads
+of a source the agent is not subscribed to: access to those is blocked. When the subscription
+ends, the access ends with it.
+
+Only a picture is shown to the model together with the event (jpg, png, webp, gif, under
+10 MB). A video clip, a sound file or a PDF is not shown: the event carries its `path`, and
+the agent opens the file itself. To look at a video it takes single pictures out of the clip
+in its workspace, for example `ffmpeg -i <path> -vf fps=1 frames/%03d.jpg` where `ffmpeg` is
+installed, and looks at those with `read`.
+
 ## Trust
 
 What a source reports is **outside content** unless the source is yours: a file name, a web
@@ -735,7 +757,7 @@ The start function gets a `source` object:
 | `exec(command, opts?)` | Run a shell command in the sandbox of the agent the source belongs to (the main agent for a source of all agents). Returns `{ code, output, truncated }`; throws when it cannot start or takes longer than `opts.timeoutMs` (30 s). |
 | `kv.get`, `kv.set` | Private storage that survives restarts. |
 | `dataDir` | A folder of its own. |
-| `media(dir)` | Image files in this folder may be shown to a model when an event lists them in `images: [{ path, mimeType }]`. |
+| `media(dir)` | The source keeps the files it received in this folder. Image files in it may be shown to a model when an event lists them in `images: [{ path, mimeType }]`, and the agents that have the source or are subscribed to it can read the folder, and not write it. |
 | `secret(value)` | Keep this value out of events and messages. |
 | `http(handler)` | Receive `POST /hook/<name>`; throw `refuse(401, "...")` (exported from `sources.ts`) to turn a request away. |
 | `onStop(fn)` | Called when the last subscriber leaves or the daemon stops. Close everything here. |

@@ -99,12 +99,19 @@ In the sandbox, the same on both systems:
 
 | | |
 |---|---|
-| Can read | Its workspace, its private home, its skills, pine's manual (`docs/`), temp, and the system outside your home folder (programs, libraries) |
+| Can read | Its workspace, its private home, its skills, pine's manual (`docs/`), temp, the files its event sources received (see below), and the system outside your home folder (programs, libraries) |
 | Can write | Its workspace, its private home (`sandbox/<id>/`, which is `$HOME` in its shell), temp. The main agent also `USER.md` in pine's home, and nothing else there |
 | Cannot read or write | Your home folder, pine's home (configuration, `.env`, database, other agents' folders), other agents' workspaces |
 | Cannot | Use the network (unless `sandbox.network` or you granted it to the conversation; the `download` tool is the exception described under Modes), signal or inspect other processes, or reach the services of your session: launching apps, AppleScript, the keychain or keyring, the clipboard, the session bus, the container daemon, an ssh agent |
 | Can compute on | macOS: the graphics chip and the neural engine, which the system's own recognition of text and pictures runs on (a Swift script that reads the text of a scanned page with Vision works). They compute; they reach no file, address or other program |
 | Environment | A handful of variables (`PATH`, `LANG`, ...). Nothing from the daemon's environment, no secrets. `HOME` is the private home. On macOS `CFFIXED_USER_HOME` names it too, so that Apple's libraries take the same home, and `CLANG_MODULE_CACHE_PATH` puts the compilers' cache of built modules into it (the first `swift` run of an agent builds them and takes a while) |
+
+One part of pine's home is an agent's to read besides its own folders: the files its event
+sources received (a camera's upload, a photo sent through Telegram), which lie in
+`data/sources/<name>/`. An agent reads those of its own sources and of the sources it is
+subscribed to, in every mode, and writes none of them; the rest of pine's data folder and the
+files of other sources stay closed. See "Files a source received" in
+[sources.md](sources.md).
 
 How the two systems say it differs. On macOS the sandbox gets a profile that starts from
 "deny everything" and allows what the table lists. On Linux the command is given a file
@@ -288,7 +295,7 @@ one, in `auto` and `bypass` mode, pine does it by reading what is about to run:
 | What | How it is kept closed |
 |---|---|
 | A file tool (`read`, `write`, `edit`, ...) on a path in pine's home, or writing one in pine's program | Refused by a check in the daemon |
-| A shell command that names a path in pine's home: written out, with `~` or `$HOME`, or with `..` from where the shell starts | Not run |
+| A shell command that names a path in pine's home: written out, with `~` or `$HOME`, or with `..` from where the shell starts | Not run. The files the agent's event sources received are the exception: a command that reads them runs, one that plainly writes or deletes them does not |
 | A shell command that plainly writes into pine's program files (a redirect, `touch`, `rm`, `cp` to it) | Not run |
 | A shell command that starts the `pine` program, or names pine's control port on this computer | Not run |
 | Any other shell command that names pine's program files and does more than look | Critical: you are asked, in every conversation (not in `bypass`) |

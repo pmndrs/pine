@@ -190,7 +190,8 @@ export class SourceHost {
 	private offOut?: () => void;
 	private approvals?: Approvals;
 	private globalRoutes: string[] = [];
-	mediaRoots: string[] = [];
+	/** Where each running source keeps the files it received (`media`), by the source's key. */
+	private media = new Map<string, string[]>();
 	/** Every source type there is: pine's own and the ones pine.json registers. `type` is what the module says about itself. */
 	private types = new Map<string, { file: string; type?: SourceType }>();
 
@@ -211,6 +212,27 @@ export class SourceHost {
 			...Object.entries(this.cfg.sources).map(([name, source]) => ({ key: name, name, scope: "global", source })),
 			...Object.values(this.cfg.agents).flatMap((a) => Object.entries(a.sources).map(([name, source]) => ({ key: `${name}@${a.id}`, name, scope: a.id, source }))),
 		];
+	}
+
+	/** Every folder a running source keeps received files in: where an event's picture may lie. */
+	get mediaRoots(): string[] {
+		return [...this.media.values()].flat();
+	}
+
+	/**
+	 * The folders of received files that are an agent's to read: those of its own sources and of
+	 * the sources one of its conversations, or a subscription for all agents, subscribes it to.
+	 * Another agent's source is never among them: nobody else can be subscribed to it.
+	 */
+	filesFor(agentId: string): string[] {
+		const agent = this.cfg.agents[agentId];
+		if (!agent) return [];
+		const keys = new Set(Object.keys(agent.sources).map((name) => `${name}@${agentId}`));
+		for (const sub of [...agent.subscribe, ...this.cfg.subscribe]) {
+			const found = sourceFor(this.cfg, agentId, sub.source);
+			if (found) keys.add(found.key);
+		}
+		return [...keys].flatMap((key) => this.media.get(key) ?? []);
 	}
 
 	private subscribersOf(key: string): string[] {
@@ -581,7 +603,7 @@ export class SourceHost {
 			exec: (command, opts) => this.exec(key, command, opts),
 			kv: { get: (k) => this.kv.get(prefix + k), set: (k, v) => this.kv.set(prefix + k, v) },
 			secret: (value) => this.redactor.add([value]),
-			media: (dir) => void this.mediaRoots.push(realish(dir)),
+			media: (dir) => void this.media.set(key, [...new Set([...(this.media.get(key) ?? []), realish(dir)])]),
 			http: (handler) => {
 				if (!this.httpEnabled) throw new Error("this source receives web requests, which needs the control API (\"http\" in pine.json) to be on");
 				run.hook = handler;
@@ -592,6 +614,7 @@ export class SourceHost {
 			await setup(api);
 		} catch (e) {
 			for (const fn of run.stops.reverse()) await Promise.resolve(fn()).catch(() => {});
+			this.media.delete(key);
 			throw e;
 		}
 		this.running.set(key, run);
@@ -655,6 +678,7 @@ export class SourceHost {
 		if (!run) return;
 		this.running.delete(key);
 		this.statuses.delete(key);
+		this.media.delete(key);
 		for (const fn of run.stops.reverse()) {
 			try {
 				await fn();

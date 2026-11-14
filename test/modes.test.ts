@@ -613,6 +613,15 @@ test("without a sandbox, a command that names pine's own files, program or contr
 	// The agent's own folders in it are its own, and a path with ".." after a cd is somewhere else.
 	for (const c of ["cat notes.txt", `ls ${workspace}/sub`, `echo x | tee ${home}/sandbox/main/tmp.txt`, "cd /somewhere/else && cat ../x", "ls ~ && ls ~/dev"]) yes(c);
 
+	// What the agent's event sources received lies in pine's home and is read all the same. It is
+	// not changed, what lies beside it stays closed, and without a subscription there is nothing to read.
+	const files = path.join(home, "data", "sources", "cam", "files");
+	const got = { ...o, received: [files] };
+	for (const c of [`ffmpeg -i ${files}/clip.mp4 frame.jpg`, `cp ${files}/clip.mp4 .`, `ls -la ${files}`, "file ~/.pine/data/sources/cam/files/clip.mp4"]) assert.equal(pineOwn(c, got), undefined, c);
+	for (const c of [`rm ${files}/clip.mp4`, `echo x > ${files}/clip.mp4`]) assert.match(pineOwn(c, got) ?? "", /is a file an event source received, which you can read and not change/, c);
+	for (const c of [`ls ${home}/data/sources`, `cat ${home}/data/sources/cam/state.json`, `cat ${home}/data/sources/door/files/a.jpg`]) assert.match(pineOwn(c, got) ?? "", /is part of pine itself/, c);
+	no(`cat ${files}/clip.mp4`, /is part of pine itself/);
+
 	// The pine program is the owner's way to run and change pine. A word in a message is not a command.
 	for (const c of ["pine approve 1a2b", "echo done; /opt/homebrew/bin/pine mode main bypass", "env X=1 pine status", "node bin/pine.js check"]) no(c, /the pine program is your owner's way to run and change pine/);
 	for (const c of ['git commit -m "fix; pine works"', "echo pine", "ls pine"]) yes(c);
