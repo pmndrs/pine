@@ -112,6 +112,7 @@ Topics pine itself uses:
 | `hook/<name>` | A hook under `http.hooks` in `pine.json` was called (a `webhook` source reports `source/<name>/received` instead) |
 | `approval/requested`, `approval/decided` | An approval is asked for or answered |
 | `pine/started`, `pine/route-failed` | Daemon lifecycle and route errors |
+| `pine/conversation` | The main agent changed a conversation (`open`, `close`, `rename`, `remove`, `pin`), so that a terminal UI's tabs follow. Not kept in the event log |
 
 Agents cannot publish on `agent/`, `approval/`, `pine/`, `state/` or `timer/`.
 

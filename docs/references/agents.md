@@ -133,7 +133,7 @@ declares them in **families** (`catalogue`), which is about 11 500:
 
 | Family | Its actions |
 |---|---|
-| `pine_list` | What there is: `sources`, `schedules`, `mcp_servers`, `skills`, and for the main agent `agents`, `settings`, `routes`. `what` takes several at once (`["sources", "schedules"]`) |
+| `pine_list` | What there is: `sources`, `schedules`, `mcp_servers`, `skills`, and for the main agent `agents`, `settings`, `routes`, `conversations`. `what` takes several at once (`["sources", "schedules"]`) |
 | `pine_sources` | `subscribe`, `unsubscribe`, `add_source`, `send`, `remove_source`, `publish_event`, and for the main agent `add_source_type`, `remove_source_type` |
 | `pine_schedules` | `add_schedule`, `remove_schedule` |
 | `pine_mcp` | `add_mcp_server`, `remove_mcp_server`, and the three tools for a server's resources |
@@ -141,6 +141,7 @@ declares them in **families** (`catalogue`), which is about 11 500:
 | `pine_agents` | The main agent's: `create_agent`, `update_agent`, `remove_agent` |
 | `pine_settings` | The main agent's: `set_setting`, `add_route`, `remove_route`, `add_model_server`, `remove_model_server` |
 | `pine_other` | `request_access`, `stop_program`, `state_get`, `state_set` |
+| `pine_conversations` | The main agent's: `read_conversation`, `set_conversation`, `remove_conversation` |
 | One for each MCP server, named after the server (`browser`, `media`, `home_link`) | The server's tools under their own names (`browser_navigate`, `browser_click`) |
 
 An action has the name its tool has everywhere in this manual. Where the manual says "call

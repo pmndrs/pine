@@ -35,7 +35,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { TranscriptEntry } from "../types.ts";
 import type { PineEvent, Task } from "../types.ts";
-import { errText, expandHome, openInSystem, type Speed, speedOf, speedText } from "../util.ts";
+import { errText, expandHome, openInSystem, safeName, type Speed, speedOf, speedText } from "../util.ts";
 import { Listening, type VoiceTools, voiceTools } from "./voice.ts";
 import type { AgentInfo, Client, Conversation, GoalInfo } from "./client.ts";
 import { CodePane, PANE_VIEWS, type PaneView } from "./code-pane.ts";
@@ -1394,13 +1394,15 @@ export class PineTui {
 		return tab;
 	}
 
-	async openTab(agent: string, session: string): Promise<void> {
+	/** `front: false` opens it behind the tab the owner is in, marked as having something new. */
+	async openTab(agent: string, session: string, front = true): Promise<void> {
 		const existing = this.tabs.find((t) => t.kind === "chat" && t.agent === agent && t.session === session);
-		if (existing) return this.activate(existing);
+		if (existing) return front ? this.activate(existing) : undefined;
 		if (!this.agents.some((a) => a.id === agent)) this.agents = await this.client.agents().catch(() => this.agents);
 		if (!this.agents.some((a) => a.id === agent)) return this.flash(`there is no agent called ${agent}`);
 		const tab = this.newTab("chat", agent, session);
-		this.activate(tab);
+		if (front) this.activate(tab);
+		else tab.unread = true;
 		this.saveTabs();
 		void this.refreshPins();
 		const info = this.agents.find((a) => a.id === agent);
@@ -2920,6 +2922,7 @@ export class PineTui {
 			}
 			return;
 		}
+		if (e.topic === "pine/conversation") return void this.followed(p);
 		if (ns !== "agent") return;
 		if (kind === "goal") return this.goalEvent(p);
 
@@ -2997,6 +3000,33 @@ export class PineTui {
 	}
 
 	/** The daemon reports on a goal: it was set, a round was judged, it stopped or was cleared. */
+	/**
+	 * A conversation was changed by another hand than this UI's: the main agent opened or closed a
+	 * tab, gave a conversation another name, removed one or pinned it. The tabs follow. A tab that
+	 * is opened this way never takes the place of the one the owner is in.
+	 */
+	private async followed(p: any): Promise<void> {
+		const agent = String(p.agent ?? "");
+		const key = (s: string) => safeName(s).replace(/^_+/, "") || "main";
+		const showing = this.tabs.filter((t) => t.kind === "chat" && t.agent === agent && key(t.session) === key(String(p.session ?? "")));
+		if (p.change === "open") {
+			if (!showing.length) await this.openTab(agent, String(p.session ?? "main"), false);
+		} else if (p.change === "close") {
+			for (const t of showing) if (this.tabs.length > 1) this.closeTab(t);
+		} else if (p.change === "rename" && typeof p.to === "string") {
+			for (const t of showing) t.session = p.to;
+			if (showing.length) this.saveTabs();
+			void this.refreshPins();
+		} else if (p.change === "remove") {
+			// A tab that showed it has nothing left to show.
+			for (const t of showing) this.tabs.splice(this.tabs.indexOf(t), 1);
+			if (!this.tabs.length) await this.openTab(agent, "main");
+			else if (showing.includes(this.active)) this.activate(this.tabs[0]);
+			if (showing.length) this.saveTabs();
+		} else if (p.change === "pin") void this.refreshPins();
+		this.tui.requestRender();
+	}
+
 	private goalEvent(p: any): void {
 		for (const tab of this.tabs) {
 			if (tab.kind !== "chat" || tab.agent !== p.agent || tab.session !== p.session) continue;

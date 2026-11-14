@@ -1046,7 +1046,7 @@ export class AgentManager {
 	 * An agent's conversations: pinned ones first, then the most recently used. `expires` is when
 	 * one is removed by itself if nothing more is said in it; one without it stays.
 	 */
-	conversations(agentId: string): Array<{ session: string; tasks: number; last: number; pinned: boolean; open: boolean; expires?: number; folder?: string }> {
+	conversations(agentId: string): Array<{ session: string; tasks: number; last: number; pinned: boolean; open: boolean; working: boolean; outside?: string; expires?: number; folder?: string }> {
 		const agent = this.cfg.agents[agentId];
 		if (!agent) throw new Error(`unknown agent "${agentId}"`);
 		const pinned = this.pinned();
@@ -1055,7 +1055,8 @@ export class AgentManager {
 		const list = this.tasks.sessions(agentId).map((s) => {
 			const base = s.session.replace(/~u$/, "");
 			const stays = base === "main" || pinned.includes(`${agentId}:${s.session}`) || open.includes(s.session) || agent.subscribe.some((x) => x.session === base) || agent.schedules.some((x) => x.session === base) || !(days > 0);
-			return { ...s, pinned: pinned.includes(`${agentId}:${s.session}`), open: open.includes(s.session), expires: stays ? undefined : s.last + days * 86_400_000, folder: this.folderOf(agentId, s.session) };
+			const working = [...this.running.values()].some((r) => r.task.agent === agentId && r.task.session === s.session);
+			return { ...s, pinned: pinned.includes(`${agentId}:${s.session}`), open: open.includes(s.session), working, outside: this.outsideMark(agentId, s.session), expires: stays ? undefined : s.last + days * 86_400_000, folder: this.folderOf(agentId, s.session) };
 		});
 		return [...list.filter((s) => s.pinned), ...list.filter((s) => !s.pinned)];
 	}
@@ -1066,6 +1067,100 @@ export class AgentManager {
 		const key = `${agentId}:${session}`;
 		this.kv.set("conversations:pinned", [...this.pinned().filter((x) => x !== key), ...(on ? [key] : [])]);
 		return on;
+	}
+
+	/** A conversation's name as pine keeps it ("My notes" is "My_notes"; the one outside content is handled in ends in "~u"). */
+	conversationKey(name: string): string {
+		return this.keysOf(name.trim())[0];
+	}
+
+	/** Why a conversation counts as holding outside content, if it does. */
+	outsideMark(agentId: string, session: string): string | undefined {
+		if (session.endsWith("~u")) return "outside content started what was done in it";
+		return this.lives.get(`${agentId}:${session}`)?.tainted ?? this.kv.get<string>(`taint:${agentId}:${session}`) ?? undefined;
+	}
+
+	/**
+	 * What was said in a conversation, for the main agent's read_conversation: each message it was
+	 * given and each answer, numbered from the first, the last ones returned. Of an answer's tool
+	 * calls only which tool and on what: what a tool returned is the other agent's own (its files,
+	 * the pages it read) and is not handed on by this road.
+	 */
+	said(agentId: string, name: string, last = 10, before?: number): { session: string; total: number; entries: Array<{ n: number; kind: "message" | "answer"; text: string; tools: string[] }>; outside?: string } {
+		const agent = this.cfg.agents[agentId];
+		if (!agent) throw new Error(`there is no agent "${agentId}". Agents: ${Object.keys(this.cfg.agents).join(", ")}`);
+		const session = this.conversationKey(name);
+		const dir = path.join(agent.dir, "sessions", session);
+		let lines: string[] = [];
+		try {
+			const newest = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort().at(-1);
+			if (newest) lines = fs.readFileSync(path.join(dir, newest), "utf8").split("\n");
+		} catch {
+			// nothing said in it yet, or it was reset since
+		}
+		const textOf = (content: unknown) => (typeof content === "string" ? content : Array.isArray(content) ? content.filter((x: any) => x?.type === "text").map((x: any) => x.text).join("\n") : "");
+		const all: Array<{ kind: "message" | "answer"; text: string; tools: string[] }> = [];
+		for (const line of onBranch(lines)) {
+			let m: any;
+			try {
+				m = JSON.parse(line).message;
+			} catch {
+				continue;
+			}
+			if (m?.role === "user") all.push({ kind: "message", text: textOf(m.content).replace(/<pine-note>[\s\S]*?<\/pine-note>\s*/g, "").trim(), tools: [] });
+			else if (m?.role === "assistant" && Array.isArray(m.content)) {
+				// An answer is everything up to the next message: its words, and the tools it used on the way.
+				let answer = all.at(-1);
+				if (!answer || answer.kind !== "answer") all.push((answer = { kind: "answer", text: "", tools: [] }));
+				for (const part of m.content) {
+					if (part.type === "text" && String(part.text ?? "").trim()) answer.text += `${answer.text ? "\n" : ""}${String(part.text).trim()}`;
+					else if (part.type === "toolCall") {
+						const args = part.arguments ?? {};
+						const action = [args.action, args.what].flat().find((x) => typeof x === "string");
+						const subject = toolSubject(String(part.name), args).replace(/\s+/g, " ");
+						answer.tools.push(`${part.name}${action ? ` ${action}` : ""}${subject ? ` (${truncate(subject, 80)})` : ""}`);
+					}
+				}
+			}
+		}
+		const end = Math.min(all.length, before !== undefined && Number.isFinite(before) ? Math.max(0, Math.floor(before) - 1) : all.length);
+		const start = Math.max(0, end - Math.max(1, Math.min(30, Math.floor(last) || 10)));
+		const entries = all.slice(start, end).map((e, i) => ({ n: start + i + 1, kind: e.kind, text: truncate(e.text, 1500), tools: e.tools.length > 12 ? [...e.tools.slice(0, 12), `and ${e.tools.length - 12} more`] : e.tools }));
+		return { session, total: all.length, entries: this.bus.redact ? this.bus.redact(entries) : entries, outside: this.outsideMark(agentId, session) };
+	}
+
+	/**
+	 * Tell a UI that is running that a conversation was changed by another hand than its own (the
+	 * main agent's tools), so that its tabs follow. Nothing is kept of it: what is kept is the list
+	 * of tabs, which a UI that starts later opens.
+	 */
+	conversationChanged(change: "open" | "close" | "rename" | "remove" | "pin", agentId: string, session: string, to?: string): void {
+		this.bus.publish("pine/conversation", { change, agent: agentId, session, ...(to ? { to } : {}) }, { persist: false, source: "pine" });
+	}
+
+	/**
+	 * Open a tab on a conversation, or close its tab, for the main agent's set_conversation: the
+	 * list of tabs a UI opens with is changed, and a UI that is running follows. Closing does what
+	 * closing it in the UI does: what the conversation was subscribed to on its own ends.
+	 */
+	async showTab(agentId: string, name: string, open: boolean): Promise<{ changed: boolean; unsubscribed: string[] }> {
+		if (!this.cfg.agents[agentId]) throw new Error(`unknown agent "${agentId}"`);
+		const session = sessionKey(name);
+		const ui = this.uiTabs();
+		const at = ui.tabs.findIndex((t) => t.agent === agentId && sessionKey(t.session) === session);
+		if (open) {
+			if (at >= 0) return { changed: false, unsubscribed: [] };
+			// At the end, and the tab the owner is in stays the one they are in.
+			this.saveUiTabs([...ui.tabs, { agent: agentId, session }], ui.active);
+			this.conversationChanged("open", agentId, session);
+			return { changed: true, unsubscribed: [] };
+		}
+		if (at < 0) return { changed: false, unsubscribed: [] };
+		if (ui.tabs.length === 1) throw new Error("it is the only tab that is open, and the last tab stays open");
+		const unsubscribed = (await this.sources?.closeSession(agentId, session)) ?? [];
+		this.saveUiTabs(ui.tabs.filter((_, i) => i !== at), at <= ui.active ? Math.max(0, ui.active - 1) : ui.active);
+		this.conversationChanged("close", agentId, ui.tabs[at].session);
+		return { changed: true, unsubscribed };
 	}
 
 	/** Remove a conversation for good: what was said in it, what it may do without asking, what it listens to. */

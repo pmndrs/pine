@@ -36,6 +36,10 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 	// [what is asked, a part that must be among the first three]
 	const cases: Array<[string, RegExp]> = [
 		["telegram pairing code", /^sources#telegram$/],
+		["what did another agent say in its chat", /^setup#conversations-and-tabs/],
+		["open a tab for my owner on a conversation", /^setup#conversations-and-tabs/],
+		["close a tab from a tool call", /^setup#conversations-and-tabs/],
+		["remove_conversation", /^setup#conversations-and-tabs\/remove-conversation$/],
 		["why does the model read the whole conversation again when I switch to another tab", /^(agents#what-the-model-server-keeps|operations#problems)/],
 		["the first answer in a new conversation takes long", /^(agents#what-the-model-server-keeps|operations#problems)/],
 		["the tools take too many tokens of the prompt, how do I make it smaller", /^(agents#how-tools-are-declared|operations#problems|configuration#pine-json\/defaults-catalogue)/],
@@ -152,7 +156,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["web address watch failed checks unreachable down up", /^sources#http/],
 		["pine schedules list scheduled command", /^(operations#commands|events#ask-the-agent)/],
 		["shell command list every skill list scheduled tasks", /^operations#commands/],
-		["conversation removed renamed sources set up for one conversation", /^setup#(three-scopes|what-is-written)/],
+		["conversation removed renamed sources set up for one conversation", /^setup#(three-scopes|what-is-written|conversations-and-tabs)/],
 		["sub-agents helpers run at the same time default concurrency", /^(agents#sub-agents|configuration#working-with-other-agents)/],
 		["model runs agent no model named default model", /^configuration#/],
 		["notify owner phone message away push", /^sources#(telegram|sending-through-a-source)/],

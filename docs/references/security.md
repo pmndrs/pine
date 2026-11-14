@@ -568,7 +568,12 @@ What no mode opens:
   change before it is made, notes where it gives an agent more (the account, the network,
   bypass mode), reads the configuration back through the loader and undoes what
   does not load, and is refused outright, without a question to you, in a conversation that
-  has read outside content. What it does for another agent (`agent` on the tools for sources,
+  has read outside content. It also lists, reads, pins, renames and removes conversations, its
+  own and other agents' (`conversations`, `read_conversation`, `set_conversation`,
+  `remove_conversation`): what another agent's tools returned is never shown to it, a
+  conversation that holds outside content marks the one that reads it, the two that change
+  something are refused after outside content, and a removal is always yours to confirm.
+  What it does for another agent (`agent` on the tools for sources,
   servers, skills and schedules) is carried out by that agent's own tool under that agent's
   rules, and taking something away from another agent asks you every time. Only the main agent can set anything up for all agents. Runs with the reduced
   tool set (layer 2) have none of these tools, and a proposal from a conversation that has read

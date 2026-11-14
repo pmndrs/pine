@@ -151,6 +151,11 @@ and task tabs are not reopened). Closing a tab does not end its conversation: it
 agent's list (`/sessions`, or a click on the conversation's name in the bottom bar) and opens
 again from there. A conversation in which nothing has been said yet is not in the list.
 
+The main agent can do the same when you ask it ("open the books agent's invoice conversation
+in a tab", "pin this", "close that tab"): see "Conversations and tabs" in
+[setup.md](setup.md). A tab it opens appears behind the one you are in, marked as new, and
+never takes your place; a rename, a closed tab and a removed conversation show at once.
+
 The list does not grow without end. A conversation is removed by itself, with everything said
 in it, once nothing has been said in it for 7 days (`limits.conversationDays`; `0` keeps
 everything). These stay however old they are: each agent's main conversation, a pinned one,

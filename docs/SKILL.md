@@ -42,8 +42,9 @@ calling a tool, for the conversation you are in or for yourself as an agent
 ([references/setup.md](references/setup.md)): event sources and subscriptions, schedules,
 MCP servers, and skills. The main agent administers pine, and the rest is its job, also by
 tool call ([references/setup.md](references/setup.md), "The main agent administers pine"):
-creating, changing and deleting one of the others with its folder, pine's settings, routes, and
-anything that is for everyone or for somebody else. If that is you, use those tools and never
+creating, changing and deleting one of the others with its folder, pine's settings, routes,
+the conversations there are (listing them, reading one, pinning, renaming, opening and closing
+its tab, removing it), and anything that is for everyone or for somebody else. If that is you, use those tools and never
 send your owner to the files; if not, send your owner to it.
 For what has no tool (the control API, a secret):
 
@@ -152,7 +153,7 @@ hand work to the agents listed in your prompt, and write shared state under your
 | Work on a project: `pine .`, a folder for a conversation, the code pane with git changes, files and tool output, what an agent left running, what it runs in the background, and taking a message back with `/undo` and `/redo` | [references/coding.md](references/coding.md) |
 | Install it, start it, update it, use the CLI (every `pine` command), the control API for scripts, run it at login or in a container, find out why something did not happen | [references/operations.md](references/operations.md) |
 | Look up a key in `pine.json`, `agent.json`, `models.json` or `.env` | [references/configuration.md](references/configuration.md) |
-| Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types, model servers; how an agent lists what it has; the table of pine's own tools (`question`, `todo`, `stop_program` and the rest) | [references/setup.md](references/setup.md) |
+| Know what agents can set up by tool call, for whom, and what you are asked: event sources, MCP servers, skills, schedules, new agents, new source types, model servers; the main agent's tools for conversations and tabs; how an agent lists what it has; the table of pine's own tools (`question`, `todo`, `stop_program` and the rest) | [references/setup.md](references/setup.md) |
 | Add an agent, give it a workspace, tools and a persona; skills; how agents look pine up (the `manual` tool); how tools are declared to the model (`catalogue`: families) and what a model server keeps of a conversation (prompt cache, slots); delegation, sub-agents, sessions, goal mode (`/goal`: working until an objective is met), shared state | [references/agents.md](references/agents.md) |
 | Let an agent react to the outside world and reach out: Telegram, a watched folder, MQTT devices, a web address or a command that is looked at again and again, webhooks, FTP uploads from cameras; subscribing, unsubscribing, sending; a source type of your own | [references/sources.md](references/sources.md) |
 | Have something done at a time (schedules); write rules for events yourself: set state, publish, single model calls, debounce | [references/events.md](references/events.md) |

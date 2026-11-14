@@ -41,10 +41,10 @@ export const DECLARED_SERVERS = ["web"];
  * was two calls of one tool, and a model sends two calls of one tool in two answers about half the
  * time; as two tools it sends them in one, as it does when every tool is declared by itself.
  */
-const LISTS = ["sources", "schedules", "mcp_servers", "skills", "agents", "settings", "routes"];
+const LISTS = ["sources", "schedules", "mcp_servers", "skills", "agents", "settings", "routes", "conversations"];
 
 const GROUPS: Array<[id: string, name: string, about: string, tools: string[]]> = [
-	["lists", "pine_list", "What there is: the lists of what you have and of what pine has. Use it when your owner asks what you are watching, what is scheduled, which servers, skills or agents there are, or how pine is set up", LISTS],
+	["lists", "pine_list", "What there is: the lists of what you have and of what pine has. Use it when your owner asks what you are watching, what is scheduled, which servers, skills, agents or conversations there are, or how pine is set up", LISTS],
 	[
 		"sources",
 		"pine_sources",
@@ -62,6 +62,12 @@ const GROUPS: Array<[id: string, name: string, about: string, tools: string[]]> 
 		["set_setting", "add_route", "remove_route", "add_model_server", "remove_model_server"],
 	],
 	["other", "pine_other", "Other tools of pine.", ["request_access", "stop_program", "state_get", "state_set"]],
+	[
+		"conversations",
+		"pine_conversations",
+		"Conversations, yours and the other agents': your owner's tabs and each agent's list. Which there are, pine_list says (conversations).",
+		["read_conversation", "set_conversation", "remove_conversation"],
+	],
 ];
 
 /**
@@ -111,6 +117,10 @@ const BRIEF: Record<string, string> = {
 	stop_program: "stop a program one of your commands left running",
 	state_get: "read shared state (facts agents and devices keep)",
 	state_set: "store a fact in shared state",
+	conversations: "the conversations of every agent: which are pinned, open in a tab or working, and when each was last used",
+	read_conversation: "what was said in a conversation, the newest last; of tools only which were used, not what they returned. One that has read outside content marks yours too",
+	set_conversation: "pin a conversation or take the pin off, open or close its tab on your owner's screen, rename it; give only what changes. A new name with tab: true opens a new, empty one",
+	remove_conversation: "remove a conversation for good, with what was set up for it alone; your owner confirms. Not a main conversation, and not the one you are in",
 };
 
 /** The tools of pine's bundled browser, said shortly and with what a model gets wrong (a target is a reference from the page text). */
@@ -179,6 +189,15 @@ const ARG_HINT: Record<string, string> = {
 	"add_route.prompt": "what that agent is told",
 	"add_route.set": 'shared state to write, as JSON: {"house/mode": "{{payload.value}}"}',
 	"add_model_server.url": "the server's address, e.g. http://127.0.0.1:8080",
+	"read_conversation.name": "the conversation's name",
+	"read_conversation.agent": "whose it is; leave out for your own",
+	"set_conversation.name": "the conversation's name",
+	"set_conversation.agent": "whose it is; leave out for your own",
+	"remove_conversation.name": "the conversation's name",
+	"remove_conversation.agent": "whose it is; leave out for your own",
+	"read_conversation.last": "how many, from the end; default 10",
+	"read_conversation.before": "a number: what stands before it",
+	"set_conversation.tab": "true opens it, false closes it",
 	"request_access.path": "absolute path of the file or folder",
 	"request_access.write": "true to also change files there",
 	"request_access.network": "true for network in your shell instead of a path",
@@ -320,7 +339,7 @@ export function shortTool(name: string, description: string, parameters: any): {
 
 /** The order tools are declared in: see shortDeclarations. */
 const FIRST = ["read", "bash", "edit", "write", "grep", "find", "ls", "download", "manual", "question", "todo", FIND_TOOLS];
-const LAST = ["pine_list", "pine_other", "pine_mcp", "pine_skills", "pine_sources", "pine_schedules", "subagent", "delegate", "pine_agents", "pine_settings"];
+const LAST = ["pine_list", "pine_other", "pine_mcp", "pine_skills", "pine_sources", "pine_schedules", "subagent", "delegate", "pine_agents", "pine_settings", "pine_conversations"];
 
 /**
  * The request as it goes to the model server: every tool's declaration short, and all of them
@@ -532,7 +551,7 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 		// "One of: folder, mqtt, ..." in the tool's words is a choice here.
 		const oneOf = typeof v?.description === "string" && v.type === "string" ? v.description.match(/^One of: ([\w, -]+)$/) : null;
 		if (oneOf) return { type: "string", enum: oneOf[1].split(",").map((x: string) => x.trim()) };
-		if (!f.prefix && k === "agent" && t.name !== "add_route") return { type: "string", description: "another agent's id: do it for that agent, not for yourself" };
+		if (!f.prefix && k === "agent" && t.name !== "add_route" && !ARG_HINT[`${t.name}.agent`]) return { type: "string", description: "another agent's id: do it for that agent, not for yourself" };
 		if (!f.prefix && k === "conversation") return { type: "string" };
 		// Whom something is for is one of a few, and the tools say so in words that change with the conversation.
 		// Only the main agent sets things up for all agents: the choice is there for whom the tool itself names it to.
@@ -563,7 +582,8 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 		let forOthers = false;
 		for (const [action, t] of f.action) {
 			for (const [k, v] of Object.entries(t.parameters?.properties ?? {}) as Array<[string, any]>) {
-				if (k === "agent" || k === "conversation") forOthers = true;
+				// (Whose conversation a call is about is said by the argument itself.)
+				if ((k === "agent" || k === "conversation") && f.id !== "conversations") forOthers = true;
 				const { description, ...now } = argOf(f, t, k, v);
 				takes.set(k, (takes.get(k) ?? 0) + 1);
 				const values = choices.get(k) ?? new Map<string, string[]>();

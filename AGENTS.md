@@ -35,7 +35,8 @@ src/
   tools.ts          the tools pine gives an agent: delegate, subagent, publish_event, send, request_access, state_get,
                     state_set, question, todo, stop_program, manual; the lists of what it has (sources, schedules,
                     mcp_servers, skills); and the setup tools (subscribe, unsubscribe, add_/remove_ source, source_type,
-                    mcp_server, skill, schedule, model_server; create_agent)
+                    mcp_server, skill, schedule, model_server; create_agent); and the main agent's tools for
+                    conversations (conversations, read_conversation, set_conversation, remove_conversation)
   agent-admin.ts    create_agent: checks a proposed agent and writes its folder
   admin.ts          what only the main agent administers: a change to an agent (`checkAgentChange`), pine's settings
                     (`SETTINGS`), routes (`checkRoute`), and everything that goes with a removed agent (`eraseAgent`)
@@ -136,7 +137,14 @@ These are invariants. A change that breaks one needs a test that shows why it is
    before it was added.
    The main agent is pine's administrator: besides `create_agent` it has `agents`,
    `update_agent`, `remove_agent`, `settings`, `set_setting`, `routes`, `add_route` and
-   `remove_route` (`src/admin.ts`). An agent that is removed leaves nothing: `eraseAgent` is the
+   `remove_route` (`src/admin.ts`), and for the conversations there are (the owner's tabs and
+   each agent's list) `conversations`, `read_conversation`, `set_conversation` and
+   `remove_conversation`. Those four go through the functions the control API has for the
+   owner's own hand (`pinSession`, `renameSession`, `removeSession`), never a second road.
+   `read_conversation` hands on the messages and the answers and of a tool call only its name
+   and subject, never what the tool returned (another agent's files are closed to the main
+   agent), and marks the reading conversation when the one it reads holds outside content
+   (`outsideMark`). No tool sets a conversation's folder or goal (rules 3 and 11). An agent that is removed leaves nothing: `eraseAgent` is the
    one place that knows what carries an agent's name (routes, lists of others, secrets, stored
    keys, folders under `data/`, its folder and private home), for the tool, the control API and
    `pine agent remove` alike, and `test/admin.test.ts` looks for anything named after a removed
@@ -284,7 +292,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    link's target is printed next to its text, and `Linked` makes only printed `http(s)`
    addresses clickable. Do not render agent output in a way that hides a link's target.
 10. **The terminal UI is only a client.** It uses the control API like the CLI; it must not reach
-   into the daemon, so that attached and embedded modes behave the same.
+   into the daemon, so that attached and embedded modes behave the same. What the main agent
+   changes about a conversation reaches it as an event (`pine/conversation`, a topic only pine
+   publishes on), and its tabs follow (`followed`): a tab opened that way never takes the place
+   of the one the owner is in.
 11. **Only the owner opens a folder for a conversation, and looking at one runs nothing.**
    `setFolder` in `src/agents.ts` is reached from the control API only; there is no tool for it.
    It refuses pine's home, pine's code and other agents' workspaces in either direction, and a

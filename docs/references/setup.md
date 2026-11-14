@@ -42,7 +42,8 @@ called `main`, or else the first one. It is pine's administrator: what you want 
 pine, you ask it for, and it does it with tools that check what they are given, instead of
 you or an agent editing files. See "The main agent administers pine" below. The other agents do not have `create_agent`,
 `update_agent`, `remove_agent`, `agents`, `settings`, `set_setting`, `routes`, `add_route`,
-`remove_route`, `add_source_type`, `remove_source_type`, `add_model_server` or `remove_model_server`,
+`remove_route`, `add_source_type`, `remove_source_type`, `add_model_server`, `remove_model_server`,
+`conversations`, `read_conversation`, `set_conversation` or `remove_conversation`,
 and they are refused when they ask for the global scope. Their instructions tell them who can do it, so
 an agent you ask for something that is not its to do sends you to the main agent instead of
 trying.
@@ -231,6 +232,7 @@ agent, not a pine that does not start.
 | Types of event source, model servers | `add_source_type`, `remove_source_type`, `add_model_server`, `remove_model_server` |
 | pine's settings | `settings` (list), `set_setting` |
 | Routes: rules of your own in pine.json | `routes` (list), `add_route`, `remove_route` |
+| Conversations: your tabs, and each agent's list of them | `conversations` (list), `read_conversation`, `set_conversation`, `remove_conversation` |
 
 The ones only it has:
 
@@ -254,7 +256,7 @@ agent (`remove_source`, `remove_mcp_server`, `remove_skill`, `remove_schedule`, 
 asks you every time, and the question says that the main agent asks.
 
 **Not from a conversation that has read outside content.** `update_agent`, `remove_agent`,
-`set_setting`, `add_route` and `remove_route` are refused there without a question to you: a web page that says "remove the
+`set_setting`, `add_route`, `remove_route`, `set_conversation` and `remove_conversation` are refused there without a question to you: a web page that says "remove the
 agent" must not get as far as your approval dialog. A new
 conversation, or `/reset`, does it.
 
@@ -320,6 +322,42 @@ can cause such an event the agent's full tools. The question to you says so. Whe
 to go (`reply`), `whenBusy`, `priority` and `key` are not offered by the tool: write those in
 `pine.json`. Like the other administration tools, the two that change something are refused in
 a conversation that has read outside content.
+
+## Conversations and tabs
+
+"Which conversations are there?", "what did the books agent say about the invoice?", "pin
+that one", "open it in a tab", "close the tab", "remove the old ones": the main agent does
+these with four tools. They work on your own conversations with it and on those of every other
+agent, and they do what the list of conversations in the terminal UI does for your own hand
+([tui.md](tui.md)): the same pin, the same rename, the same removal.
+
+| Tool | Does |
+|---|---|
+| `conversations` [`agent`] | Lists the conversations of every agent, or of one: for each whether it is pinned, open in a tab, working, how many messages it has, when it was last used, when it is removed by itself, and whether it has read outside content. Asks nobody. |
+| `read_conversation` `name` [`agent`] [`last`] [`before`] | What was said in a conversation: the messages it was given and the answers, numbered, the newest last. `last` is how many (10, at most 30), `before` a number to read further back from. Of the tools an answer used it shows which and on what, never what they returned. Asks nobody. |
+| `set_conversation` `name` [`agent`] [`pinned`] [`tab`] [`rename`] | Changes only what is given. `pinned`: keep it however long it is unused, or take the pin off. `tab`: open a tab on it, or close its tab. `rename`: its new name; history, pin, tab and subscriptions go with it. A name that is new with `tab: true` opens a new, empty conversation. |
+| `remove_conversation` `name` [`agent`] | Removes a conversation for good: what was said in it, its tab, its pin, and what was set up for it alone (subscriptions, event sources, MCP servers, schedules, skills). You see what goes and confirm it, every time. |
+
+What holds for them:
+
+- **A tab the agent opens never takes your place.** It appears behind the tab you are in,
+  marked as new. A terminal UI that is running follows at once; one that is started later
+  opens with it.
+- **Closing a tab does what closing it yourself does.** What that conversation was subscribed
+  to on its own ends, and the conversation stays in the list. Where a subscription would end,
+  you are asked first.
+- **Reading is not a way around another agent's sandbox.** What another agent's tools returned
+  (its files, the pages it read) is not shown, only that a tool was used and on what.
+- **Outside content stays outside content.** If the conversation that is read has read
+  outside content, or is the one outside content started (its name ends in `~u`), the
+  conversation that reads it counts as having read outside content from then on
+  ([security.md](security.md)). The list says which ones these are.
+- **Not for the conversation the agent is in, and not for `main`.** The main agent cannot
+  close, rename or remove the conversation it is working in, and no agent's `main` conversation
+  is removed or renamed: `/close`, `/rename` and `/reset` are yours.
+- **A conversation's folder and its goal stay yours.** No tool sets them.
+- **Putting work into a conversation is not done here.** `set_conversation` opens an empty
+  tab; what is to be done in it you say there.
 
 ## pine's settings
 
