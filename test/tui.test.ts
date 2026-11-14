@@ -266,6 +266,28 @@ test("tui: esc stops a running task; an approval is asked in a dialog and answer
 	await t.close();
 });
 
+test("tui: a click into the input leaves it the place where keys go", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.sees("type a message");
+	const row = () => t.app.screen().findIndex((l) => /^ b\w+/.test(l));
+	t.term.type("before");
+	await t.sees("before");
+	// On the empty part of the line, where one clicks to go on typing.
+	t.term.click(60, row());
+	await sleep(30);
+	t.term.type(" after");
+	await t.sees("before after", 1500);
+	// On the text itself: the cursor goes there, and what is typed goes in at that place.
+	t.term.click(4, row());
+	await sleep(30);
+	t.term.type("X");
+	await until(() => /b\w*X\w* after/.test(t.app.screen()[row()] ?? ""), 1500, `the letter in the text\n${t.text()}`);
+	// What was typed is sent with enter, as ever.
+	t.term.type([KEY.enter]);
+	await t.sees(/ECHO\[b\w*X\w* after\]/);
+	await t.close();
+});
+
 test("tui: the mouse works on tabs, their close buttons, the bottom bar and the lists it opens", async () => {
 	const t = await open({ agents: { main: {}, gonzo: { agent: { description: "law" } } } });
 	await t.sees("type a message");

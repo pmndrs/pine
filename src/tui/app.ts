@@ -430,14 +430,16 @@ class WithMicrophone implements Component {
 	private shown: () => boolean;
 	private listening: () => boolean;
 	private click: () => void;
+	private focus: () => void;
 	/** Where the microphone begins in the line, when it is drawn. */
 	private at = 0;
 
-	constructor(inner: Component, shown: () => boolean, listening: () => boolean, click: () => void) {
+	constructor(inner: Component, shown: () => boolean, listening: () => boolean, click: () => void, focus: () => void) {
 		this.inner = inner;
 		this.shown = shown;
 		this.listening = listening;
 		this.click = click;
+		this.focus = focus;
 	}
 
 	invalidate(): void {
@@ -464,7 +466,13 @@ class WithMicrophone implements Component {
 			if (e.type === "click") this.click();
 			return { handled: true, render: true };
 		}
-		return this.inner.handleMouse?.(e);
+		const result = this.inner.handleMouse?.(e) as { focus?: boolean } | undefined;
+		if (!result?.focus) return result;
+		// A click into the input asks for the keys. The library would give them to whatever handed
+		// the click on, which is this, and this takes none: the input would seem frozen until
+		// something else gave it the keys back. So the input gets them here, by name.
+		this.focus();
+		return { ...result, focus: false, handled: true, render: true };
 	}
 }
 
@@ -1249,7 +1257,7 @@ export class PineTui {
 		this.dock = new VStack([
 			{ component: this.status, shrink: 1, minSize: 0 },
 			{ component: this.attach, shrink: 1, minSize: 0 },
-			{ component: new WithMicrophone(this.editor, () => this.active?.kind === "chat" && this.canListen(), () => this.voice !== undefined, () => void this.dictate()), shrink: 1, minSize: 3 },
+			{ component: new WithMicrophone(this.editor, () => this.active?.kind === "chat" && this.canListen(), () => this.voice !== undefined, () => void this.dictate(), () => this.tui.setFocus(this.editor)), shrink: 1, minSize: 3 },
 			{ component: this.footer, shrink: 1, minSize: 0 },
 		]);
 		this.code = new CodePane({
