@@ -58,7 +58,7 @@ interface Tab {
 	baseDepth: number;
 	/** Sub-agents and delegated tasks started from this tab, by task id. */
 	children: Map<number, { agent: string; kind: string; label: string; running: boolean }>;
-	doc: Container;
+	doc: Doc;
 	scroll: ScrollView;
 	layout: VStack;
 	/** Top-level tasks shown in this tab, and the ones still running. */
@@ -74,7 +74,11 @@ interface Tab {
 	thought?: { task: number; block: Thought };
 	/** How fast the last model call of this conversation went. */
 	speed?: Speed;
-	tools: Map<string, { line: Text; label: string }>;
+	tools: Map<string, { line: Text; label: string; part?: WorkPart }>;
+	/** What the agent does in the turn that is going on: the block that its next tool call or thought is added to. */
+	work?: Work;
+	/** What a task wrote last. If it goes on working after it, that was not its answer. */
+	said?: { task: number; block: { md: Answer; text: string } };
 	/** Text of the message a task streamed last, so a finished task's answer is not shown twice. */
 	streamed: Map<number, string>;
 	approvals: Map<string, { card: Text; req: any }>;
@@ -147,7 +151,10 @@ class Split extends HStack {
  */
 class Doc extends Container {
 	asText: () => boolean = () => false;
+	/** The width it was last drawn at, for working out where something lies in it. */
+	width = 80;
 	override render(width: number): string[] {
+		this.width = width;
 		const lines = super.render(width);
 		return this.asText() ? picturesAsText(lines, () => true) : lines;
 	}
@@ -472,8 +479,6 @@ const PEEK = 4;
 class Thought implements Component {
 	open = false;
 	done = false;
-	/** The width it was last drawn at, for working out where it lies in the conversation. */
-	width = 80;
 	private text = "";
 	private started = Date.now();
 	private ms?: number;
@@ -512,7 +517,6 @@ class Thought implements Component {
 	}
 
 	render(width: number): string[] {
-		this.width = width;
 		const all = this.lines(width);
 		const secs = Math.max(1, Math.round((this.done ? (this.ms ?? 0) : Date.now() - this.started) / 1000));
 		const took = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
@@ -529,6 +533,141 @@ class Thought implements Component {
 			this.open = !this.open;
 			this.toggled(this);
 		}
+		return { handled: true, render: true };
+	}
+}
+
+/** How many lines of a turn's work are shown while the agent is at it. */
+const TAIL = 6;
+/** How many tools the first line of a turn's work names. */
+const KINDS = 3;
+
+/** One thing an agent did on the way to its answer, as the conversation shows it. */
+interface WorkPart {
+	component: Component;
+	/** For a tool call: the tool, which the first line counts it under. */
+	tool?: string;
+	/** The call did not work. */
+	failed?: boolean;
+	/** For a thought: the thought, which can be open by itself. */
+	thought?: Thought;
+	/** Words the agent wrote before it went on working: one line of them stands for all while the work is not open. */
+	brief?: () => string;
+}
+
+/** What a line of a turn's work is: a line of one part of it, a line that opens and closes all of it, or nothing. */
+type WorkRow = { part: WorkPart; y: number; height: number } | "toggle" | undefined;
+
+/**
+ * What an agent did between a message and its answer: tool calls, thoughts, words in between,
+ * what its sub-tasks report. While it works, the last few lines are shown under one line that says
+ * what there is so far. When the turn is over that one line is left, and a click on it opens all
+ * of it, as it was. A single call or thought is shown as it is: one line standing for one line
+ * helps nobody.
+ */
+class Work implements Component {
+	open = false;
+	done = false;
+	private parts: WorkPart[] = [];
+	private started = Date.now();
+	private ms = 0;
+	private toggled: (work: Work) => void;
+	private rows: WorkRow[] = [];
+
+	constructor(toggled: (work: Work) => void) {
+		this.toggled = toggled;
+	}
+
+	add(part: WorkPart): WorkPart {
+		this.parts.push(part);
+		return part;
+	}
+
+	/** The turn is over, or something else came after this work. */
+	finish(): void {
+		if (this.done) return;
+		this.done = true;
+		this.ms = Date.now() - this.started;
+	}
+
+	invalidate(): void {
+		for (const p of this.parts) p.component.invalidate();
+	}
+
+	/** All of it is shown: somebody opened it, or opened a thought in it, which a few last lines would cut off. */
+	private shown(): boolean {
+		return this.open || this.parts.some((p) => p.thought?.open);
+	}
+
+	/** Open it, or close it and with it what was opened inside. */
+	private toggle(): void {
+		this.open = !this.shown();
+		if (!this.open) for (const p of this.parts) if (p.thought) p.thought.open = false;
+		this.toggled(this);
+	}
+
+	/** The first line: how many tool calls, of which tools, how many thoughts, what failed, how long it took. */
+	private head(): string {
+		const calls = this.parts.filter((p) => p.tool);
+		const tools = new Map<string, number>();
+		for (const p of calls) tools.set(p.tool!, (tools.get(p.tool!) ?? 0) + 1);
+		const sorted = [...tools].sort((a, b) => b[1] - a[1]);
+		const thoughts = this.parts.filter((p) => p.thought).length;
+		const count = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+		const what = [
+			...(calls.length ? [count(calls.length, "tool call"), ...sorted.slice(0, KINDS).map(([tool, n]) => (n > 1 ? `${tool} ×${n}` : tool))] : []),
+			...(sorted.length > KINDS ? [`+${sorted.length - KINDS} more`] : []),
+			...(thoughts ? [count(thoughts, "thought")] : []),
+		];
+		if (!this.done) what[0] = `${what[0] ?? "working"} so far`;
+		const failed = calls.filter((p) => p.failed).length;
+		const secs = Math.max(1, Math.round(this.ms / 1000));
+		const took = this.done ? ` · ${secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`}` : "";
+		const click = this.shown() ? "click here to close" : this.done ? "click to open" : "click to see all";
+		return ` ${c.gray(`${this.shown() ? "▾" : "▸"} ${what.join(" · ")}`)}${failed ? `${c.gray(" · ")}${c.red(`${failed} failed`)}` : ""}${c.gray(`${took} · ${click}`)}`;
+	}
+
+	render(width: number): string[] {
+		const out: string[] = [];
+		const rows: WorkRow[] = [];
+		const put = (line: string, row: WorkRow) => (out.push(line), rows.push(row));
+		const all = (part: WorkPart): Array<{ line: string; row: WorkRow }> => part.component.render(width).map((line, y, lines) => ({ line, row: { part, y, height: lines.length } }));
+		this.rows = rows;
+		if (this.parts.length < 2) {
+			for (const l of this.parts.flatMap(all)) put(l.line, l.row);
+			return out;
+		}
+		put(truncateToWidth(this.head(), width), "toggle");
+		if (this.shown()) {
+			this.parts.forEach((part, i) => {
+				// Words are set apart from the lines around them, as they are in the conversation.
+				if (i && (part.brief || this.parts[i - 1].brief)) put("", undefined);
+				for (const l of all(part)) put(l.line, l.row);
+			});
+			if (out.length > TAIL + 1) put(` ${c.gray("▴ close")}`, "toggle");
+		} else if (!this.done) {
+			const lines = this.parts.flatMap((part) => (part.brief ? [{ line: truncateToWidth(` ${c.gray(part.brief())}`, width), row: "toggle" as WorkRow }] : all(part)));
+			const tail = lines.slice(-TAIL);
+			// Not from the middle of something: a failed call's error without the call says little.
+			const whole = tail.findIndex((l) => l.row === "toggle" || !l.row || l.row.y === 0);
+			for (const l of tail.slice(Math.max(0, whole))) put(l.line, l.row);
+		}
+		return out;
+	}
+
+	/** The line at which something inside begins, as it is drawn at this width; nothing if it is not in view. */
+	rowOf(inner: Component, width: number): number | undefined {
+		this.render(width);
+		const at = this.rows.findIndex((r) => r && r !== "toggle" && (r.part.component === inner || (r.part.component instanceof Linked && r.part.component.inner === inner)));
+		return at < 0 ? undefined : at;
+	}
+
+	handleMouse(e: any) {
+		const row = this.rows[e.y];
+		if (!row) return undefined; // an empty line: left to text selection
+		if (row !== "toggle") return row.part.component.handleMouse?.({ ...e, y: row.y, height: row.height });
+		if (e.button !== "left" || (e.type !== "press" && e.type !== "click" && e.type !== "release")) return undefined;
+		if (e.type === "click") this.toggle();
 		return { handled: true, render: true };
 	}
 }
@@ -1474,35 +1613,87 @@ export class PineTui {
 		return t;
 	}
 
-	/** A place for what a model thinks. Opening and closing it keeps it in the window. */
+	/** A place for what a model thinks. In a conversation it is part of the turn's work. */
 	private thought(tab: Tab): Thought {
-		const thought = new Thought((t) => {
-			const scroll = tab.scroll;
-			if (t.open) {
-				// It grows downwards from its first line. A window that follows the end would run after
-				// the end and take that line out of sight, so it stays where it is.
-				if (scroll.isFollowingEnd && this.rowOf(tab) - scroll.viewportHeight > this.rowOf(tab, t)) scroll.scrollTo(scroll.scrollTop, { disableFollow: true });
-			} else {
-				// Closed from far down in it: the one line that is left must not end up above the window.
-				const top = this.rowOf(tab, t);
-				if (top < scroll.scrollTop) scroll.scrollTo(top);
-			}
-			this.tui.requestRender();
-		});
-		this.add(tab, thought);
+		const thought = new Thought((t) => this.keepInView(tab, t, t.open));
+		this.did(tab, thought, { thought }, true);
 		return thought;
 	}
 
+	/** Something in the conversation was opened or closed with a click: it stays in the window. */
+	private keepInView(tab: Tab, what: Component, open: boolean): void {
+		const scroll = tab.scroll;
+		if (open) {
+			// It grows downwards from its first line. A window that follows the end would run after
+			// the end and take that line out of sight, so it stays where it is.
+			if (scroll.isFollowingEnd && this.rowOf(tab) - scroll.viewportHeight > this.rowOf(tab, what)) scroll.scrollTo(scroll.scrollTop, { disableFollow: true });
+		} else {
+			// Closed from far down in it: the one line that is left must not end up above the window.
+			const top = this.rowOf(tab, what);
+			if (top < scroll.scrollTop) scroll.scrollTo(top);
+		}
+		this.tui.requestRender();
+	}
+
 	/** The row of the conversation at which a component begins; without one, how many rows there are. */
-	private rowOf(tab: Tab, inner?: Thought): number {
-		let width = inner?.width;
-		if (width === undefined) for (const child of tab.doc.children) if (child instanceof Linked && child.inner instanceof Thought) width = child.inner.width;
+	private rowOf(tab: Tab, inner?: Component): number {
+		const width = tab.doc.width;
 		let row = 0;
 		for (const child of tab.doc.children) {
-			if (inner && child instanceof Linked && child.inner === inner) return row;
-			row += child.render(width ?? 80).length;
+			if (inner) {
+				if (child === inner || (child instanceof Linked && child.inner === inner)) return row;
+				const at = child instanceof Work ? child.rowOf(inner, width) : undefined;
+				if (at !== undefined) return row + at;
+			}
+			row += child.render(width).length;
 		}
 		return row;
+	}
+
+	/**
+	 * The work of the turn that is going on in a conversation. It is one block for as long as
+	 * nothing else comes in between; after a question to the owner, a message, a picture, what
+	 * follows is a block of its own, so that everything stays in the order it happened.
+	 */
+	private work(tab: Tab): Work {
+		if (tab.work && tab.doc.children.at(-1) === tab.work) return tab.work;
+		tab.work?.finish();
+		tab.work = new Work((w) => this.keepInView(tab, w, w.open));
+		if (tab.doc.children.length) tab.doc.addChild(new Spacer(1));
+		tab.doc.addChild(tab.work);
+		if (tab !== this.active) tab.unread = true;
+		return tab.work;
+	}
+
+	/**
+	 * Show something an agent did on the way to its answer. In a conversation it joins the turn's
+	 * work; a tab on one task is there to show that task's work, and shows each thing by itself.
+	 */
+	private did(tab: Tab, component: Component, part: Omit<WorkPart, "component"> = {}, gap = false): WorkPart | undefined {
+		if (tab.kind !== "chat") return void this.add(tab, component, gap);
+		return this.work(tab).add({ component: new Linked(component), ...part });
+	}
+
+	/** A task goes on working after it wrote something: those words were not its answer, and join the work. */
+	private foldWords(tab: Tab, task: number): void {
+		const said = tab.said;
+		if (tab.kind !== "chat" || said?.task !== task) return;
+		tab.said = undefined;
+		const shown = tab.doc.children;
+		const last = shown.at(-1);
+		// Only where nothing came after them: a picture they point at stays with them, in view.
+		if (!(last instanceof Linked) || last.inner !== said.block.md) return;
+		shown.pop();
+		if (shown.at(-1) instanceof Spacer) shown.pop();
+		// A model's text on one line: nothing in it may move the cursor or colour the screen.
+		this.work(tab).add({ component: last, brief: () => short(oneLine(stripTerminalSequences(said.block.text).replace(/[\x00-\x1f\x7f]/g, " ")), 160) });
+	}
+
+	/** The turn is over: its work becomes one line, unless somebody opened it. */
+	private endWork(tab: Tab): void {
+		tab.work?.finish();
+		tab.work = undefined;
+		tab.said = undefined;
 	}
 
 	/** A task's model stopped thinking: what it thought is closed, or stays open if somebody opened it. */
@@ -1656,6 +1847,7 @@ export class PineTui {
 		for (const live of [tab.roots, tab.running, tab.blocks, tab.thoughts, tab.tools, tab.streamed, tab.children]) live.clear();
 		tab.awaiting = [];
 		tab.thinking = false;
+		this.endWork(tab);
 		const history = (await this.client.history(tab.agent, tab.session).catch(() => [] as Task[])).filter((t) => t.depth === 0).reverse();
 		if (history.length) this.say(tab, c.gray(`── earlier in this session (${history.length}) ──`));
 		for (const t of history) this.renderPast(tab, t);
@@ -2828,7 +3020,7 @@ export class PineTui {
 					break;
 				}
 				tab.children.set(p.task, { agent: p.agent, kind: p.kind, label: short(oneLine(String(p.label ?? p.prompt ?? "")), 60), running: true });
-				this.button(tab, `${indent}${c.magenta("↳")} ${c.bold(p.agent)} ${c.gray(`${childKind(p.kind)} #${p.task}: ${short(oneLine(String(p.label ?? p.prompt ?? "")), 80)}`)} ${open}`, () => void this.openTask(p.task));
+				this.did(tab, new Button(new Text(`${indent}${c.magenta("↳")} ${c.bold(p.agent)} ${c.gray(`${childKind(p.kind)} #${p.task}: ${short(oneLine(String(p.label ?? p.prompt ?? "")), 80)}`)} ${open}`, 1, 0), () => void this.openTask(p.task)));
 				break;
 			case "thinking": {
 				if (p.phase === "end") {
@@ -2839,7 +3031,10 @@ export class PineTui {
 				tab.thinking = true;
 				if (depth > 0 || !p.text) break; // a child's thoughts stay with the child, like its prose
 				let thought = tab.thoughts.get(p.task);
-				if (!thought) tab.thoughts.set(p.task, (thought = this.thought(tab)));
+				if (!thought) {
+					this.foldWords(tab, p.task);
+					tab.thoughts.set(p.task, (thought = this.thought(tab)));
+				}
 				thought.append(p.text);
 				break;
 			}
@@ -2855,6 +3050,7 @@ export class PineTui {
 					block = { md: new Answer(""), text: "" };
 					tab.blocks.set(p.task, block);
 					this.add(tab, block.md);
+					tab.said = { task: p.task, block };
 				}
 				block.text += p.text;
 				block.md.setText(block.text);
@@ -2889,7 +3085,9 @@ export class PineTui {
 				const label = `${c.bold(p.tool)}${p.subject ? ` ${c.gray(short(oneLine(p.subject), 100))}` : ""}`;
 				if (p.phase === "start") {
 					tab.toolCalls++;
-					tab.tools.set(key, { line: this.say(tab, `${indent}${c.yellow("●")} ${label}`, depth === 0 && !tab.tools.size), label });
+					if (depth === 0) this.foldWords(tab, p.task);
+					const line = new Text(`${indent}${c.yellow("●")} ${label}`, 1, 0);
+					tab.tools.set(key, { line, label, part: this.did(tab, line, { tool: p.tool }, depth === 0 && !tab.tools.size) });
 				} else {
 					const t = tab.tools.get(key);
 					const took = p.ms !== undefined ? c.gray(` ${p.ms < 1000 ? `${Math.round(p.ms)} ms` : `${(p.ms / 1000).toFixed(1)} s`}`) : "";
@@ -2897,7 +3095,8 @@ export class PineTui {
 					const text = `${indent}${p.ok ? c.green("✓") : c.red("✗")} ${t?.label ?? label}${took}${failed}`;
 					// A call that began before this tab was opened has no line of its own yet.
 					if (t) t.line.setText(text);
-					else this.say(tab, text, false);
+					else this.did(tab, new Text(text, 1, 0), { tool: p.tool, failed: !p.ok });
+					if (t?.part) t.part.failed = !p.ok;
 					tab.tools.delete(key);
 					for (const id of (p.images ?? []) as string[]) this.picture(tab, `from ${p.tool}`, () => this.client.toolImage(id));
 				}
@@ -2913,11 +3112,12 @@ export class PineTui {
 					if (child) child.running = false;
 					const n = p.stats?.tools?.length ?? 0;
 					const how = p.status === "done" ? `${childKind(p.kind ?? child?.kind ?? "task")} #${p.task} answered (${Math.round((p.stats?.ms ?? 0) / 100) / 10} s${n ? `, ${n} tool call${n === 1 ? "" : "s"}` : ""})` : `${childKind(p.kind ?? child?.kind ?? "task")} #${p.task} ${p.status}: ${p.error ?? ""}`;
-					this.button(tab, `${indent}${p.status === "done" ? c.green("✓") : c.red("✗")} ${c.bold(p.agent)} ${c.gray(how)} ${open}`, () => void this.openTask(p.task));
+					this.did(tab, new Button(new Text(`${indent}${p.status === "done" ? c.green("✓") : c.red("✗")} ${c.bold(p.agent)} ${c.gray(how)} ${open}`, 1, 0), () => void this.openTask(p.task)));
 					break;
 				}
 				tab.running.delete(p.task);
 				tab.thinking = false;
+				if (!tab.running.size) this.endWork(tab);
 				this.takeStats(tab, p.stats);
 				// What the turn left running is said at once, not at the next look.
 				if (tab === this.active) void this.pollPrograms();

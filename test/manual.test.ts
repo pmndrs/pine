@@ -50,6 +50,8 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["a command was refused a file it did not name, what happens then", /^security#when-a-call-needs-something-outside/],
 		["how do I turn off the question pine asks itself when a command needs a folder outside the sandbox", /^(configuration#pine-json|security#when-a-call-needs-something-outside)/],
 		["how do I see what the model was thinking before it answered", /^tui#what-a-model-thinks/],
+		["the conversation is cluttered with tool calls, can they be collapsed so that I only see the answer", /^tui#the-tool-calls-of-a-turn/],
+		["after the answer came the tool calls are gone and there is only one line, how do I see them again", /^tui#(the-tool-calls-of-a-turn|mouse)/],
 		["the context window is nearly full, how do I shorten the conversation", /^tui#(commands|mouse)/],
 		["save the conversation as a file", /^tui#commands/],
 		["keep track of the steps of a long task so I do not lose my place", /^(setup#the-tools|tui#the-agent-s-list-of-steps)/],

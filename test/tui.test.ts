@@ -52,6 +52,11 @@ test("tui: a conversation streams in, tools and delegated work are shown, and hi
 	await t.send(mockMsg([{ text: "Let me check.", tools: [{ name: "bash", args: { command: "echo one" } }, { name: "delegate", args: { agent: "gonzo", task: "@@REF:child@@" } }] }, { text: "# Result\n\nAll **done**: item `a`" }]));
 	await t.sees("All done: item a");
 	await done(t.h, 3);
+	// What it did on the way is one line under the message, and a click on that line shows all of it.
+	await t.sees(/▸ 3 tool calls · bash ×2 · delegate · \d+s · click to open/);
+	assert.ok(!t.text().includes("✓ bash echo one"), t.text());
+	t.term.click(6, t.app.screen().findIndex((l) => l.includes("▸ 3 tool calls")));
+	await t.sees("▾ 3 tool calls");
 	const screen = t.text();
 	for (const part of ["Let me check.", "✓ bash echo one", "✓ delegate gonzo", "↳ gonzo delegated task #3:", "✓ bash echo child-ran", "✓ gonzo delegated task #3 answered", "▸ open", "Result"]) assert.ok(screen.includes(part), `${part}\n${screen}`);
 	assert.equal(count(screen, "All done: item a"), 1);
@@ -630,6 +635,8 @@ test("tui: a sub-agent's work opens in a tab of its own, while it runs and after
 	// Afterwards: the conversation shows how it ended; the agent list has it; /task opens it from the record.
 	t.term.type([KEY.alt(1)]);
 	await t.sees("parent done");
+	await t.sees(/▸ 2 tool calls · subagent · bash · \d+s · click to open/);
+	t.term.click(6, t.app.screen().findIndex((l) => l.includes("▸ 2 tool calls")));
 	await t.sees("✓ main sub-agent #2 answered");
 	t.term.type([KEY.alt(2), KEY.ctrlW]);
 	await until(() => !/main↳#2/.test(t.app.screen()[0]), 2000, "the task tab to close");
@@ -903,6 +910,83 @@ test("tui: what a model thinks is a few lines while it thinks and one line after
 	await until(() => !rows().some((l) => /^ │ long-\d+ /.test(l)), 2000, "the long thought to close");
 	const left = rows().findIndex((l) => /▸ thought for/.test(l));
 	assert.ok(left >= 0 && rowOf("Third answer.") > left, `the one line that is left is in view, with the answer under it\n${t.text()}`);
+	await t.close();
+});
+
+test("tui: what an agent does in a turn is a few lines while it works and one line after; a click opens all of it", async () => {
+	const t = await open({ agents: { main: {} } }, [110, 50]);
+	await t.sees("type a message");
+	const rows = () => t.app.screen();
+	const rowOf = (what: string) => rows().findIndex((l) => l.includes(what));
+	// A line of the conversation, not of the typed message that scripted it.
+	const line = (what: string) => rows().some((l) => l.trim() === what);
+	const echo = (n: number) => ({ tools: [{ name: "bash", args: { command: `echo step-${n}` } }] });
+
+	await t.send(mockMsg([{ text: "First I look around.", ...echo(1) }, ...[2, 3, 4, 5, 6, 7, 8].map(echo), { tools: [{ name: "read", args: { path: "no-such-file.txt" } }] }, { tools: [{ name: "bash", args: { command: "sleep 0.6; echo last" } }] }, { text: "All of it is done." }]));
+
+	// While it works: what there is so far in one line, and the last few lines under it.
+	await t.sees("● bash sleep 0.6");
+	assert.match(t.text(), /▸ 10 tool calls so far · bash ×9 · read · 1 failed · click to see all/);
+	assert.ok(t.text().includes("✓ bash echo step-8") && t.text().includes("✗ read no-such-file.txt"), t.text());
+	assert.ok(!t.text().includes("✓ bash echo step-5") && !line("First I look around."), `only the last lines\n${t.text()}`);
+
+	// The answer is there: one line is left of the way to it, and it names what failed.
+	await until(() => line("All of it is done."), 4000, "the answer");
+	await t.sees(/▸ 10 tool calls · bash ×9 · read · 1 failed · \d+s · click to open/);
+	assert.ok(!t.text().includes("✓ bash") && !t.text().includes("✗ read"), `closed to one line\n${t.text()}`);
+
+	// A click opens it: every call, and the words the agent wrote before it went on working.
+	t.term.click(6, rowOf("▸ 10 tool calls"));
+	await t.sees(/▾ 10 tool calls · bash ×9 · read · 1 failed · \d+s · click here to close/);
+	for (const part of ["✓ bash echo step-1", "✓ bash echo step-5", "✗ read no-such-file.txt", "✓ bash sleep 0.6; echo last", "▴ close"]) assert.ok(t.text().includes(part), `${part}\n${t.text()}`);
+	assert.ok(line("First I look around.") && line("All of it is done."), t.text());
+	assert.ok(rowOf("✓ bash echo step-1") < rowOf("✓ bash echo step-8") && rowOf("▴ close") < rows().findIndex((l) => l.trim() === "All of it is done."), `in the order it happened, above the answer\n${t.text()}`);
+
+	// The line at its end closes it again.
+	t.term.click(4, rowOf("▴ close"));
+	await until(() => !t.text().includes("✓ bash echo step-1"), 2000, "the work to close");
+	assert.match(t.text(), /▸ 10 tool calls · /);
+
+	// One call is shown as it is: a line that stands for one line helps nobody.
+	await t.send(mockMsg([{ tools: [{ name: "bash", args: { command: "echo alone" } }] }, { text: "Short work." }]));
+	await until(() => line("Short work."), 4000, "the second answer");
+	await t.sees(/✓ bash echo alone/);
+	assert.ok(!/▸ 1 tool call/.test(t.text()), t.text());
+	await t.close();
+});
+
+test("tui: a thought opens together with the tool calls around it, and what comes between tool calls keeps its place", async () => {
+	const t = await open({ agents: { main: { agent: { approve: ["bash:*rm *"] } } }, model: { reasoning: true } }, [110, 50]);
+	await t.sees("type a message");
+	const rows = () => t.app.screen();
+	const rowOf = (what: string | RegExp) => rows().findIndex((l) => (typeof what === "string" ? l.includes(what) : what.test(l)));
+
+	// A thought read while the agent works: the last few lines would cut it off, so all of the turn's work is shown.
+	await t.send(mockMsg([{ reasoning: "weigh-1 the options\nweigh-2 the options", tools: [{ name: "bash", args: { command: "sleep 0.8; echo weighed" } }] }, { text: "Weighed." }]));
+	await t.sees("● bash sleep 0.8");
+	assert.match(t.text(), /▸ 1 tool call so far · bash · 1 thought · click to see all/);
+	t.term.click(6, rowOf("▸ thought for"));
+	await t.sees(/▾ 1 tool call so far · bash · 1 thought · click here to close/);
+	assert.ok(rows().some((l) => l.startsWith(" │ weigh-1 ")), t.text());
+	// It was opened, so it stays open when the turn is over. Closing the work closes the thought with it.
+	await until(() => rows().some((l) => l.trim() === "Weighed."), 4000, "the answer");
+	await t.sees(/▾ 1 tool call · bash · 1 thought · \d+s · click here to close/);
+	t.term.click(6, rowOf("▾ 1 tool call"));
+	await until(() => !rows().some((l) => l.startsWith(" │ weigh-1 ")), 2000, "the work to close");
+	t.term.click(6, rowOf("▸ 1 tool call"));
+	await t.sees(/▸ thought for \d+s/);
+	assert.ok(!rows().some((l) => l.startsWith(" │ weigh-1 ")), `the thought is closed inside\n${t.text()}`);
+	t.term.click(6, rowOf("▾ 1 tool call"));
+
+	// A question to the owner stands between the tool calls before it and the ones after it.
+	await t.send(mockMsg([{ tools: [{ name: "bash", args: { command: "echo before-1" } }] }, { tools: [{ name: "bash", args: { command: "echo before-2" } }] }, { tools: [{ name: "bash", args: { command: "touch f; rm f; echo asked" } }] }, { tools: [{ name: "bash", args: { command: "echo after-1" } }] }, { tools: [{ name: "bash", args: { command: "echo after-2" } }] }, { text: "Asked and done." }]));
+	await t.sees("│ Approval needed");
+	t.term.type("a");
+	await t.sees("✓ allowed bash");
+	await until(() => rows().some((l) => l.trim() === "Asked and done."), 4000, "the answer");
+	await t.sees(/▸ 3 tool calls · bash ×3 · \d+s · click to open/);
+	await t.sees(/▸ 2 tool calls · bash ×2 · \d+s · click to open/);
+	assert.ok(rowOf(/▸ 3 tool calls · bash ×3/) < rowOf("✓ allowed bash") && rowOf("✓ allowed bash") < rowOf(/▸ 2 tool calls · bash ×2/), `in the order it happened\n${t.text()}`);
 	await t.close();
 });
 

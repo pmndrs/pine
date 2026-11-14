@@ -15,10 +15,10 @@ running it attaches to it; otherwise it starts one inside the same process, logs
 ──────────────────────────────────────────────────────────────────────────
  what is on the front page of example.com?                                 ← you
 
+ ▸ 2 tool calls so far · browser_navigate · delegate · 1 thought · click to see all  ← this turn's work; click to open
  ▸ thought for 6s · click to read                                          ← what the model thought; click to open
-
- ● browser_navigate https://example.com                                    ← tool call, running
- ✓ browser_navigate https://example.com 1.2 s                              ← finished
+ ✓ browser_navigate https://example.com 1.2 s                              ← tool call, finished
+ ● delegate scout                                                          ← tool call, running
    ↳ scout delegated task #8: summarise the page ▸ open                    ← work handed on; click to look at it
    ✓ scout delegated task #8 answered (3.4 s, 2 tool calls) ▸ open
 
@@ -57,6 +57,7 @@ Everything in the two bars reacts to a click.
 | A button in an approval dialog | Allow once, Always here, Deny or Later |
 | Anywhere beside an open list | It closes. The click does nothing else |
 | Anywhere beside an approval dialog or a question | Nothing: it stays open until you answer it or put it off with `esc` |
+| A `▸ 12 tool calls` line | Everything the agent did in that turn opens: every tool call, thought and sub-task, and what it wrote in between. A click on the line, or on `▴ close` at the end, closes it again. See [The tool calls of a turn](#the-tool-calls-of-a-turn) |
 | A `▸ thinking` or `▸ thought for` line, or the lines under it | What the model thought opens in full. A click anywhere on the open text closes it again. See [What a model thinks](#what-a-model-thinks) |
 | A web address in the conversation | It opens in your browser |
 | A picture | It is enlarged; a second click shrinks it again |
@@ -377,7 +378,7 @@ conversation and is updated in place: `✓` done, `◐` in work, `☐` still to 
 above it; the status line says `step 2 of 5` while the agent works. The list belongs to the
 conversation: it is still there when the UI opens again, the agent is reminded of what is open
 with your next message, and `/reset` clears it. In the conversation the list is soon far above,
-behind the tool calls of the work itself. The code pane (`▤ code`, `ctrl+g`) keeps it in view:
+behind the work itself. The code pane (`▤ code`, `ctrl+g`) keeps it in view:
 while the pane is open the steps stand at its top, in every view, up to six at a time with the
 one in work among them.
 
@@ -492,6 +493,40 @@ without its sound in the conversation.
 All of this is display. The model is never sent the drawing; it gets the actual picture if it
 can look at images, exactly as before.
 
+## The tool calls of a turn
+
+Between your message and the answer an agent thinks, calls tools, writes a sentence about what
+it does next and hands work to others. The conversation keeps all of that together and folds it
+into one line when the turn is over, so that long work does not push your message and the
+answer far apart:
+
+| When | What is shown |
+|---|---|
+| While the agent works | `▸ 6 tool calls so far · bash ×4 · read ×2 · 1 thought · click to see all`, and under it the last six lines: the call that runs (`●`) and the ones that just ended (`✓`, `✗`) |
+| When the turn is over | One line, `▸ 12 tool calls · bash ×6 · read ×4 · edit · +1 more · 2 thoughts · 1 failed · 48s · click to open`, with the answer under it |
+| After a click on that line, at either time | `▾` and everything in the order it happened, as it is: a call with how long it took, a failed one with the start of its error, a thought to click, the lines of a sub-task with `▸ open`, the words the agent wrote in between. What you opened stays open when the turn ends |
+| After a click on the first line again, or on `▴ close` at the end | The one line again, brought into view |
+| A turn with a single tool call or thought | That call or thought itself, with no line above it |
+
+The first line says how many tool calls there were, names the three tools that were called
+most (`+N more` for the rest), then how many thoughts, how many calls failed, and how long it
+all took.
+
+Words the agent writes and then goes on working ("Let me look at the tests first.") are not its
+answer. They are folded in with the tool calls: one grey line while the agent works, the whole
+text when the line is opened. The text after which nothing more happens is the answer and
+stays in the conversation.
+
+Some things are never folded away, because they are for you: a request for your approval, a
+question of the agent's, a message you typed while it worked, the agent's list of steps, and a
+picture a tool returned. They stand where they happened. The tool calls before one of them
+become one line at that point, and the ones after it are a block of their own.
+
+Like thoughts, tool calls are shown while pine runs. After the UI is opened again an earlier
+turn is your message and the answer; the tool calls of the last messages are in the code pane's
+Output view ([coding.md](coding.md)). A tab on one task (`▸ open`, `/task <id>`) is there to
+show that task's work, and shows every call by itself.
+
 ## What a model thinks
 
 A model that reasons before it answers (`/reasoning`, and a model that can) sends its thoughts
@@ -504,6 +539,12 @@ ahead of the answer. The conversation shows them like this:
 | When that call of the model has ended | The line also says how fast the model was: `▸ thought for 12s · ↑ 1.4k t/s ↓ 42 t/s`. See [How fast the model is](#how-fast-the-model-is) |
 | After a click on it, at either time | `▾` and the whole thought, however long. One that you opened stays open when the thinking ends |
 | After a click anywhere on the open thought | The one line again. Every line of it closes it, so you do not have to scroll back to its beginning; the line that is left is brought into view |
+
+A thought is folded in with [the tool calls of a turn](#the-tool-calls-of-a-turn). With tool
+calls around it, it is among their last lines while the agent works, and a click on it there
+opens all of them, since a few last lines would cut an open thought off. When the turn is over
+it is inside the one line that is left; a thought in a turn without tool calls stays a line of
+its own.
 
 Thoughts are shown while pine runs and are not kept in the conversation's list: after the UI is
 opened again, the earlier answers are there and the thoughts are not. A sub-agent's or a
@@ -545,7 +586,8 @@ the terminal instead.
 ## Sub-agents and delegated tasks
 
 When an agent starts a sub-agent or hands a task to another agent, the conversation shows a
-`↳` line for it, the tool calls it makes (indented), and a line when it answers. Its own
+`↳` line for it, the tool calls it makes (indented), and a line when it answers, all among
+[the tool calls of the turn](#the-tool-calls-of-a-turn). Its own
 thinking and prose are not mixed into the conversation. To see them, click the line (or use
 `/task <id>`): a tab opens with the task it was given in full, its thinking, what it wrote, and
 every tool call with the start of the result. A running task is followed live, and `esc` in
