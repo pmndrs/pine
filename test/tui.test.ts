@@ -266,6 +266,40 @@ test("tui: esc stops a running task; an approval is asked in a dialog and answer
 	await t.close();
 });
 
+test("tui: requests that are open side by side each get their dialog, one after the other", async () => {
+	const hourly = { type: "command", run: "true", every: "1h" };
+	const t = await open({ pine: { sources: { one: hourly, two: hourly, three: hourly } }, agents: { main: {} } });
+	await t.sees("type a message");
+	const asks = (name: string) => t.sees(new RegExp(`│ {3}remove the event source "${name}"`));
+
+	// remove_source asks from inside the tool, and the calls of one step run side by side: all
+	// three requests are open at once, and only one dialog fits on the screen.
+	await t.send(mockMsg([{ tools: ["one", "two", "three"].map((name) => ({ name: "remove_source", args: { name } })) }]));
+	await until(() => t.h.pine.approvals.pending().length === 3, 4000, "three open requests");
+	await asks("one");
+
+	// Answered, it makes room for the next: that one is not left to its line in the conversation.
+	t.term.type("a");
+	await asks("two");
+	// Put off, it makes room too, and a click answers the last.
+	t.term.type([KEY.esc]);
+	await asks("three");
+	const row = t.app.screen().findIndex((l) => /Allow( once)? \(a\)/.test(l));
+	t.term.click(t.app.screen()[row].search(/Allow( once)? \(a\)/) + 2, row);
+	await until(() => t.h.pine.approvals.pending().length === 1, 4000, "one open request");
+
+	// The one that was put off is not asked again by itself: it waits for enter, as ever.
+	await t.sees("waiting for your approval · enter opens the question");
+	await sleep(60);
+	assert.ok(!t.text().includes("│ Approval needed"), t.text());
+	t.term.type([KEY.enter]);
+	await asks("two");
+	t.term.type("a");
+	await until(() => count(t.text(), "✓ allowed remove_source") === 3, 4000, "three answers in the conversation");
+	await until(() => Object.keys(t.h.pine.cfg.sources).length === 0, 4000, "the three sources to be gone");
+	await t.close();
+});
+
 test("tui: a click into the input leaves it the place where keys go", async () => {
 	const t = await open({ agents: { main: {} } });
 	await t.sees("type a message");

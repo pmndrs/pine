@@ -351,6 +351,8 @@ mode every turn, so it knows when something it refused earlier has become possib
 
 When an agent wants to do something that needs your say (see [security.md](security.md)), a
 dialog opens over the conversation with the agent, the tool and its arguments, and the reason.
+When several requests wait at once, each gets its dialog in turn: the next one opens when you
+answer the one before it or put it off.
 
 | Key | Answer |
 |---|---|

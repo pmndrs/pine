@@ -1212,6 +1212,8 @@ export class PineTui {
 	private dialog?: { id: string; handle: OverlayHandle; dismiss(): void; waits?: boolean };
 	/** When a menu or question last closed. A key that closed it is not also a key for what lies under it. */
 	private dialogClosedAt = 0;
+	/** The requests whose dialog was opened once. One that arrived while another dialog was open is not among them, and is asked when that one is gone. */
+	private asked = new Set<string>();
 	/** Videos fetched from the daemon, as files for ffmpeg and the player. Removed when the UI closes. */
 	private mediaDir?: string;
 	private mediaCount = 0;
@@ -2821,7 +2823,20 @@ export class PineTui {
 		const handle = this.tui.showOverlay(dialog, { anchor: "center", width: "76%", minWidth: 40 });
 		handle.focus();
 		this.dialog = { id: req.id, handle, dismiss: () => this.closeDialog(), waits: true };
+		this.asked.add(req.id);
 		this.tui.requestRender();
+	}
+
+	/**
+	 * Requests can be open side by side: a tool that asks from inside itself (remove_source) does so
+	 * while its neighbours of the same step run, and one can arrive while a menu is open. Only one
+	 * dialog fits, so the others have just their line in the conversation. Each of them gets its
+	 * dialog when the one before it is gone. One that was put off is not asked again by itself.
+	 */
+	private askNext(): void {
+		if (this.dialog || this.stopped) return;
+		const next = [...this.active.approvals.values()].find((a) => !this.asked.has(a.req.id));
+		if (next) this.ask(this.active, next.req);
 	}
 
 	/** Forget the questions the daemon no longer has open: their cards say so, and a dialog for one closes. */
@@ -2834,6 +2849,7 @@ export class PineTui {
 				if (open.has(id)) continue;
 				a.card.setText(`${c.gray("– no longer open:")} ${c.bold(a.req.tool)} ${c.gray("(pine was restarted, or the question ran out of time)")}`);
 				tab.approvals.delete(id);
+				this.asked.delete(id);
 				if (this.dialog?.id === id) this.closeDialog();
 			}
 		}
@@ -2846,6 +2862,8 @@ export class PineTui {
 		this.dialogClosedAt = Date.now();
 		this.tui.setFocus(this.editor);
 		this.tui.requestRender();
+		// After what closed this one has run to its end: a menu that leads to another menu opens that one first.
+		setImmediate(() => this.askNext());
 	}
 
 	private async answer(args: string, allow: boolean): Promise<void> {
@@ -2896,6 +2914,7 @@ export class PineTui {
 					else a.card.setText(`${p.allow ? c.green("✓ allowed") : c.red("✗ denied")} ${c.bold(a.req.tool)} ${c.gray(`(${p.by})${p.always ? ` · ${p.remember} will not ask again in this conversation` : ""}`)}`);
 					tab.approvals.delete(p.id);
 				}
+				this.asked.delete(p.id);
 				if (this.dialog?.id === p.id) this.closeDialog();
 				this.tui.requestRender();
 			}
