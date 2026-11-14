@@ -215,10 +215,10 @@ test("tui: a tab the main agent opens appears behind the one the owner is in, an
 	const text = () => app.screen().join("\n");
 	const sees = (what: RegExp) => until(() => what.test(text()), 5000, `the screen to show ${what}\n--- screen ---\n${text()}`);
 	const main = async (...tools: any[]) => void (await h.pine.agents.run({ agent: "main", session: "work", prompt: mockMsg([{ tools }]), ...owner }));
-	await sees(/^ pine\s+1 main ×/m);
+	await sees(/^ pine\s+1 ★ main ×/m);
 
 	await main(call("set_conversation", { agent: "helper", name: "notes", tab: true }));
-	await sees(/1 main ×\s+2 helper·notes ×/);
+	await sees(/1 ★ main ×\s+2 helper·notes ×/);
 	// The owner is still where they were: the header is the first tab's, and the new tab's words are not on screen.
 	assert.match(text(), /main · main · no folder/);
 	assert.ok(!text().includes("remember the llamas"), text());

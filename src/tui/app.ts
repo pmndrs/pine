@@ -3262,8 +3262,9 @@ export class PineTui {
 			const name = t.kind === "events" ? "events" : t.kind === "task" ? `${t.agent}↳#${t.task}` : t.session === "main" ? t.agent : `${t.agent}·${t.session}`;
 			// A question that waits comes first: its task is still running, and a spinner would hide that it waits for the owner.
 			const mark = t.approvals.size ? c.yellow("!") : t.running.size ? c.yellow(SPINNER[this.frame % SPINNER.length]) : t.unread ? c.accent("•") : " ";
-			// A pinned conversation has the mark it has in the list of conversations.
-			const star = t.kind === "chat" && this.pins.has(`${t.agent}:${t.session}`) ? "★ " : "";
+			// A conversation that is kept for good has the mark it has in the list of conversations: a
+			// pinned one, and an agent's main conversation, which always stays.
+			const star = t.kind === "chat" && (t.session === "main" || this.pins.has(`${t.agent}:${t.session}`)) ? "★ " : "";
 			const label = ` ${i + 1} ${star}${short(name, 22)} `;
 			line.add(t === this.active ? c.bgAccent(label) : c.gray(label), () => this.activate(t));
 			line.add(t === this.active ? c.bgAccent("×") : c.gray("×"), () => this.closeTab(t));

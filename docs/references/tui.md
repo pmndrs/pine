@@ -11,7 +11,7 @@ running it attaches to it; otherwise it starts one inside the same process, logs
 `pine` works without further setup, given Claude Code is installed and signed in.
 
 ```
- pine  1 main ×  2 main·notes × ⠹  3 events ×  +                   ▤ code  ← tabs, and the code pane's button
+ pine  1 ★ main ×  2 main·notes × ⠹  3 events ×  +                 ▤ code  ← tabs, and the code pane's button
 ──────────────────────────────────────────────────────────────────────────
  what is on the front page of example.com?                                 ← you
 
@@ -130,8 +130,9 @@ A folder dropped on the terminal is not attached: it is opened for the conversat
 ## Tabs
 
 A tab is one conversation: an agent and a session. The first tab is the main agent's `main`
-session. A dot next to a tab means something arrived while you were elsewhere, a spinner that
-the agent is working, `!` that it waits for your approval.
+session. A `★` in a tab means its conversation is kept for good: an agent's main conversation,
+or one you pinned. A dot next to a tab means something arrived while you were elsewhere, a
+spinner that the agent is working, `!` that it waits for your approval.
 
 | Do this | With |
 |---|---|
@@ -168,7 +169,7 @@ a tab`, `kept`, or when it goes (`goes in 5 days`, `goes in 20 h`, `goes soon`).
 | `enter`, or a click on a name | Opens the conversation in a tab |
 | `pin` / `unpin` at the end of a row, or `ctrl+p` | Pins it, or takes the pin off. A pinned one has a `★` in front and comes first, and its tab has the `★` too |
 | `×` at the end, or `ctrl+x` | Removes it for good. It asks once more (`remove? ×`); the second click or key does it. A conversation that is working is not removed |
-| `reset` at the end of the agent's `main` conversation, or `ctrl+x` on it | Starts that conversation over, as `/reset` does. It asks once more (`reset? ×`). The agent's own conversation cannot be removed and never goes by itself, so it has a `★` and no `pin` |
+| `reset` at the end of the agent's `main` conversation, or `ctrl+x` on it | Starts that conversation over, as `/reset` does. It asks once more (`reset? ×`). The agent's own conversation cannot be removed and never goes by itself, so it has a `★`, here and on its tab, and no `pin`: `/pin` in it only says that it always stays |
 
 Removing cannot be undone: the history, what the conversation may do without asking, what it
 listens to and whatever was set up for it alone (event sources, schedules, MCP servers, skills,

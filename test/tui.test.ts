@@ -42,7 +42,7 @@ const done = (h: Harness, n: number) => until(() => h.pine.tasks.list({ status: 
 test("tui: a conversation streams in, tools and delegated work are shown, and history returns on reopen", async () => {
 	const t = await open({ agents: { main: { agent: { description: "front desk" } }, gonzo: { agent: { description: "law" } } } });
 	await t.sees("main · front desk");
-	assert.match(t.text(), /^ pine\s+1 main/m);
+	assert.match(t.text(), /^ pine\s+1 ★ main/m);
 
 	await t.send("hello there");
 	await t.sees("ECHO[hello there]");
@@ -93,7 +93,7 @@ test("tui: tabs, slash commands and keys", async () => {
 	await t.sees("unknown command /nonsense");
 
 	await t.send("/new notes");
-	await t.sees(/1 main ×\s+2 main·notes ×/);
+	await t.sees(/1 ★ main ×\s+2 main·notes ×/);
 	await t.send("only in notes");
 	await t.sees("ECHO[only in notes]");
 	assert.equal(t.h.pine.tasks.list({})[0].session, "notes");
@@ -106,7 +106,7 @@ test("tui: tabs, slash commands and keys", async () => {
 
 	await t.send("/agent gonzo");
 	await t.sees("gonzo · law");
-	assert.match(t.text(), /3 gonzo/);
+	assert.match(t.text(), /3 ★ gonzo/);
 	await t.send("/model nope/nothing");
 	await t.sees('model "nope/nothing" is not defined');
 
@@ -174,7 +174,7 @@ test("tui: enter on a highlighted suggestion picks it and runs the command", asy
 	await t.sees(/→ gonzo\s+law/);
 	t.term.type([KEY.enter]);
 	await t.sees("gonzo · law");
-	assert.match(t.text(), /2 gonzo/);
+	assert.match(t.text(), /2 ★ gonzo/);
 	assert.ok(!t.text().includes('no agent "go"'), "the typed fragment is not what gets run");
 
 	// The same for a model: type a fragment, pick from the list.
@@ -254,7 +254,7 @@ test("tui: esc stops a running task; an approval is asked in a dialog and answer
 	await t.sees("waiting for your approval");
 	// From another tab the question is not out of sight: its tab is marked, and the status line says where it waits.
 	t.term.type([KEY.ctrlT]);
-	await t.sees(/1 main ×!/);
+	await t.sees(/1 ★ main ×!/);
 	await t.sees(/tab 1 \(main\) is waiting for your approval · alt\+1 goes there/);
 	t.term.type([KEY.alt(1)]);
 	await t.sees("│ Approval needed");
@@ -337,8 +337,8 @@ test("tui: the mouse works on tabs, their close buttons, the bottom bar and the 
 
 	// The tab bar: + opens a conversation, a tab's name brings it forward, its × closes it.
 	await click("+", 0, 0);
-	await t.sees(/1 main ×\s+2 main·s\w+ ×/);
-	await click("1 main", 0);
+	await t.sees(/1 ★ main ×\s+2 main·s\w+ ×/);
+	await click("1 ★ main", 0);
 	await t.send("in the first tab");
 	await t.sees("ECHO[in the first tab]");
 	const bar = t.app.screen()[0];
@@ -721,7 +721,7 @@ test("tui: an event from a subscribed source arrives in the conversation the age
 	await t.sees("⚡ clock: source/clock/tick", 5000);
 	await t.sees(/ECHO\[\[You are subscribed to the event source "clock"/, 5000);
 	assert.ok(t.text().includes('"scheduled"'), "with the start of what the source reported");
-	assert.match(t.app.screen()[0], /^ pine\s+1 main ×\s+\+/, "no other conversation was opened for it");
+	assert.match(t.app.screen()[0], /^ pine\s+1 ★ main ×\s+\+/, "no other conversation was opened for it");
 	await t.send("/unsubscribe clock");
 	await t.sees("main is no longer subscribed to clock");
 
@@ -788,7 +788,7 @@ test("tui: the same tabs open again next time; the list of conversations pins, r
 	const again = new PineTui({ client: t.app.client, terminal: new FakeTerminal(110, 30) });
 	apps.push(again);
 	await again.start();
-	await until(() => /1 main ×\s+2 main·side ×/.test(again.screen()[0]) && again.screen().join("\n").includes("ECHO[hello side"), 4000, `both tabs again, with the second in front\n${again.screen().join("\n")}`);
+	await until(() => /1 ★ main ×\s+2 main·side ×/.test(again.screen()[0]) && again.screen().join("\n").includes("ECHO[hello side"), 4000, `both tabs again, with the second in front\n${again.screen().join("\n")}`);
 	await again.stop();
 	await t.h.close();
 });
@@ -802,7 +802,7 @@ test("tui: the agent's own conversation is kept without a pin, and reset where t
 	await t.sees("│ Conversations of main");
 	// It cannot be removed and never goes: its row has the mark of a kept one, and "reset" where the others have "×".
 	await t.sees(/★ main\s+1 message · just now · the agent's own, always kept\s+reset │/);
-	const row = () => t.app.screen().findIndex((l) => /★ main /.test(l));
+	const row = () => t.app.screen().findIndex((l) => /★ main\s+\d+ message/.test(l));
 	t.term.click(t.app.screen()[row()].lastIndexOf("reset") + 1, row());
 	await t.sees("reset? ×");
 	assert.equal(t.h.pine.tasks.list({ agent: "main", session: "main" }).length, 1, "asked first, as with a removal");
@@ -823,7 +823,7 @@ test("tui: the tab of a pinned conversation has the mark it has in the list", as
 	await t.sees("ECHO[hello side]");
 	await t.send("/pin");
 	await t.sees(/2 ★ main·side ×/);
-	assert.ok(/1 main ×/.test(t.app.screen()[0]), "the agent's own conversation is its plain name");
+	assert.ok(/1 ★ main ×/.test(t.app.screen()[0]), "the agent's own conversation always stays, and is marked like a pinned one");
 	await t.send("/unpin");
 	await t.sees(/2 main·side ×/);
 	// Pinned in the list of conversations, the tab follows; and the mark is there again at the next start.

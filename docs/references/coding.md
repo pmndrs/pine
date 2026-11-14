@@ -67,7 +67,7 @@ when no folder is open. In a terminal of 100 columns or more it takes half the w
 96 columns); in a narrower one it takes the place of the conversation until it is closed.
 
 ```
- pine  1 main ×  2 main·shop ×   +                                                  ▤ code
+ pine  1 ★ main ×  2 main·shop ×   +                                                ▤ code
 ───────────────────────────────────────────────────────────────────────────────────────────
  make the total include shipping          │  Changes  Files  Output  Running           ↻  ×
                                           │ main · 2 changed · ~/dev/shop
