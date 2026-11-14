@@ -6,7 +6,7 @@
 </h1>
 
 ```bash
-npm install -g @pmndre/pine
+npm install -g @pmndrs/pine
 ```
 
 ### PINE makes AI reactive
@@ -175,7 +175,7 @@ docker run -it -v pine:/root/.pine node:24 bash
 replaced. Inside, it is the same as anywhere:
 
 ```bash
-npm install -g @pmndre/pine
+npm install -g @pmndrs/pine
 ```
 
 ```bash

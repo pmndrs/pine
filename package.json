@@ -1,6 +1,6 @@
 {
-  "name": "@pmndre/pine",
-  "version": "0.22.0",
+  "name": "@pmndrs/pine",
+  "version": "0.22.2",
   "description": "PI neural engine: an event-driven multi-agent daemon built on the pi coding agent SDK",
   "private": true,
   "type": "module",
