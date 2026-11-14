@@ -781,7 +781,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					execute: async (_id, p, signal) => {
 						run();
 						const found = sched.available(agent.id).find((s) => s.name === p.name);
-						if (!found) throw new Error(`there is no schedule called "${p.name}". The schedules tool lists what there is.`);
+						// (With the names that there are, so that a name that was nearly right is right in the next call.)
+						if (!found) throw new Error(`there is no schedule called "${p.name}". ${sched.available(agent.id).length ? `Scheduled: ${sched.available(agent.id).map((x) => x.name).join(", ")}.` : "Nothing is scheduled."}`);
 						if (found.scope === "global") mainOnly("remove a schedule");
 						const own = found.scope === agent.id && found.session === here();
 						if (!own || live.tainted || live.mode() === "manual") {

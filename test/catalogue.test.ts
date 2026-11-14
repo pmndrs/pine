@@ -140,26 +140,47 @@ test("cache: a request begins with the one before it, whatever changed in betwee
 	await say("fourth");
 	extends_(three, last(), "after a restart");
 	assert.doesNotMatch(rawTextOf(last().wire.messages.at(-1).content), /<pine-note>/);
-	// A line is taken out: what no longer holds does not stay at the head of the conversation. Its files are taken
-	// anew, and everything before the first message is what it was.
+	// The memory is rewritten (another conversation tidied it): it is said in the note as it now reads, and the
+	// conversation goes on from where the model server has it. Nothing is read again.
+	const four = last();
 	fs.writeFileSync(path.join(h.workspace("main"), "MEMORY.md"), "# Memory\n\n- The owner drinks water only.\n");
-	// (Another file gains a line in the same moment: that one is told in a note, and the rewritten one is still taken anew.)
+	// (Another file is new in the same moment: that one is told in the same note.)
 	fs.writeFileSync(path.join(h.workspace("main"), "SOUL.md"), "# Soul\n\n- Dry humour.\n");
 	await say("fifth");
-	assert.match(rawTextOf(last().wire.messages.at(-1).content), /Your instructions have a new file since this conversation began, SOUL\.md:\n# Soul/);
-	assert.match(head(last()), /water only/);
-	assert.doesNotMatch(head(last()), /likes tea/);
-	assert.doesNotMatch(rawTextOf(last().wire.messages.at(-1).content), /New in your MEMORY/);
+	extends_(four, last(), "after MEMORY.md was rewritten");
+	const told = rawTextOf(last().wire.messages.at(-1).content);
+	assert.match(told, /Your instructions have a new file since this conversation began, SOUL\.md:\n# Soul/);
+	assert.match(told, /Your MEMORY\.md was rewritten since this conversation began\. This replaces what you were given of it at the start:\n# Memory\n\n- The owner drinks water only\./);
+	assert.doesNotMatch(told, /New in your MEMORY/);
 	assert.equal(system(last()), system(one));
 	assert.equal(JSON.stringify(last().wire.tools), JSON.stringify(one.wire.tools));
 	const five = last();
 	await say("sixth");
-	extends_(five, last(), "after the files were taken anew");
+	extends_(five, last(), "after the rewritten file was told");
+	assert.doesNotMatch(rawTextOf(last().wire.messages.at(-1).content), /<pine-note>/, "and it is told once");
+	// A rule that is changed is another matter: the files are taken anew, so that what was taken back is not in
+	// front of the model, with everything before the first message as it was.
+	fs.writeFileSync(path.join(h.workspace("main"), "SOUL.md"), "# Soul\n\n- Plain and brief.\n");
+	await say("sixth and a half");
+	assert.match(head(last()), /Plain and brief/);
+	assert.doesNotMatch(head(last()), /Dry humour/);
+	assert.doesNotMatch(rawTextOf(last().wire.messages.at(-1).content), /was rewritten/);
+	assert.equal(system(last()), system(one));
+	// So is a memory too long for a note.
+	fs.writeFileSync(path.join(h.workspace("main"), "MEMORY.md"), `# Memory\n\n- The owner drinks juice now.\n${"- A long line of what was learnt, one of many.\n".repeat(220)}`);
+	await say("seventh");
+	assert.match(head(last()), /juice now/);
+	assert.doesNotMatch(head(last()), /likes tea/);
+	assert.doesNotMatch(rawTextOf(last().wire.messages.at(-1).content), /was rewritten/);
+	assert.equal(system(last()), system(one));
+	assert.equal(JSON.stringify(last().wire.tools), JSON.stringify(one.wire.tools));
+	fs.writeFileSync(path.join(h.workspace("main"), "MEMORY.md"), "# Memory\n\n- The owner drinks water only.\n");
 	// Another conversation of the agent: the same tools and the same instructions, to the letter, and its own files as they are now.
 	await say("hello from elsewhere", "other");
 	assert.equal(JSON.stringify(last().wire.tools), JSON.stringify(one.wire.tools));
 	assert.equal(system(last()), system(one));
 	assert.match(head(last()), /water only/);
+	assert.doesNotMatch(head(last()), /likes tea/);
 	assert.match(textOf(last().wire.messages.at(-1).content), /hello from elsewhere$/);
 	await h.close();
 });
