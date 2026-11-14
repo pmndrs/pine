@@ -28,9 +28,13 @@ test("families: a group of tools is one declared tool, and a call is carried out
 	// What the model is shown: the family, not its members.
 	assert.ok(named(first).includes("pine_schedules") && named(first).includes("pine_sources") && named(first).includes("feed"));
 	for (const hidden of ["add_schedule", "schedules", "add_source", "subscribe", "mcp__feed__echo", "create_agent", "set_setting"]) assert.ok(!named(first).includes(hidden), `${hidden} is declared`);
-	assert.ok(named(first).length <= 24, `declares ${named(first).length} tools`);
+	assert.ok(named(first).length <= 25, `declares ${named(first).length} tools`);
 	const fam = tool(first, "pine_schedules");
-	assert.deepEqual(fam.parameters.properties.action.enum, ["schedules", "add_schedule", "remove_schedule"]);
+	assert.deepEqual(fam.parameters.properties.action.enum, ["add_schedule", "remove_schedule"]);
+	// The lists are a tool of their own, which takes several at once.
+	const lists = tool(first, "pine_list");
+	assert.deepEqual([...lists.parameters.properties.what.items.enum].sort(), ["agents", "mcp_servers", "routes", "schedules", "settings", "skills", "sources"]);
+	assert.match(lists.description, /- schedules: what is scheduled for you/);
 	assert.deepEqual(fam.parameters.properties.scope.enum, ["local", "agent", "global"]);
 	assert.deepEqual(tool(first, "pine_sources").parameters.properties.type.enum, ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command"]);
 	assert.deepEqual(tool(first, "pine_agents").parameters.properties.mode.enum, ["auto", "safe", "manual", "bypass", "plan", "default"]);
@@ -38,6 +42,17 @@ test("families: a group of tools is one declared tool, and a call is carried out
 	// The call was the real tool's: it is in pine's schedules, under the name the tool keeps.
 	assert.match(h.toolResults().join("\n"), /check-mail/);
 	assert.ok(h.pine.schedules.list().some((s: any) => s.name === "check-mail" || s.id?.includes?.("check-mail")), JSON.stringify(h.pine.schedules.list()));
+	// Two lists in one call: each is made by its own tool, and both come back, each under its name.
+	steps.length = 0;
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("pine_list", { what: ["schedules", "agents"] })] }, { text: "listed" }]), ...owner });
+	assert.deepEqual(steps, ["schedules", "agents"]);
+	assert.match(h.toolResults().at(-1) ?? "", /## schedules[\s\S]*check-mail[\s\S]*## agents[\s\S]*helper/);
+	// One list as a word, a list asked of the family it used to be in, and a list that does not exist.
+	steps.length = 0;
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("pine_list", { what: "skills" }), call("pine_schedules", { action: "schedules" }), call("pine_list", { what: ["weather"] })] }, { text: "listed" }]), ...owner });
+	// (A call that no tool carried out is shown as what was called.)
+	assert.deepEqual([...steps].sort(), ["pine_list", "schedules", "skills"]);
+	assert.match(h.toolResults().at(-1) ?? "", /pine_list has no what "weather"\. It has: /);
 	await h.close();
 });
 
@@ -70,7 +85,7 @@ test("families: a call with wrong arguments comes back with what the tool takes,
 	const [wrong, unknown] = h.toolResults();
 	assert.match(wrong, /What add_schedule takes, in full:/);
 	assert.match(wrong, /- task: string/);
-	assert.match(unknown, /has no action "plan_ahead"\. It has: schedules, add_schedule, remove_schedule/);
+	assert.match(unknown, /has no action "plan_ahead"\. It has: add_schedule, remove_schedule/);
 	// An action of another family, asked of this one, is carried out: a tool's answer names the action and not its family.
 	const seen: string[] = [];
 	h.pine.bus.subscribe("agent/main/tool", (e: any) => void (e.payload.phase === "start" && seen.push(e.payload.tool)));
@@ -181,11 +196,144 @@ test("cache: a conversation keeps its slot on the model server, and a second one
 	{
 		// Behind a scheduler the server's answer is about the model that was used last. When that is another model,
 		// its number of slots says nothing about this one, and no slot is named.
-		const h = await harness({ pine: { limits: { warmSlots: false } }, agents: { main: {} }, mockOptions: { props: { total_slots: 1, model_alias: "another-model" } } });
+		const props: any = { total_slots: 1, model_alias: "another-model" };
+		const h = await harness({ pine: { limits: { warmSlots: false } }, agents: { main: {} }, mockOptions: { props } });
 		await h.pine.agents.run({ agent: "main", prompt: "one", ...owner });
 		assert.equal(h.mock.state.requests.at(-1).wire.id_slot, undefined);
+		// The request that went out has loaded this model: the next one asks again at once, and is named a slot.
+		Object.assign(props, { total_slots: 2, model_alias: "m" });
+		await h.pine.agents.run({ agent: "main", prompt: "two", ...owner });
+		assert.ok([0, 1].includes(h.mock.state.requests.at(-1).wire.id_slot));
 		await h.close();
 	}
+	{
+		// The same when no model was loaded at the first request (a scheduler says so): not half a minute without slots.
+		const props: any = { total_slots: 2, status: 503 };
+		const h = await harness({ pine: { limits: { warmSlots: false } }, agents: { main: {} }, mockOptions: { props } });
+		await h.pine.agents.run({ agent: "main", prompt: "one", ...owner });
+		assert.equal(h.mock.state.requests.at(-1).wire.id_slot, undefined);
+		delete props.status;
+		await h.pine.agents.run({ agent: "main", prompt: "two", ...owner });
+		const mine = h.mock.state.requests.at(-1).wire.id_slot;
+		assert.ok([0, 1].includes(mine));
+		await h.pine.agents.run({ agent: "main", session: "other", prompt: "three", ...owner });
+		assert.equal(h.mock.state.requests.at(-1).wire.id_slot, 1 - mine);
+		await h.close();
+	}
+});
+
+test("cache: a conversation that has to leave its slot is written into a file of the model server, and read back when it returns", async () => {
+	const h = await harness({ pine: { limits: { warmSlots: false } }, agents: { main: {} }, mockOptions: { props: { total_slots: 2 }, slotFiles: true } });
+	const say = (prompt: string, session = "main") => h.pine.agents.run({ agent: "main", session, prompt, ...owner });
+	const sent = () => h.mock.state.requests;
+	const slot = () => sent().at(-1).wire.id_slot;
+	const acts = (): any[] => h.mock.state.slotActions ?? [];
+	await say("one");
+	const a = slot();
+	await say("two", "other");
+	const b = slot();
+	assert.notEqual(a, b);
+	assert.deepEqual(acts(), [], "while every conversation has a slot, nothing is written");
+	// A third conversation, and the server has two slots: the conversation whose place it takes is written out first.
+	await say("three", "third");
+	const c = slot();
+	assert.equal(acts().length, 1);
+	const first = acts()[0];
+	assert.deepEqual([first.action, first.slot], ["save", c]);
+	assert.equal(first.at, sent().length - 1, "before the request that takes the slot goes out");
+	assert.match(first.filename, /^pine-[0-9a-f]{10}-0\.bin$/);
+	// That conversation comes back. It is given a slot again, whose conversation is written out, and is read
+	// back from its own file: nothing of it has to be read again by the model.
+	const gone = c === a ? "main" : "other";
+	await say("again", gone);
+	const d = slot();
+	const [out, back] = acts().slice(1);
+	assert.deepEqual([out.action, out.slot, back.action, back.slot], ["save", d, "restore", d]);
+	assert.equal(back.filename, first.filename);
+	assert.notEqual(out.filename, first.filename);
+	assert.ok(out.at === sent().length - 1 && back.at === sent().length - 1, "both before its request goes out");
+	// A sub-agent takes a place too, and what was there is written out; the sub-agent's own conversation never is.
+	await say(mockMsg([{ tools: [call("subagent", { tasks: ["say hello"] })] }, { text: "done" }]), gone);
+	assert.ok(acts().slice(3).every((x) => x.action === "save"), JSON.stringify(acts().slice(3)));
+	// The files are known after pine has started again: a conversation that was written out is read back then too.
+	await h.restart();
+	const before = acts().length;
+	// (Three conversations and two slots: one of them is in a file, whichever it is.)
+	for (const session of ["main", "other", "third"]) await say("after the restart", session);
+	assert.ok(acts().slice(before).some((x) => x.action === "restore"), JSON.stringify(acts().slice(before)));
+	await h.close();
+	{
+		// A server that has no folder for its slots says so once, and is not asked again.
+		const h = await harness({ pine: { limits: { warmSlots: false } }, agents: { main: {} }, mockOptions: { props: { total_slots: 2 } } });
+		const say = (prompt: string, session = "main") => h.pine.agents.run({ agent: "main", session, prompt, ...owner });
+		for (const [text, session] of [["one", "main"], ["two", "other"], ["three", "third"], ["four", "main"], ["five", "other"]]) assert.equal((await say(text, session)).status, "done");
+		assert.equal((h.mock.state.slotActions ?? []).length, 1);
+		await h.close();
+	}
+	{
+		// And the owner can turn it off.
+		const h = await harness({ pine: { limits: { warmSlots: false, slotPages: 0 } }, agents: { main: {} }, mockOptions: { props: { total_slots: 2 }, slotFiles: true } });
+		for (const session of ["main", "other", "third", "main"]) await h.pine.agents.run({ agent: "main", session, prompt: "hi", ...owner });
+		assert.equal((h.mock.state.slotActions ?? []).length, 0);
+		await h.close();
+	}
+});
+
+test("cache: the judge of a goal is given a slot of its own, not the one of the conversation it judges", async () => {
+	const h = await harness({
+		pine: { limits: { warmSlots: false } },
+		agents: { main: {} },
+		mockOptions: { props: { total_slots: 2 }, withoutTools: ({ user }: { user: string }) => (user.includes("MET, CONTINUE or BLOCKED?") ? "MET: it is done" : "SUMMARY-OK") },
+	});
+	h.pine.agents.goals.set("main", "main", "say that it is done");
+	await until(() => h.pine.agents.goals.get("main", "main")?.status !== "active" && !h.pine.tasks.list({ limit: 50 }).some((t: any) => t.status === "pending" || t.status === "running"), 8000, "the goal to be judged");
+	const work = h.mock.state.requests.filter((r: any) => (r.wire.tools ?? []).length);
+	const judge = h.mock.state.requests.filter((r: any) => !(r.wire.tools ?? []).length && rawTextOf(r.wire.messages.at(-1).content).includes("MET, CONTINUE or BLOCKED?"));
+	assert.ok(work.length >= 1 && judge.length === 1, `${work.length} requests of the agent, ${judge.length} of the judge`);
+	const mine = work[0].wire.id_slot;
+	assert.ok(mine === 0 || mine === 1);
+	assert.equal(judge[0].wire.id_slot, 1 - mine, "the judge's call is in the other slot");
+	// The conversation is in its slot still, and the judge's place is anybody's again.
+	await h.pine.agents.run({ agent: "main", prompt: "and now?", ...owner });
+	assert.equal(h.mock.state.requests.at(-1).wire.id_slot, mine);
+	await h.pine.agents.run({ agent: "main", session: "other", prompt: "hi", ...owner });
+	assert.equal(h.mock.state.requests.at(-1).wire.id_slot, 1 - mine);
+	await h.close();
+});
+
+test("slots: the files for conversations that left their slot are a few, used again and again", async () => {
+	const { SlotBook } = await import("../src/slots.ts");
+	let saved: any;
+	const book = new SlotBook(undefined, () => {}, undefined, (all) => (saved = all));
+	const S = "http://server|model";
+	assert.equal(book.pageFor(S, "main:a", 9000, 0), undefined, "none when it is turned off");
+	assert.equal(book.pageFor(S, "main:a", 9000, 2), 0);
+	assert.equal(book.pageFor(S, "main:b", 5000, 2), 1);
+	await new Promise((r) => setTimeout(r, 2));
+	assert.equal(book.pageFor(S, "main:a", 9500, 2), 0, "a conversation's own file is used again");
+	assert.deepEqual(book.pageOf(S, "main:a"), { page: 0, tokens: 9500 });
+	// No file is free: the one unused longest is taken, and the conversation it held is read by the model when it returns.
+	await new Promise((r) => setTimeout(r, 2));
+	assert.equal(book.pageFor(S, "main:c", 7000, 2), 1);
+	assert.equal(book.pageOf(S, "main:b"), undefined);
+	// Read back, reset or removed: the file is free.
+	book.dropPage(S, "main:a");
+	assert.equal(book.pageOf(S, "main:a"), undefined);
+	assert.equal(book.pageFor(S, "books:x", 3000, 2), 0);
+	book.forget("main:c");
+	assert.equal(book.pageOf(S, "main:c"), undefined);
+	// What it knows outlives the daemon, and an agent that is removed leaves nothing in it.
+	const again = new SlotBook(undefined, () => {}, saved, () => {});
+	assert.deepEqual(again.pageOf(S, "books:x"), { page: 0, tokens: 3000 });
+	book.forgetAgent("books");
+	assert.equal(book.pageOf(S, "books:x"), undefined);
+	// Taking a slot says whose place was taken, so that it can be written out.
+	book.setCount(S, 1);
+	const one = book.takeFrom(S, "main:a")!;
+	assert.equal(one.evicted, undefined);
+	book.give(S, one.slot, "main:a", 9000);
+	const two = book.takeFrom(S, "main:b")!;
+	assert.deepEqual([two.evicted?.who, two.evicted?.tokens], ["main:a", 9000]);
 });
 
 test("cache: idle slots are filled with what a conversation begins with, and a new conversation and a sub-agent start there", async () => {
@@ -280,6 +428,13 @@ test("arguments that are nearly right are taken as what was meant, and only thos
 	// Another word for an option that has one reading.
 	assert.deepEqual(ease("add_source", { type: "folder", options: { path: "/x", glob: "*.pdf" } }).options, { dir: "/x", mask: "*.pdf" });
 	assert.deepEqual(ease("add_source", { type: "folder", options: '{"dir": "/x"}' }).options, { dir: "/x" });
+	// A source's type, left out, where its options say it; not where they could be two things.
+	assert.equal(ease("add_source", { name: "scans", options: { dir: "/x/scans" } }).type, "folder");
+	assert.equal(ease("add_source", { name: "disk", options: { run: "df -h /" } }).type, "command");
+	assert.equal(ease("add_source", { name: "odd", options: { dir: "/x", run: "ls" } }).type, undefined);
+	// What a source reports, when the line for it was left out, is said from what is watched; one that was given stays.
+	assert.equal(ease("add_source", { name: "scans", type: "folder", options: { dir: "/x/scans" } }).description, "folder: /x/scans");
+	assert.equal(ease("add_source", { name: "disk", type: "command", options: { run: "df -h /" }, description: "free space" }).description, "free space");
 	assert.deepEqual(ease("add_source", { type: "folder", options: { dir: "/x", path: "/y" } }).options, { dir: "/x", path: "/y" });
 	// A setting by the end of its name, when only one ends so.
 	assert.equal(ease("set_setting", { key: "bashTimeoutSec", value: "300" }).key, "defaults.bashTimeoutSec");

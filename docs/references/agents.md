@@ -122,28 +122,31 @@ searches when a question calls for it. That keeps the prompt short for small mod
 Every tool an agent has is declared to the model with each request: its name, what it does and
 what it takes. The main agent has about eighty tools, and declared one by one they are about
 25 000 tokens, which a local model reads before the first word of a new conversation. So pine
-declares them in **families** (`catalogue`), which is about 11 000:
+declares them in **families** (`catalogue`), which is about 11 500:
 
 - What nearly every task uses is declared by itself, with a short description: `read`, `bash`,
   `edit`, `write`, `grep`, `find`, `ls`, `download`, `delegate`, `subagent`, `todo`,
   `question`, `manual`, and the two web tools.
 - Everything else is grouped. A family is one declared tool that takes an `action` and the
   arguments of that action, and its description has one line for each action.
+- The lists are one tool of their own, `pine_list`, which takes one or several in `what`.
 
 | Family | Its actions |
 |---|---|
-| `pine_sources` | `sources`, `subscribe`, `unsubscribe`, `add_source`, `send`, `remove_source`, `publish_event`, and for the main agent `add_source_type`, `remove_source_type` |
-| `pine_schedules` | `schedules`, `add_schedule`, `remove_schedule` |
-| `pine_mcp` | `mcp_servers`, `add_mcp_server`, `remove_mcp_server`, and the three tools for a server's resources |
-| `pine_skills` | `skills`, `add_skill`, `remove_skill` |
-| `pine_agents` | The main agent's: `agents`, `create_agent`, `update_agent`, `remove_agent` |
-| `pine_settings` | The main agent's: `settings`, `set_setting`, `routes`, `add_route`, `remove_route`, `add_model_server`, `remove_model_server` |
+| `pine_list` | What there is: `sources`, `schedules`, `mcp_servers`, `skills`, and for the main agent `agents`, `settings`, `routes`. `what` takes several at once (`["sources", "schedules"]`) |
+| `pine_sources` | `subscribe`, `unsubscribe`, `add_source`, `send`, `remove_source`, `publish_event`, and for the main agent `add_source_type`, `remove_source_type` |
+| `pine_schedules` | `add_schedule`, `remove_schedule` |
+| `pine_mcp` | `add_mcp_server`, `remove_mcp_server`, and the three tools for a server's resources |
+| `pine_skills` | `add_skill`, `remove_skill` |
+| `pine_agents` | The main agent's: `create_agent`, `update_agent`, `remove_agent` |
+| `pine_settings` | The main agent's: `set_setting`, `add_route`, `remove_route`, `add_model_server`, `remove_model_server` |
 | `pine_other` | `request_access`, `stop_program`, `state_get`, `state_set` |
 | One for each MCP server, named after the server (`browser`, `media`, `home_link`) | The server's tools under their own names (`browser_navigate`, `browser_click`) |
 
 An action has the name its tool has everywhere in this manual. Where the manual says "call
 `add_source`", an agent with families calls `pine_sources` with `action: "add_source"` and the
-same arguments; a tool of an MCP server, `mcp__browser__browser_navigate` in the manual, is
+same arguments; a list, "call `sources`" in the manual, is `pine_list` with
+`what: ["sources"]`; a tool of an MCP server, `mcp__browser__browser_navigate` in the manual, is
 `browser` with `action: "browser_navigate"`. Nothing else is different. The call is carried
 out by the tool that is meant, so modes, approvals, an `approve` or `deny` list, plan mode and
 the rules after outside content all see `add_source` or `mcp__browser__browser_navigate`, and
@@ -162,7 +165,8 @@ What keeps a short declaration from costing calls:
   argument that does not exist.
 - A call that is nearly right is carried out as meant: a name with capitals or spaces becomes
   the name it stands for, a number or a list written as text is read as one, `path` for a
-  folder source's `dir`, a setting named by its last word, an action asked of the wrong family.
+  folder source's `dir`, a setting named by its last word, an action asked of the wrong family
+  (a list asked of the family it belongs to in spirit, `pine_schedules` with `schedules`).
 - A call with wrong arguments comes back with the whole description of that action, so the
   next call is right.
 
@@ -205,6 +209,7 @@ Another kind of server is never sent a slot.
 |---|---|---|
 | `limits.warmSlots` | `true` | Filling idle slots. When pine has left a llama.cpp server alone for a moment, it has each slot that holds nothing read what a conversation of the agent that used the server last begins with: its tools, pine's text, its instruction files as they are now. The next new conversation of that agent, and a sub-agent, is given such a slot and has only its own message to be read. One slot at a time, only while no agent is at work with that model, and never when the model is not loaded (so it is never what loads a model). A filled slot is filled again when the instruction files changed. `false` turns it off. The main agent changes it with `set_setting`, at once. |
 | `limits.warmAfterMs` | `3000` | How long the model server has to have been left alone before a slot is filled, in milliseconds. |
+| `limits.slotPages` | `6` | More conversations than slots. A conversation whose slot another one takes is first written into a file of the model server, and read back from it when it comes again: that takes about as long as copying the file, not as long as reading the conversation. So conversations beyond the server's slots keep what was read of them, also across a restart of the server. Needs a llama.cpp server that was started with a folder for it (`--slot-save-path <folder>`); one that has none says so once and is not asked again. This many files are kept for each model server, with fixed names (`pine-<id>-<n>.bin`), used again and again; a conversation of 10 000 tokens is about a gigabyte on a large model. A sub-agent's conversation is not kept. `0` turns it off. |
 
 A sub-agent is declared exactly the tools and the text its conversation is declared, also the
 ones that are not its to use (`subagent`, `delegate`, what only a conversation sets up): asked
@@ -216,9 +221,10 @@ What pine cannot help:
 - A server that is stopped and started again (a scheduler that makes room for another model)
   has read nothing. llama.cpp can save a slot and bring it back (`--slot-save-path`); a
   scheduler has to do that around the stop.
-- With more conversations at work at once than the server has slots, one of them loses its
-  place. Give the server at least as many slots as `limits.maxConcurrentRuns`, and one more
-  if sub-agents are used a lot.
+- With more conversations than the server has slots, one of them leaves its slot. With a
+  folder for the server's slots (`limits.slotPages`) it is read back from a file; without one
+  it is read again by the model. Either way, give the server at least as many slots as
+  `limits.maxConcurrentRuns`, and one more if sub-agents are used a lot.
 - A model that cannot go back part of the way in what it has read (llama.cpp says "forcing
   full prompt re-processing" in its log) reads a conversation from its beginning when it was
   pushed out of its slot. Slots are what prevents that.
@@ -367,9 +373,10 @@ whether the agent is called again. What the agent may do in a round is decided a
 task, by its mode and the approvals ([security.md](security.md), "A goal goes on
 in your name").
 
-On a local model each round costs a full turn, and the judge's call pushes the agent's
-conversation out of a model server's cache unless the judge has a model of its own
-(`defaults.judge`). Say in the objective how to tell that it is reached ("the tests pass",
+On a local model each round costs a full turn. On a llama.cpp server with two slots or more
+the judge's call is given a slot of its own, so the agent's conversation stays where the
+server has it; on a server with one slot the call pushes the conversation out, unless the
+judge has a model of its own (`defaults.judge`). Say in the objective how to tell that it is reached ("the tests pass",
 "the file exists and has all twelve entries"): the judge sees only the agent's answer, not the
 files.
 

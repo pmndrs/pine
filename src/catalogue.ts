@@ -35,22 +35,31 @@ export const DECLARED = ["read", "bash", "edit", "write", "grep", "find", "ls", 
 export const DECLARED_SERVERS = ["web"];
 
 /** pine's own tools by what they are about: a family each. */
+/**
+ * The lists: what there is of a kind. They are one declared tool of their own, which takes several at
+ * once. In a family beside the actions that change things, "add this and show me what there is"
+ * was two calls of one tool, and a model sends two calls of one tool in two answers about half the
+ * time; as two tools it sends them in one, as it does when every tool is declared by itself.
+ */
+const LISTS = ["sources", "schedules", "mcp_servers", "skills", "agents", "settings", "routes"];
+
 const GROUPS: Array<[id: string, name: string, about: string, tools: string[]]> = [
+	["lists", "pine_list", "What there is: the lists of what you have and of what pine has. Use it when your owner asks what you are watching, what is scheduled, which servers, skills or agents there are, or how pine is set up", LISTS],
 	[
 		"sources",
 		"pine_sources",
 		"Event sources: things outside pine that report something and wake you (a folder, a web page, a command, MQTT, a webhook, Telegram). Use it when your owner wants something watched or reacted to.",
-		["sources", "subscribe", "unsubscribe", "add_source", "send", "remove_source", "publish_event", "add_source_type", "remove_source_type"],
+		["subscribe", "unsubscribe", "add_source", "send", "remove_source", "publish_event", "add_source_type", "remove_source_type"],
 	],
-	["schedules", "pine_schedules", "Schedules: do something at a set time, once or again and again (reminders, daily checks).", ["schedules", "add_schedule", "remove_schedule"]],
-	["mcp", "pine_mcp", "MCP servers: list, connect and remove servers that give you more tools.", ["mcp_servers", "add_mcp_server", "remove_mcp_server", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]],
-	["skills", "pine_skills", "Skills: written-down ways of doing something, which you follow later.", ["skills", "add_skill", "remove_skill"]],
-	["agents", "pine_agents", "pine's agents: list, create, change and remove them.", ["agents", "create_agent", "update_agent", "remove_agent"]],
+	["schedules", "pine_schedules", "Schedules: do something at a set time, once or again and again (reminders, daily checks).", ["add_schedule", "remove_schedule"]],
+	["mcp", "pine_mcp", "MCP servers: connect and remove servers that give you more tools.", ["add_mcp_server", "remove_mcp_server", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]],
+	["skills", "pine_skills", "Skills: written-down ways of doing something, which you follow later.", ["add_skill", "remove_skill"]],
+	["agents", "pine_agents", "pine's agents: create, change and remove them.", ["create_agent", "update_agent", "remove_agent"]],
 	[
 		"settings",
 		"pine_settings",
-		"pine's settings, its routes (rules for events that arrive, such as: a source's events wake another agent) and its model servers.",
-		["settings", "set_setting", "routes", "add_route", "remove_route", "add_model_server", "remove_model_server"],
+		"Changes to pine's settings, its routes (rules for events that arrive, such as: a source's events wake another agent) and its model servers.",
+		["set_setting", "add_route", "remove_route", "add_model_server", "remove_model_server"],
 	],
 	["other", "pine_other", "Other tools of pine.", ["request_access", "stop_program", "state_get", "state_set"]],
 ];
@@ -65,7 +74,7 @@ const GROUPS: Array<[id: string, name: string, about: string, tools: string[]]> 
  * it added routes where a subscription was meant. What an argument means is in ARG_HINT.
  */
 const BRIEF: Record<string, string> = {
-	sources: "list your event sources and subscriptions: the answer to what you are watching or subscribed to",
+	sources: "your event sources and subscriptions: the answer to what you are watching or subscribed to",
 	subscribe: "be woken by an event source that exists already and that you are not subscribed to yet (sources lists them)",
 	unsubscribe: "end a subscription: you are no longer woken, the source stays",
 	add_source:
@@ -75,25 +84,25 @@ const BRIEF: Record<string, string> = {
 	publish_event: "publish an event on pine's bus",
 	add_source_type: "bring in a new kind of event source (a module)",
 	remove_source_type: "remove a kind of event source",
-	schedules: "list what is scheduled for you, and when each is next due",
+	schedules: "what is scheduled for you, and when each is next due",
 	add_schedule: "do a task at a time, once or again and again (reminders, daily checks); give exactly one of cron, every, at, in",
 	remove_schedule: "remove a schedule (to change one: remove it and add it again)",
-	mcp_servers: "list your MCP servers, whom each is for and whether its tools are in your tool list",
+	mcp_servers: "your MCP servers, whom each is for and whether its tools are in your tool list",
 	add_mcp_server: "propose an MCP server when your owner asks to install or connect one, by web address or by command; your owner decides",
 	remove_mcp_server: "disconnect an MCP server",
 	list_mcp_resources: "list the resources of MCP servers",
 	list_mcp_resource_templates: "list the resource templates of MCP servers",
 	read_mcp_resource: "read a resource of an MCP server",
-	skills: "list your skills and whom each is for",
+	skills: "your skills and whom each is for",
 	add_skill: 'write down how something is done, so that you can do it again without being told ("remember how to do this"); the same name replaces it. A fact belongs into MEMORY.md instead',
 	remove_skill: "remove a skill (to change one: add it again under the same name)",
-	agents: "list pine's agents: what each is for, its model, mode, reach and what it has; with id, one agent in full with its instructions",
+	agents: "pine's agents: what each is for, its model, mode, reach and what it has; with \"id\", one agent in full with its instructions",
 	create_agent: "create a new agent when your owner asks for one: it has a job, a workspace and instructions of its own, and exists at once. Its job goes into its instructions and is its own from then on: do not start on it yourself",
 	update_agent: "change an agent when your owner asks: what it is for, its instructions, model, reasoning, mode, tools, whom it may hand work to, its reach. Give only what changes",
 	remove_agent: "remove an agent for good, with everything it has and its folders",
-	settings: "list pine's settings with what is in force: the answer to how pine is set up",
+	settings: "pine's settings with what is in force: the answer to how pine is set up",
 	set_setting: "change one of pine's settings; key as settings lists it, e.g. defaults.model, defaults.bashTimeoutSec",
-	routes: "list pine's routes: rules for what happens when an event arrives. What agents subscribe to is not here (sources lists that)",
+	routes: "pine's routes: rules for what happens when an event arrives. What agents subscribe to is not here (that is sources)",
 	add_route: 'add a rule for arriving events, only for what a subscription or a schedule cannot do: write shared state from an event (set), publish another event, wake an agent only when a condition holds (when). For an agent to react to a source, add_source or subscribe with "agent" instead',
 	remove_route: "remove a route",
 	add_model_server: "add a model server your owner names (an OpenAI-compatible address); not for looking: agents shows which models are in use",
@@ -134,6 +143,7 @@ const ARG_HINT: Record<string, string> = {
 	"add_schedule.every": '"15m", "2h"',
 	"add_schedule.at": 'once, local time: "2026-12-24 17:00"',
 	"add_schedule.in": 'once, after: "20m", "2h"',
+	"add_source.description": "one line: what it reports",
 	"add_source.options": 'the options of the type, e.g. {"dir": "~/Scans", "mask": "*.pdf"}',
 	"add_source.note": "what you are to do when it reports something; with it you are subscribed at once",
 	"add_source.own": "true only if your owner said nobody else can put content there",
@@ -151,7 +161,8 @@ const ARG_HINT: Record<string, string> = {
 	"create_agent.instructions": 'who it is and how it works, written to the agent itself ("You are ..."): its job, what it should and should not do, how it reports. This becomes its instruction file',
 	"create_agent.description": "one line: what it is for. Other agents read it when they decide whom to hand work to",
 	"create_agent.model": "provider/model; leave out for pine's default",
-	"update_agent.instructions": "the whole new text, which replaces what is there: read the present text with agents (id) first",
+	"update_agent.instructions": "the whole new text, which replaces what is there: read the present text first (pine_list: agents with id)",
+	"agents.id": "with agents: one agent in full",
 	"update_agent.description": "one line: what it is for",
 	"update_agent.soul": "the whole new text of its SOUL.md (character and tone), when your owner speaks of how it should be or sound",
 	"update_agent.model": 'provider/model, or "default"',
@@ -309,7 +320,7 @@ export function shortTool(name: string, description: string, parameters: any): {
 
 /** The order tools are declared in: see shortDeclarations. */
 const FIRST = ["read", "bash", "edit", "write", "grep", "find", "ls", "download", "manual", "question", "todo", FIND_TOOLS];
-const LAST = ["pine_other", "pine_mcp", "pine_skills", "pine_sources", "pine_schedules", "subagent", "delegate", "pine_agents", "pine_settings"];
+const LAST = ["pine_list", "pine_other", "pine_mcp", "pine_skills", "pine_sources", "pine_schedules", "subagent", "delegate", "pine_agents", "pine_settings"];
 
 /**
  * The request as it goes to the model server: every tool's declaration short, and all of them
@@ -377,6 +388,19 @@ export function ease(name: string, args: any): any {
 					delete args.options[k];
 				}
 			}
+		}
+		// The type, left out, where the options say it: a folder is watched by "dir", a command by "run".
+		if ((args.type === undefined || args.type === "") && args.options && typeof args.options === "object") {
+			const by: Array<[string, string]> = [["dir", "folder"], ["run", "command"], ["topics", "mqtt"], ["url", "http"]];
+			const fits = by.filter(([k]) => k in args.options && !(k === "url" && !/^https?:/i.test(String(args.options.url))));
+			if (fits.length === 1) args.type = fits[0][1];
+		}
+		// What it reports, in a line: left out, it is said from what is watched. (A family cannot require an
+		// argument of one action alone, and this is the one a model leaves out.)
+		if ((args.description === undefined || args.description === "") && typeof args.type === "string") {
+			const o = args.options && typeof args.options === "object" ? args.options : {};
+			const what = [o.dir, o.url, o.run, o.topics, o.port].find((v) => v !== undefined && v !== "");
+			args.description = `${args.type}${what === undefined ? "" : `: ${Array.isArray(what) ? what.join(", ") : String(what)}`}`.slice(0, 200);
 		}
 	}
 	if (local === "create_agent" && typeof args.model === "string" && /^(default|pine'?s default|)$/i.test(args.model.trim())) delete args.model;
@@ -518,10 +542,13 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 		for (const t of f.members) f.action.set(f.prefix ? t.name.slice(f.prefix.length) : t.name, t);
 		// The argument that says which tool is meant must not be one a member takes itself.
 		const used = new Set(f.members.flatMap((t) => Object.keys(t.parameters?.properties ?? {})));
-		f.key = ["action", "tool", "call", "which"].find((k) => !used.has(k)) ?? "action";
-		const props: Record<string, any> = { [f.key]: { type: "string", enum: [...f.action.keys()] } };
+		const several = f.id === "lists";
+		f.key = several ? "what" : (["action", "tool", "call", "which"].find((k) => !used.has(k)) ?? "action");
+		const props: Record<string, any> = { [f.key]: several ? { type: "array", items: { type: "string", enum: [...f.action.keys()] } } : { type: "string", enum: [...f.action.keys()] } };
 		// What is said about an argument, and by which actions: argument -> words -> actions.
 		const said = new Map<string, Map<string, string[]>>();
+		// The values an argument can take, and for which actions: argument -> values -> actions.
+		const choices = new Map<string, Map<string, string[]>>();
 		const takes = new Map<string, number>();
 		let forOthers = false;
 		for (const [action, t] of f.action) {
@@ -529,6 +556,10 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 				if (k === "agent" || k === "conversation") forOthers = true;
 				const { description, ...now } = argOf(f, t, k, v);
 				takes.set(k, (takes.get(k) ?? 0) + 1);
+				const values = choices.get(k) ?? new Map<string, string[]>();
+				choices.set(k, values);
+				const these = Array.isArray(now.enum) ? now.enum.join(", ") : "";
+				values.set(these, [...(values.get(these) ?? []), action]);
 				if (description) {
 					const words = said.get(k) ?? new Map<string, string[]>();
 					said.set(k, words);
@@ -548,6 +579,14 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 			else if (all.length === 1 && all[0][1].length === takes.get(k)) props[k] = { ...props[k], description: all[0][0] };
 			else props[k] = { ...props[k], description: all.map(([d, actions]) => `${actions.join(", ")}: ${d}`).join(". ") };
 		}
+		// An argument that takes other values in one action than in another is declared with all of them, which is
+		// all a declaration can say; which belong to which action is said in words, or a model takes one of another's.
+		for (const [k, values] of choices) {
+			const real = [...values].filter(([v]) => v);
+			if (real.length < 2) continue;
+			const which = real.map(([v, actions]) => `${actions.join(", ")}: ${v}`).join("; ");
+			props[k] = { ...props[k], description: props[k]?.description ? `${props[k].description}. ${which}` : which };
+		}
 		f.schema = { type: "object", properties: props, required: [f.key] };
 		const line = (action: string, t: Tool) => {
 			const p = Object.keys(t.parameters?.properties ?? {}).filter((k) => k !== "agent" && k !== "conversation");
@@ -556,6 +595,10 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 			return `- ${action}(${sig}): ${BRIEF[t.name] ?? (f.kind === "browser" ? BROWSER_BRIEF[t.name.slice(f.prefix!.length)] : undefined) ?? firstSentence(t.description, 100)}`;
 		};
 		const about = /[.!?]$/.test(f.about.trim()) ? f.about.trim() : `${f.about.trim()}.`;
+		if (several) {
+			f.description = `${about} Give "what": one of these, or several at once. When your owner asks for a change and a list ("add this, and show me what else there is"), call it in the same answer as the tool that makes the change.\n${[...f.action].map(([a, t]) => `- ${a}: ${BRIEF[t.name] ?? firstSentence(t.description, 100)}`).join("\n")}${forOthers ? '\nFor what another agent has (its sources, schedules, MCP servers, skills), give "agent": X.' : ""}`;
+			return;
+		}
 		f.description = `${about} Give "${f.key}" and the arguments of that ${f.key === "action" ? "action" : "tool"} (? marks an optional one). Two actions are two calls, which can go in one answer:\n${[...f.action].map(([a, t]) => line(a, t)).join("\n")}${forOthers ? '\nTo do one of these for another agent (your owner wants agent X to watch, to be woken, to have a skill), give "agent": X.' : ""}`;
 	};
 
@@ -568,8 +611,28 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 		return { hiddenDeclarations: [...f.members.map((t) => t.name), ...(f.members.length ? [] : [f.name])], descriptions: { [f.name]: f.description } };
 	};
 
+	/** The list tool: every list that was asked for, one after the other, each by its own tool. */
+	const lists = (f: Family) => async (id: string, p: any, signal: any, onUpdate: any, ctx: any) => {
+		const asked = [p?.what, p?.action, p?.list, p?.lists].flatMap((v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,\s]+/) : [])).map((x) => String(x).trim()).filter(Boolean);
+		const whats = [...new Set(asked)];
+		if (!whats.length) throw new Error(`${f.name} needs "what": one or several of ${[...f.action.keys()].join(", ")}.`);
+		// One list, or something that is no list: as any family does it, also for an action of another family.
+		if (whats.length === 1) return run(f)(id, { ...p, what: whats[0] }, signal, onUpdate, ctx);
+		const parts: Array<{ what: string; text: string; failed: boolean; content: any[] }> = [];
+		for (const what of whats) {
+			try {
+				const r: any = await run(f)(id, { ...p, what }, signal, onUpdate, ctx);
+				parts.push({ what, failed: false, content: r?.content ?? [], text: "" });
+			} catch (e) {
+				parts.push({ what, failed: true, content: [], text: e instanceof Error ? e.message : String(e) });
+			}
+		}
+		if (parts.every((x) => x.failed)) throw new Error(parts.map((x) => `${x.what}: ${x.text}`).join("\n\n"));
+		return { content: parts.flatMap((x) => [{ type: "text", text: `## ${x.what}${x.failed ? `\n${x.text}` : ""}` }, ...x.content]), details: {} };
+	};
+
 	const run = (f: Family) => async (_id: string, p: any, signal: any, onUpdate: any, ctx: any) => {
-		const wanted = String(p?.[f.key] ?? [p?.action, p?.tool].find((x) => typeof x === "string" && f.action.has(x)) ?? "").trim();
+		const wanted = String((Array.isArray(p?.[f.key]) ? p[f.key][0] : p?.[f.key]) ?? [p?.action, p?.tool].find((x) => typeof x === "string" && f.action.has(x)) ?? "").trim();
 		const plain = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 		const find = (g: Family) => g.action.get(wanted) ?? [...g.action].find(([a, m]) => plain(a) === plain(wanted) || m.name === wanted || plain(m.name.replace(/^mcp__/, "")) === plain(wanted))?.[1];
 		let t = find(f);
@@ -584,7 +647,7 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 		let args: Record<string, unknown> = {};
 		const stray: string[] = [];
 		for (const [k, v] of Object.entries(p ?? {})) {
-			if (k === f.key || (["action", "tool", "call", "which"].includes(k) && !mine.includes(k) && typeof v === "string" && f.action.has(v))) continue;
+			if (k === f.key || (f.id === "lists" && ["action", "list", "lists"].includes(k)) || (["action", "tool", "call", "which"].includes(k) && !mine.includes(k) && typeof v === "string" && f.action.has(v))) continue;
 			if (mine.includes(k)) args[k] = v;
 			// An argument of another action of the family, filled in because the declaration has it: named, not passed on.
 			else if (v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)) stray.push(k);
@@ -610,7 +673,7 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 			// What the model is held to is the family's own schema, put into the request by the extension below.
 			parameters: Type.Object({}, { additionalProperties: true }),
 			prepareLoadout: prepare(f),
-			execute: run(f) as any,
+			execute: (f.id === "lists" ? lists(f) : run(f)) as any,
 		}),
 	);
 

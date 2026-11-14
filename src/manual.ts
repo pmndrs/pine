@@ -45,7 +45,7 @@ const SYNONYMS: string[][] = [
 	["sandbox", "isolation", "confine", "restrict", "jail", "permission", "access"],
 	["conversation", "session", "tab", "chat", "thread"],
 	["catalogue", "catalog", "family", "families", "declare", "declared", "declaration", "toolset", "grouped", "schema"],
-	["cache", "cached", "caching", "slot", "warm", "reread", "reprocess", "reprocessing", "kept", "prefix"],
+	["cache", "cached", "caching", "slot", "warm", "reread", "reprocess", "reprocessing", "kept", "prefix", "page", "paging"],
 	["undo", "redo", "revert", "rollback", "rewind", "restore", "checkpoint", "snapshot", "unsend", "mistake"],
 	["taint", "tainted", "outside", "untrusted", "injection", "external", "hostile"],
 	["trust", "owner", "trusted", "yours"],

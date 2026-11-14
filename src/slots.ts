@@ -21,6 +21,20 @@ export interface Occupant {
 	what?: string;
 }
 
+/**
+ * A conversation that had to leave its slot, kept in a file of the model server (a "page"): a
+ * llama.cpp server that was started with a folder for it (--slot-save-path) writes what a slot
+ * holds into a file and reads it back, which takes about as long as copying the file and not as
+ * long as reading the conversation again. So more conversations than the server has slots keep
+ * what was read of them: the one that has to go is written out first, and read in again when it
+ * comes back. The files are a few, with fixed names, used again and again.
+ */
+export interface Page {
+	who: string;
+	tokens: number;
+	at: number;
+}
+
 /** Who holds a slot that pine filled in the background with what every conversation begins with. */
 export const WARM = "~warm";
 
@@ -31,10 +45,15 @@ export class SlotBook {
 	private busy = new Map<string, Map<number, string>>();
 	private held: Map<string, Array<Occupant | undefined>>;
 	private save: (all: Record<string, Array<Occupant | undefined>>) => void;
+	/** The files of a server, by number, and whose conversation each holds. */
+	private pages: Map<string, Array<Page | undefined>>;
+	private savePages: (all: Record<string, Array<Page | undefined>>) => void;
 
-	constructor(saved: Record<string, Array<Occupant | undefined>> | undefined, save: (all: Record<string, Array<Occupant | undefined>>) => void) {
+	constructor(saved: Record<string, Array<Occupant | undefined>> | undefined, save: (all: Record<string, Array<Occupant | undefined>>) => void, pages?: Record<string, Array<Page | undefined>>, savePages: (all: Record<string, Array<Page | undefined>>) => void = () => {}) {
 		this.held = new Map(Object.entries(saved ?? {}));
 		this.save = save;
+		this.pages = new Map(Object.entries(pages ?? {}));
+		this.savePages = savePages;
 	}
 
 	known(server: string): boolean {
@@ -50,8 +69,11 @@ export class SlotBook {
 		return this.takeFrom(server, who)?.slot;
 	}
 
-	/** As take(), and how much of the conversation the slot held before: nothing of that kept by the server means it has lost what it had read. */
-	takeFrom(server: string, who: string): { slot: number; held: number } | undefined {
+	/**
+	 * As take(), and how much of the conversation the slot held before: nothing of that kept by the server means it
+	 * has lost what it had read. `evicted` is whose place was taken, if it was somebody's.
+	 */
+	takeFrom(server: string, who: string): { slot: number; held: number; evicted?: Occupant } | undefined {
 		const n = this.count.get(server) ?? 0;
 		if (n <= 0) return undefined;
 		const busy = this.busy.get(server) ?? new Map<number, string>();
@@ -71,9 +93,10 @@ export class SlotBook {
 		const cheapest = () => [...free].sort((a, b) => held[a]!.tokens - held[b]!.tokens || held[a]!.at - held[b]!.at)[0];
 		const slot = mine ?? warm ?? empty ?? cheapest();
 		const before = held[slot]?.who === who ? held[slot]!.tokens : 0;
+		const evicted = held[slot] && held[slot]!.who !== who ? held[slot] : undefined;
 		busy.set(slot, who);
 		if (held[slot]?.who !== who) held[slot] = { who, tokens: 0, at: Date.now() };
-		return { slot, held: before };
+		return { slot, held: before, evicted };
 	}
 
 	/** The request is over: the slot is free again, and holds this much of the conversation. */
@@ -144,16 +167,54 @@ export class SlotBook {
 		this.save(Object.fromEntries(this.held));
 	}
 
-	/** A conversation is gone (reset, removed, a sub-agent that is done): its slot is anybody's. */
+	/** The file that holds a conversation that left its slot: its number, and how much of the conversation it holds. */
+	pageOf(server: string, who: string): { page: number; tokens: number } | undefined {
+		const i = (this.pages.get(server) ?? []).findIndex((x) => x?.who === who);
+		return i < 0 ? undefined : { page: i, tokens: this.pages.get(server)![i]!.tokens };
+	}
+
+	/** A file for a conversation that is about to leave its slot: its own, else a free one of `max`, else the one unused longest. */
+	pageFor(server: string, who: string, tokens: number, max: number): number | undefined {
+		if (max <= 0) return undefined;
+		const pages = this.pages.get(server) ?? [];
+		this.pages.set(server, pages);
+		const all = Array.from({ length: max }, (_, i) => i);
+		const mine = all.find((i) => pages[i]?.who === who);
+		const free = all.find((i) => !pages[i]);
+		const page = mine ?? free ?? [...all].sort((a, b) => pages[a]!.at - pages[b]!.at)[0];
+		pages[page] = { who, tokens, at: Date.now() };
+		this.savePages(Object.fromEntries(this.pages));
+		return page;
+	}
+
+	/** The conversation is in a slot again, or its file could not be written or read: the file is anybody's. */
+	dropPage(server: string, who: string): void {
+		const pages = this.pages.get(server);
+		if (!pages) return;
+		for (let i = 0; i < pages.length; i++) if (pages[i]?.who === who) pages[i] = undefined;
+		this.savePages(Object.fromEntries(this.pages));
+	}
+
+	/** A conversation was read back into the slot it was just given: the slot holds that much of it again. */
+	restored(server: string, slot: number, who: string, tokens: number): void {
+		const held = this.held.get(server);
+		if (held && held[slot]?.who === who) held[slot] = { who, tokens, at: Date.now() };
+	}
+
+	/** A conversation is gone (reset, removed, a sub-agent that is done): its slot is anybody's, and so is its file. */
 	forget(who: string): void {
 		for (const held of this.held.values()) for (let i = 0; i < held.length; i++) if (held[i]?.who === who) held[i] = undefined;
+		for (const pages of this.pages.values()) for (let i = 0; i < pages.length; i++) if (pages[i]?.who === who) pages[i] = undefined;
 		this.save(Object.fromEntries(this.held));
+		this.savePages(Object.fromEntries(this.pages));
 	}
 
 	/** An agent is gone: nothing of it is kept here either. */
 	forgetAgent(agent: string): void {
 		for (const held of this.held.values()) for (let i = 0; i < held.length; i++) if (held[i]?.who.startsWith(`${agent}:`) || held[i]?.what?.startsWith(`${agent}:`)) held[i] = undefined;
+		for (const pages of this.pages.values()) for (let i = 0; i < pages.length; i++) if (pages[i]?.who.startsWith(`${agent}:`)) pages[i] = undefined;
 		this.save(Object.fromEntries(this.held));
+		this.savePages(Object.fromEntries(this.pages));
 	}
 
 	state(server: string): Array<Occupant | undefined> {

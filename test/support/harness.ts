@@ -50,6 +50,8 @@ function offered(req: any): string[] {
 	return (req.body.tools ?? []).flatMap((t: any) => {
 		const f = t.function ?? t;
 		const props = f.parameters?.properties ?? f.input_schema?.properties ?? {};
+		// The lists are one tool that takes several: each list is a tool by its name.
+		if (f.name === "pine_list" && Array.isArray(props.what?.items?.enum)) return props.what.items.enum;
 		const key = ["action", "tool", "call", "which"].find((k) => Array.isArray(props[k]?.enum) && /^- [\w-]+\(/m.test(String(f.description ?? "")));
 		if (!key) return [f.name];
 		const actions: string[] = props[key].enum;

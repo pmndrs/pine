@@ -41,7 +41,7 @@ test("given: an MCP server, a skill, an event source and a schedule are each lis
 	r.results.slice(-4).forEach((result: string, i: number) => assert.match(result, empty[i]));
 	const first = h.mock.state.requests.at(-1);
 	for (const name of ["mcp_servers", "skills", "sources", "schedules"]) assert.ok(h.toolsOffered(first).includes(name), name);
-	assert.match(h.system(first), /What you have of each, and whom it is for, a tool tells you: sources \(event sources and subscriptions\), mcp_servers, skills, schedules\.|What you have of each, its tool lists: when your owner asks about one of them, call the list of that one and answer from it, and never guess it\./);
+	assert.match(h.system(first), /What you have of each, and whom it is for, a tool tells you: sources \(event sources and subscriptions\), mcp_servers, skills, schedules\.|What you have of each, pine_list tells you: when your owner asks about one of them, ask for that one list and answer from it, and never guess it\./);
 
 	// ---- an MCP server
 	r = await run([call("add_mcp_server", { name: "notes", url: stub.url, description: "the owner's notes" })]);

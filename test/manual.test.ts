@@ -43,6 +43,8 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["I do not have a tool called add_source, only pine_sources", /^(agents#how-tools-are-declared|pine#if-you-are-an-agent-running-inside-pine)/],
 		["llama.cpp slots", /^agents#what-the-model-server-keeps/],
 		["warmSlots", /limits-warmslots$/],
+		["slotPages", /limits-slotpages$/],
+		["I have more conversations than the model server has slots, is each read again", /^(agents#what-the-model-server-keeps|operations#problems)/],
 		["can I talk to pine instead of typing", /^tui#(dictating-a-message|commands|keys)/],
 		["voice input does not work on linux", /^tui#dictating-a-message/],
 		["how many tokens per second does my model make, and how fast does it process the prompt", /^tui#(how-fast-the-model-is|what-a-model-thinks)/],

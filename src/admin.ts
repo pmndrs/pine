@@ -246,6 +246,8 @@ export function eraseAgent(cfg: PineConfig, store: { kv: Kv; tasks: TaskStore },
 	// Which slot of a model server held one of its conversations (src/slots.ts).
 	const slots = store.kv.get<Record<string, Array<{ who?: string } | null | undefined>>>("slots");
 	if (slots) store.kv.set("slots", Object.fromEntries(Object.entries(slots).map(([server, held]) => [server, held.map((o) => (o && String(o.who).startsWith(`${id}:`) ? null : o))])));
+	const pages = store.kv.get<Record<string, Array<{ who?: string } | null | undefined>>>("slot-pages");
+	if (pages) store.kv.set("slot-pages", Object.fromEntries(Object.entries(pages).map(([server, kept]) => [server, kept.map((o) => (o && String(o.who).startsWith(`${id}:`) ? null : o))])));
 	for (const key of store.kv.keys("timer:")) if (key.endsWith(`@${id}`)) store.kv.set(key, null);
 	for (const key of store.kv.keys("source:")) if (key.slice("source:".length).split(":")[0].endsWith(`@${id}`)) store.kv.forget(key);
 	const pinned = store.kv.get<string[]>("conversations:pinned");
@@ -519,6 +521,7 @@ export const SETTINGS: Record<string, Setting> = {
 	"limits.maxDelegationDepth": { about: "How many times a task can be handed on from agent to agent.", kind: { from: 0, to: 10 }, now: (c) => String(c.limits.maxDelegationDepth), live: true },
 	"limits.maxDownloadMb": { about: "The largest file the download tool fetches, in megabytes.", kind: { from: 1, to: 100_000 }, now: (c) => String(c.limits.maxDownloadMb), live: true },
 	"defaults.judge": { about: "The model that judges whether a goal is met, as provider/model. Not set: the agent's own.", kind: "model", now: (c) => c.defaults.judge ?? "not set (the agent's own model)", live: true },
+	"limits.slotPages": { about: "How many conversations that had to leave their slot on a llama.cpp model server are kept in files there and read back when they come again, instead of being read from their first word. Needs a server started with --slot-save-path. 0 turns it off.", kind: { from: 0, to: 64 }, now: (c) => String(c.limits.slotPages), live: true },
 	"limits.warmSlots": { about: "Whether pine has the idle slots of a llama.cpp model server read the beginning that all conversations of an agent share, in the background after you have used the model, so that a new conversation or a sub-agent starts at once.", kind: "boolean", now: (c) => String(c.limits.warmSlots), live: true },
 	"security.askAccess": { about: "Whether pine asks your owner itself when a call of an agent needs a file or folder outside its sandbox, or the network.", kind: "boolean", now: (c) => String(c.security.askAccess), live: true },
 	"security.approvalTimeout": { about: "How long a question to your owner waits before it counts as not answered, for example 5m.", kind: "duration", now: (c) => ms(c.security.approvalTimeoutMs), live: false },

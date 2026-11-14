@@ -409,6 +409,11 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   `harness()`, so that a test about the sandbox meets the sandbox and not a question. The tests
   about it (`test/access.test.ts`) turn it on, set `HOME` to a folder of their own for "the
   owner's files", and say what "the system reports" through a stand-in for the log (`standIn`).
+- What pine does with a llama.cpp server (slots, filling idle ones, files for conversations that left their
+  slot) is tested on the mock: `props` is what the server says about itself at `/props`, a request that
+  is not streamed is answered in one piece, and with `slotFiles` it writes and reads slot files
+  (`state.slotActions`). The `live:` test at the end of `test/live.test.ts` asserts the same on a real
+  server (`PINE_LIVE_URL`), by the tokens the server says it read and kept.
 - A new security property needs a test that fails without the code that provides it.
 
 ## Style
@@ -434,11 +439,15 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   before it across a restart, a line in `MEMORY.md` or a new agent. A family is a router and nothing
   more: `classify()` calls it `look`, and the tool it hands the call to (`ctx.executeTool`) passes the
   gate under its own name. A new tool of pine's goes into a group in `GROUPS` with a line in `BRIEF`
-  that is true to its description; one for every task is added to `DECLARED` instead.
+  that is true to its description; one for every task is added to `DECLARED` instead; a new list
+  (what there is of a kind, no arguments) goes into `LISTS`, the one tool that takes several at once.
 - A request names its slot on a llama.cpp server (`takeSlot`, `src/slots.ts`), in either catalogue and
   for a run started from outside too. Filling idle slots (`warm()`) sends a request of pine's own: only
   while nobody works with that model, only when the server says its model is loaded (never what loads
-  one), and with nothing in it but what a conversation begins with.
+  one), and with nothing in it but what a conversation begins with. A conversation whose slot is taken
+  is written into a file of the server and read back when it returns (`page()`, `limits.slotPages`):
+  a few files with fixed names that pine chooses, never a name from a conversation, and never for a
+  server whose loaded model is another one.
 - Permissions belong to a conversation, not to a session object: `Live.perm` is the key
   ("agent:session"), a sub-agent has its conversation's key, and `AgentManager.grants` and
   `.allowed` are looked up by it. Anything new that the owner can allow "for this conversation"

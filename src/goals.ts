@@ -97,7 +97,7 @@ export function parseJudgement(text: string): { verdict: GoalVerdict; reason?: s
 	return undefined;
 }
 
-type Manager = Pick<AgentManager, "cfg" | "kv" | "tasks" | "bus" | "limiter" | "models" | "submit" | "cancel" | "resolveModel" | "modelFor">;
+type Manager = Pick<AgentManager, "cfg" | "kv" | "tasks" | "bus" | "limiter" | "models" | "submit" | "cancel" | "resolveModel" | "modelFor" | "callSlot">;
 
 export class Goals {
 	private m: Manager;
@@ -333,7 +333,19 @@ export class Goals {
 			if (stop.signal.aborted) return undefined;
 			// A model of its own where one is set: a second, small model keeps the judge from pushing the agent's conversation out of a model server's cache.
 			const model = cfg.defaults.judge ? this.m.resolveModel(cfg.defaults.judge) : this.m.modelFor(agent);
-			const msg: any = await this.m.models.completeSimple(model, { systemPrompt: system, messages: [{ role: "user", content: [{ type: "text", text: user }], timestamp: Date.now() }] } as any, { signal: AbortSignal.any([stop.signal, AbortSignal.timeout(cfg.limits.goalJudgeMs)]), sessionId: "pine-goal" } as any);
+			// On a llama.cpp server the judge is given a slot of its own, like a new conversation: left to the server, its
+			// call could land in the slot of the conversation it judges, which would then be read again from its first word.
+			const place = await this.m.callSlot(model, `${agent.id}:~judge`);
+			let msg: any;
+			try {
+				msg = await this.m.models.completeSimple(model, { systemPrompt: system, messages: [{ role: "user", content: [{ type: "text", text: user }], timestamp: Date.now() }] } as any, {
+					signal: AbortSignal.any([stop.signal, AbortSignal.timeout(cfg.limits.goalJudgeMs)]),
+					sessionId: "pine-goal",
+					onPayload: (payload: any) => (place.slot === undefined ? undefined : { ...payload, id_slot: place.slot }),
+				} as any);
+			} finally {
+				place.done();
+			}
 			if (msg.stopReason === "error" || msg.stopReason === "aborted") throw new Error(msg.errorMessage ?? `model call ${msg.stopReason}`);
 			const text = (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
 			const said = parseJudgement(text);

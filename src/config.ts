@@ -309,6 +309,12 @@ export interface PineConfig {
 		warmSlots: boolean;
 		/** How long the model has to be left alone before an idle slot is filled. */
 		warmAfterMs: number;
+		/**
+		 * How many conversations that had to leave their slot are kept in files of a llama.cpp
+		 * server that has a folder for them (--slot-save-path), to be read back when they come
+		 * again (src/slots.ts). 0: none.
+		 */
+		slotPages: number;
 	};
 	security: {
 		approvalTimeoutMs: number;
@@ -572,6 +578,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			maxDownloadMb: l.maxDownloadMb ?? 200,
 			warmSlots: l.warmSlots ?? true,
 			warmAfterMs: l.warmAfterMs ?? 3000,
+			slotPages: l.slotPages ?? 6,
 			maxEventHops: l.maxEventHops ?? 8,
 			modelHeadersTimeoutMs: parseDuration(l.modelHeadersTimeoutMs ?? "10m"),
 			modelStreamIdleMs: parseDuration(l.modelStreamIdleMs ?? "5m"),

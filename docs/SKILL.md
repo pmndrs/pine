@@ -31,7 +31,8 @@ line that matched, and you then read the one or two parts you need. Search befor
 question about pine or say that something is not possible.
 
 A tool that this manual names and that is not among your tools by that name is an action of
-one of them: `add_source` is your tool `pine_sources` with `action: "add_source"`, and
+one of them: `add_source` is your tool `pine_sources` with `action: "add_source"`, a list
+such as `sources` or `schedules` is `pine_list` with `what: ["sources"]`, and
 `mcp__browser__browser_navigate` is `browser` with `action: "browser_navigate"`
 ([references/agents.md](references/agents.md), "How tools are declared").
 

@@ -154,3 +154,56 @@ test("live: asked in plain words, an agent lists, adds, uses and removes an MCP 
 	say(`\nasked of the owner:\n  ${asked.join("\n  ")}`);
 	assert.deepEqual(file(), pristine, "nothing is left in the agent's file");
 });
+
+// What a model server keeps of a conversation, on a real llama.cpp server with at least two slots
+// (PINE_LIVE_URL): every message after the first is read on from where the server was, whatever
+// happened in between, and a new conversation and a sub-agent begin on what an idle slot has read.
+// The figures are the server's own: tokens it read anew, and tokens it had kept.
+test("live: on a llama.cpp server a conversation is read once, and a new conversation, a sub-agent and a restart begin where the server was", { skip: !live || !process.env.PINE_LIVE_URL, timeout: 900_000 }, async (t) => {
+	const m = await liveModel(t);
+	const h = await harness({ mock: m.mock, model: m.model, pine: { main: "main", defaults: { model: m.ref, catalogue: "families" }, limits: { warmAfterMs: 500 } }, agents: { main: { agent: { description: "the owner's assistant" } } } });
+	t.after(() => h.close());
+	// Figures in a message event are running totals of its task: the last one of a task is the task's.
+	let tasks = new Map<number, { read: number; kept: number }>();
+	const listen = () => h.pine.bus.subscribe("agent/main/message", (e) => void tasks.set((e.payload as any).task, { read: (e.payload as any).input ?? 0, kept: (e.payload as any).cached ?? 0 }));
+	listen();
+	const tell = async (prompt: string, session = "main") => {
+		tasks = new Map();
+		const task = h.pine.agents.submit({ agent: "main", session, prompt, trust: "owner" });
+		const r = await h.pine.agents.wait(task.id);
+		assert.equal(r.status, "done", String(r.error));
+		const own = tasks.get(task.id) ?? { read: 0, kept: 0 };
+		const subs = [...tasks].filter(([id]) => id !== task.id).map(([, v]) => v);
+		say(`${prompt.slice(0, 50).padEnd(50)} read ${String(own.read).padStart(6)}  kept ${String(own.kept).padStart(7)}${subs.map((s) => `  + sub-agent: read ${s.read} kept ${s.kept}`).join("")}`);
+		return { ...own, subs };
+	};
+	const idle = (seconds: number) => new Promise((r) => setTimeout(r, seconds * 1000));
+
+	const first = await tell("Say hello in one word.");
+	assert.ok(first.read > 2000, `the first message is what is read: ${first.read}`);
+	const second = await tell("And once more, one word.");
+	if (!second.kept) return t.skip("this model server does not say what it kept");
+	const little = Math.max(600, first.read / 10);
+	assert.ok(second.read < little, `the second message read ${second.read} of ${first.read}`);
+	// A line in MEMORY.md and a new agent: the conversation is read on, not again.
+	fs.appendFileSync(path.join(h.workspace("main"), "MEMORY.md"), "\n- The owner likes short answers.\n");
+	const third = await tell("One word again.");
+	assert.ok(third.read < little, `after a line in MEMORY.md it read ${third.read}`);
+	// The idle slot has read what a conversation begins with by now: a new conversation and a sub-agent begin there.
+	await idle(25);
+	const other = await tell("Say hi in one word.", "other");
+	assert.ok(other.read < first.read / 4 && other.kept > first.read / 2, `a new conversation read ${other.read} and found ${other.kept} kept (the first read ${first.read}); the server needs two slots for this`);
+	const back = await tell("One word: which message of mine was the first?");
+	assert.ok(back.read < little, `back in the first conversation it read ${back.read}`);
+	const withSub = await tell("Use one sub-agent for this: it works out 17*23 and reports the number. Then tell me the number.");
+	assert.ok(withSub.subs.length >= 1, "a sub-agent ran");
+	assert.ok(withSub.subs[0].read < first.read / 4 && withSub.subs[0].kept > first.read / 2, `the sub-agent read ${withSub.subs[0].read} and found ${withSub.subs[0].kept} kept`);
+	// pine starts again: the conversation goes back to its slot, and a third one finds an idle slot filled once more.
+	await h.restart();
+	listen();
+	const after = await tell("One word: are you still there?");
+	assert.ok(after.read < little, `after a restart of pine it read ${after.read}`);
+	await idle(25);
+	const late = await tell("Say hi in one word.", "third");
+	assert.ok(late.read < first.read / 4 && late.kept > first.read / 2, `a third conversation after the restart read ${late.read} and found ${late.kept} kept`);
+});

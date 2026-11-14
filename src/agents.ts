@@ -22,7 +22,7 @@ import { type AgentConfig, loadConfig, agentSkillsDir, conversationsDir, delegat
 import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
 import { families, NOT_A_SUBAGENTS } from "./catalogue.ts";
-import { type Occupant, SlotBook } from "./slots.ts";
+import { type Occupant, type Page, SlotBook, WARM } from "./slots.ts";
 import { type Approvals, checkPath, denialTools, globMatch, grantable, grantPath, isInside, isOpen, levelOf, matchesToolPattern, outsidePath, ownFileOf, realish, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
 import { type AgentChange, applyAgentChange, checkAgentChange, countFiles, eraseAgent } from "./admin.ts";
 import { createAgent, type NewAgent } from "./agent-admin.ts";
@@ -133,6 +133,7 @@ const SHORT_PROMPT = `You are an agent in pine, a system that runs several AI ag
 
 <working>
 - Answer directly when you can. Use tools when they give a better answer, and say briefly what you did.
+- Never answer with a promise ("I will", "Got it") where a call can do it now: make the call, then say what is done.
 - Do what your owner asked, and stop there. When a call has answered the question or done the thing, give your owner the answer: do not look up related things nobody asked about, do not check what a tool has just told you, and do not tidy up after yourself.
 - Be concise. Show file paths clearly when you work with files.
 - Use edit for targeted changes to a file, and write only for new files or complete rewrites.
@@ -146,7 +147,7 @@ const SHORT_PROMPT = `You are an agent in pine, a system that runs several AI ag
 
 <limits>
 - {{REACH}} When a tool call is refused, do not look for a way around it: say what you could not do.
-- pine's setup is changed through tools, never by writing its files. Event sources, MCP servers, skills and schedules you set up, list and remove with your tools pine_sources, pine_mcp, pine_skills and pine_schedules. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. What is to happen by itself from now on (when something arrives or changes, or at a time), you set up with these tools: a promise or a note in your memory makes nothing happen. What you have of each, its tool lists: when your owner asks about one of them, call the list of that one and answer from it, and never guess it. {{ROLE}} What has no tool (the control API, secrets) your owner changes in pine's home folder, followed by a restart: look it up in the manual and explain the steps.
+- pine's setup is changed through tools, never by writing its files. Event sources, MCP servers, skills and schedules you set up and remove with your tools pine_sources, pine_mcp, pine_skills and pine_schedules. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. What is to happen by itself from now on (when something arrives or changes, or at a time), you set up with these tools: a promise or a note in your memory makes nothing happen. What you have of each, pine_list tells you: when your owner asks about one of them, ask for that one list and answer from it, and never guess it. {{ROLE}} What has no tool (the control API, secrets) your owner changes in pine's home folder, followed by a restart: look it up in the manual and explain the steps.
 - How pine itself works is in its manual (the manual tool). Search it before you answer a question about pine, before you say that pine cannot do something, and when a tool refuses and you want to know why. Do not answer such questions from memory.
 - Passwords, tokens and keys are not yours to handle. Never ask your owner to write one into the conversation, and do not look for one in files: a tool that needs one gets it from your owner through pine's own dialog, or by its name in pine's .env file.
 - Some actions need your owner's approval. If one is not approved, do not retry it: report what you wanted to do and why.
@@ -295,6 +296,10 @@ export class AgentManager {
 	/** What a conversation of the agent that used a model server last begins with: what its idle slots are filled with. By server. */
 	private warmWith = new Map<string, { what: string; origin: string; url: string; key: () => Promise<string | undefined>; body: any }>();
 	private warmTimers = new Map<string, NodeJS.Timeout>();
+	/** Whether a model server writes slots to files and reads them back: not known until it was tried. By server. */
+	private paging = new Map<string, boolean>();
+	/** How the key of a model server is had, from the session that used it last. By server. */
+	private serverKeys = new Map<string, () => Promise<string | undefined>>();
 	private log: Logger;
 	/** Event sources and subscriptions. Set by the daemon once both exist. */
 	sources?: SourceHost;
@@ -375,7 +380,12 @@ export class AgentManager {
 		this.approvals = deps.approvals;
 		this.log = deps.log;
 		this.limiter = new Limiter(deps.cfg.limits.maxConcurrentRuns);
-		this.slots = new SlotBook(this.kv.get<Record<string, Array<Occupant | undefined>>>("slots") ?? undefined, (all) => this.kv.set("slots", all));
+		this.slots = new SlotBook(
+			this.kv.get<Record<string, Array<Occupant | undefined>>>("slots") ?? undefined,
+			(all) => this.kv.set("slots", all),
+			this.kv.get<Record<string, Array<Page | undefined>>>("slot-pages") ?? undefined,
+			(all) => this.kv.set("slot-pages", all),
+		);
 		this.programs = new Programs(path.join(deps.cfg.dataDir, "programs"));
 		this.denials = new Denials(deps.log, denialTools());
 		this.goals = new Goals(this, deps.log, sessionKey);
@@ -2821,9 +2831,90 @@ export class AgentManager {
 		else if ((this.askedSlots.get(server) ?? 0) < Date.now() - 600_000) void this.askSlots(server, origin, model, key);
 		const who = live.ephemeral ? `${agent.id}:~${(live.uid ??= Math.random().toString(36).slice(2))}` : `${agent.id}:${live.key}`;
 		live.server = server;
+		this.serverKeys.set(server, key);
 		const got = this.slots.takeFrom(server, who);
-		if (got) live.slot = { server, slot: got.slot, who, held: got.held };
+		if (got) {
+			live.slot = { server, slot: got.slot, who, held: got.held };
+			// What was in the slot is written out before this request takes its place, and this conversation is read
+			// back if it was written out before. An extra like the slot itself: it never keeps a request from going out.
+			// (What was read back does not count as held for noticing a server that was started anew: a file that did
+			// not fit after all must not be taken for that.)
+			await this.page(server, origin, model, key, got, who).catch((e) => void this.log.warn(`slot ${got.slot} of ${model} was not kept or brought back`, errText(e)));
+		}
 		return { server, origin, url, api, key, slot: got?.slot };
+	}
+
+	/**
+	 * A slot for a model call of pine's own, outside any session (the judge of goal mode): named
+	 * like a conversation's, so that the call does not land in the slot of the conversation it is
+	 * about and push it out. It takes what a new conversation would take, and gives it back for
+	 * good when it is over. Nothing is named for a server pine knows no slots of.
+	 */
+	async callSlot(model: any, who: string): Promise<{ slot?: number; done: () => void }> {
+		const none = { done: () => {} };
+		try {
+			const origin = new URL(String(model.baseUrl)).origin;
+			const server = `${origin}|${model.id}`;
+			if (!this.slots.known(server)) return none;
+			const got = this.slots.takeFrom(server, who);
+			if (!got) return none;
+			const key = this.serverKeys.get(server);
+			if (key) await this.page(server, origin, String(model.id), key, got, who).catch(() => {});
+			return {
+				slot: got.slot,
+				done: () => {
+					this.slots.give(server, got.slot, who);
+					this.slots.forget(who);
+					this.warmLater(server);
+				},
+			};
+		} catch {
+			return none;
+		}
+	}
+
+	/**
+	 * More conversations than the model server has slots (src/slots.ts): the conversation whose place
+	 * is taken is written into a file of the server first, and the one that takes it is read back
+	 * from its file if it was written out before. Returns how much of this conversation the slot
+	 * holds after that, when it was read back.
+	 *
+	 * Only a llama.cpp server that was started with a folder for it can do this; the first refusal
+	 * is remembered and it is not tried again. A sub-agent's conversation is not kept: it ends with
+	 * its task. And nothing is asked of a server whose loaded model is another one.
+	 */
+	private async page(server: string, origin: string, model: string, key: () => Promise<string | undefined>, got: { slot: number; held: number; evicted?: Occupant }, who: string): Promise<number | undefined> {
+		const max = this.cfg.limits.slotPages;
+		if (max <= 0 || this.paging.get(server) === false) return undefined;
+		const out = got.evicted && got.evicted.who !== WARM && !got.evicted.who.includes(":~") && got.evicted.tokens >= 2048 ? got.evicted : undefined;
+		const back = got.held === 0 ? this.slots.pageOf(server, who) : undefined;
+		if (!out && !back) return undefined;
+		const k = await key().catch(() => undefined);
+		const headers: Record<string, string> = { "content-type": "application/json", ...(k && k !== "none" ? { authorization: `Bearer ${k}` } : {}) };
+		// Is it this model that answers? Behind a scheduler it is the one that was used last.
+		const props = await fetch(`${origin}/props`, { headers, redirect: "error", signal: AbortSignal.timeout(2500) });
+		const about: any = props.ok ? await props.json().catch(() => undefined) : (void props.body?.cancel().catch(() => {}), undefined);
+		if (!about || !this.sameModel(about, model)) return undefined;
+		const file = (page: number) => `pine-${createHash("sha256").update(server).digest("hex").slice(0, 10)}-${page}.bin`;
+		const act = async (action: "save" | "restore", page: number): Promise<boolean> => {
+			const res = await fetch(`${origin}/slots/${got.slot}?action=${action}`, { method: "POST", headers, body: JSON.stringify({ filename: file(page) }), redirect: "error", signal: AbortSignal.timeout(120_000) });
+			const said = await res.text().catch(() => "");
+			// A server without a folder for its slots says so: that is that, for as long as pine runs.
+			if (res.status === 501 || /not_supported|slot-save-path/i.test(said)) this.paging.set(server, false);
+			else if (res.ok) this.paging.set(server, true);
+			return res.ok;
+		};
+		if (out) {
+			const page = this.slots.pageFor(server, out.who, out.tokens, max);
+			if (page !== undefined && !(await act("save", page))) this.slots.dropPage(server, out.who);
+		}
+		if (!back || this.paging.get(server) === false) return undefined;
+		const ok = await act("restore", back.page);
+		// In the slot again, or not to be had: either way the file is free for the next one.
+		this.slots.dropPage(server, who);
+		if (!ok) return undefined;
+		this.slots.restored(server, got.slot, who, back.tokens);
+		return back.tokens;
 	}
 
 	/** Whether what a server says about itself (/props) is about this model: llama.cpp names the model it has loaded. */
@@ -2897,12 +2988,16 @@ export class AgentManager {
 		try {
 			const k = await key().catch(() => undefined);
 			const res = await fetch(`${origin}/props`, { headers: k && k !== "none" ? { authorization: `Bearer ${k}` } : {}, redirect: "error", signal: AbortSignal.timeout(2500) });
-			// No model loaded right now (a scheduler in front of it says 503), or the key was not taken: asked again later.
-			if (res.status === 503 || res.status === 401 || res.status === 403) return;
+			// The key was not taken: asked again later.
+			if (res.status === 401 || res.status === 403) return;
+			// No model is loaded right now (a scheduler in front of it says 503): the request that is about to go out
+			// loads it, so the next one asks again at once. Without that, the conversations of the first half minute
+			// after a cold start would go out without a slot, all into the same one.
+			if (res.status === 503) return void this.askedSlots.delete(server);
 			const props: any = res.ok ? await res.json().catch(() => undefined) : undefined;
 			// Behind a scheduler the answer is that of the model that was used last. When that is another one, nothing
-			// is known about this one yet: asked again with a later request.
-			if (!this.sameModel(props, model)) return;
+			// is known about this one yet: asked again with the next request, which that model answers by then.
+			if (!this.sameModel(props, model)) return void this.askedSlots.delete(server);
 			this.slots.setCount(server, Number.isInteger(props?.total_slots) ? props.total_slots : 0);
 		} catch {
 			// not reachable in this moment

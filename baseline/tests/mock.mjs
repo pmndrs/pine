@@ -35,6 +35,29 @@ export async function startMock(opts = {}) {
 			res.end(JSON.stringify({ object: "list", data: [{ id: "mock-model", object: "model" }] }));
 			return;
 		}
+		// opts.slotFiles: a llama.cpp server that was started with a folder for its slots writes a slot into a file
+		// and reads it back (POST /slots/<n>?action=save|restore). Without it the server says that it cannot.
+		const slotAction = req.url.match(/\/slots\/(\d+)\?action=(save|restore)$/);
+		if (req.method === "POST" && slotAction) {
+			let raw = "";
+			for await (const c of req) raw += c;
+			const filename = JSON.parse(raw || "{}").filename;
+			const files = (state.slotFiles ??= new Map());
+			const done = { slot: Number(slotAction[1]), action: slotAction[2], filename, at: state.requests.length };
+			(state.slotActions ??= []).push(done);
+			if (!opts.slotFiles) {
+				res.writeHead(501, { "content-type": "application/json" });
+				res.end(JSON.stringify({ error: { code: 501, message: "This server does not support slots action. Start it with `--slot-save-path`", type: "not_supported_error" } }));
+			} else if (done.action === "restore" && !files.has(filename)) {
+				res.writeHead(400, { "content-type": "application/json" });
+				res.end(JSON.stringify({ error: { code: 400, message: "Unable to restore slot, no such file", type: "invalid_request_error" } }));
+			} else {
+				if (done.action === "save") files.set(filename, done.slot);
+				res.writeHead(200, { "content-type": "application/json" });
+				res.end(JSON.stringify({ id_slot: done.slot, filename, [done.action === "save" ? "n_saved" : "n_restored"]: 1 }));
+			}
+			return;
+		}
 		let raw = "";
 		for await (const c of req) raw += c;
 		let body;
